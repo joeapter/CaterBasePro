@@ -1,0 +1,21 @@
+{% extends "admin/base_site.html" %}
+{% block content %}
+<h2>Upload Menu Items</h2>
+
+<p>
+  <a href="{% url 'admin:menu-download-template' %}">
+    Download CSV template
+  </a>
+</p>
+
+<form method="POST" enctype="multipart/form-data">
+    {% csrf_token %}
+    {{ form.as_p }}
+    <button type="submit" class="default">Upload</button>
+</form>
+
+<p>
+  CSV Format:<br>
+  <code>item_type,category,name,description,cost_per_serving,markup,default_servings_per_person,is_active</code>
+</p>
+{% endblock %}

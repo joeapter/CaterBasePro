@@ -1,0 +1,37 @@
+{% load form_extras %}
+<h3>➕ Service, Staffing & Other Add-ons</h3>
+<p class="help">Include specialty services, staffing, or one-off fees below.</p>
+{% if form.addon_items %}
+    <div class="estimate-checklist-grid">
+        {% for extra in form.addon_items %}
+            {% prefixed_field form "include_extra_" extra.id as include_field %}
+            {% prefixed_field form "quantity_extra_" extra.id as quantity_field %}
+            {% prefixed_field form "override_extra_" extra.id as override_field %}
+            <div class="estimate-checklist-card">
+                <label class="estimate-checklist-row" style="border-bottom:none;">
+                    <span>{{ include_field }}</span>
+                    <div>
+                        <strong>{{ extra.name }}</strong><br>
+                        <small>{{ extra.get_category_display }} • {{ extra.get_charge_type_display }}</small>
+                    </div>
+                    <div style="margin-left:auto; text-align:right;">
+                        <small>Catalog price</small><br>
+                        <strong>{{ extra.price }}</strong>
+                    </div>
+                </label>
+                <div class="estimate-checklist-row" style="border-bottom:none;">
+                    <div style="flex:1;">
+                        <label>Quantity</label>
+                        {{ quantity_field }}
+                    </div>
+                    <div style="flex:1;">
+                        <label>Override price</label>
+                        {{ override_field }}
+                    </div>
+                </div>
+            </div>
+        {% endfor %}
+    </div>
+{% else %}
+    <p class="help">Service/other extra items will show here once created.</p>
+{% endif %}

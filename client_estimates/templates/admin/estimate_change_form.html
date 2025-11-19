@@ -1,0 +1,288 @@
+{% extends "admin/change_form.html" %}
+{% load form_extras %}
+
+{% block extrastyle %}
+    {{ block.super }}
+    <style>
+        .estimate-wizard__nav {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-bottom: 16px;
+        }
+        .estimate-wizard__nav button {
+            border: 1px solid #c3c4c7;
+            background: #fff;
+            padding: 8px 14px;
+            border-radius: 999px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all .2s ease;
+        }
+        .estimate-wizard__nav button.is-active {
+            background: #1d4ed8;
+            color: #fff;
+            border-color: #1d4ed8;
+        }
+        .estimate-step-section {
+            display: none;
+            background: #fff;
+            border: 1px solid #e4e4e7;
+            border-radius: 10px;
+            padding: 16px 20px;
+            margin-bottom: 24px;
+            box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+            font-family: "SF Pro Text", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        }
+        .estimate-step-section.is-active {
+            display: block;
+        }
+        .estimate-wizard__nav-buttons {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 32px;
+        }
+        .estimate-wizard__nav-buttons .button {
+            flex: 1;
+        }
+        .menu-matrix-card {
+            border-radius: 18px;
+            background: #fff;
+            box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+            padding: 10px 16px 16px;
+            overflow-x: auto;
+        }
+        .menu-matrix {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 14px;
+        }
+        .menu-matrix thead th {
+            position: sticky;
+            top: 0;
+            background: #f8fafc;
+            z-index: 2;
+            padding: 12px 10px;
+            text-transform: uppercase;
+            letter-spacing: .08em;
+            font-size: 12px;
+            border-bottom: 1px solid #e2e8f0;
+        }
+        .meal-summary-bar {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            margin-top: 12px;
+            font-size: 13px;
+            color: #374151;
+        }
+        .meal-summary-pill {
+            flex: 1 1 240px;
+            border: 1px dashed #d4d4d8;
+            border-radius: 999px;
+            padding: 6px 14px;
+            background: #fff;
+            display: flex;
+            justify-content: space-between;
+        }
+        .menu-matrix tbody td {
+            padding: 10px;
+            border-bottom: 1px solid #edf2f7;
+            vertical-align: middle;
+        }
+        .menu-matrix .category-row td {
+            background: #f4f6fb;
+            font-weight: 600;
+            font-size: 13px;
+            letter-spacing: .08em;
+            text-transform: uppercase;
+            border-bottom: 1px solid #e2e8f0;
+        }
+        .menu-matrix .meal-cell {
+            text-align: center;
+            min-width: 90px;
+        }
+        .meal-column-heads {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 10px;
+        }
+        .meal-column-heads span {
+            padding: 6px 14px;
+            border-radius: 999px;
+            background: #eef2ff;
+            font-size: 13px;
+            font-weight: 600;
+            color: #1d4ed8;
+        }
+        .estimate-summary-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            margin-top: 16px;
+        }
+        .estimate-summary-actions .button {
+            flex: 1 1 200px;
+            text-align: center;
+        }
+        .estimate-summary-cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+        .estimate-summary-card {
+            border: 1px solid #e4e4e7;
+            border-radius: 10px;
+            padding: 16px;
+            background: #0f172a;
+            color: #fff;
+        }
+        .estimate-summary-card h4 {
+            margin: 0;
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: .08em;
+            color: rgba(255,255,255,.7);
+        }
+        .estimate-summary-card strong {
+            font-size: 22px;
+        }
+        .signature-preview {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            margin-top: 16px;
+        }
+        .signature-line {
+            border-bottom: 1px solid #111827;
+            height: 24px;
+        }
+        @media (max-width: 640px) {
+            .estimate-wizard__nav {
+                flex-direction: column;
+            }
+            .estimate-wizard__nav button {
+                width: 100%;
+            }
+        }
+    </style>
+{% endblock %}
+
+{% block field_sets %}
+<div id="estimate-wizard">
+    <div class="estimate-wizard__nav">
+        <button type="button" class="is-active" data-step="1">1. Customer Info</button>
+        <button type="button" data-step="2">2. Menu Selection</button>
+        <button type="button" data-step="3">3. Decor & Rentals</button>
+        <button type="button" data-step="4">4. Add-ons & Service</button>
+        <button type="button" data-step="5">5. Summary & Totals</button>
+    </div>
+
+    {% for fieldset in adminform %}
+        {% with step=fieldset|wizard_step %}
+            <section class="estimate-step-section step-{{ step }}" data-step="{{ step }}">
+                {% include "admin/includes/fieldset.html" with heading_level=2 prefix="fieldset" id_prefix=0 id_suffix=forloop.counter0 %}
+
+                {% if step == "2" %}
+                    {% include "admin/partials/estimate_menu_checklist.html" with form=adminform.form only %}
+                {% elif step == "5" %}
+                    {% include "admin/partials/estimate_summary_helpers.html" with form=adminform.form original=original only %}
+                {% endif %}
+            </section>
+        {% endwith %}
+    {% endfor %}
+
+    <section class="estimate-step-section" data-step="3">
+        {% include "admin/partials/estimate_decor_checklist.html" with form=adminform.form only %}
+    </section>
+
+    <section class="estimate-step-section" data-step="4">
+        {% include "admin/partials/estimate_addon_checklist.html" with form=adminform.form only %}
+    </section>
+
+    <div class="estimate-wizard__nav-buttons">
+        <button type="button" class="button" data-action="prev-step">Back</button>
+        <button type="button" class="button button-primary" data-action="next-step">Next</button>
+    </div>
+</div>
+{% endblock %}
+
+{% block admin_change_form_document_ready %}
+    {{ block.super }}
+    <script>
+        (function() {
+            const wizard = document.getElementById("estimate-wizard");
+            if (!wizard) return;
+
+            const navButtons = wizard.querySelectorAll(".estimate-wizard__nav button");
+            const panels = wizard.querySelectorAll(".estimate-step-section");
+            const prevBtn = wizard.querySelector('[data-action="prev-step"]');
+            const nextBtn = wizard.querySelector('[data-action="next-step"]');
+            let activeStep = 1;
+
+            function updateButtons() {
+                if (prevBtn) prevBtn.disabled = activeStep === 1;
+                if (nextBtn) nextBtn.disabled = activeStep === 5;
+            }
+
+            function showStep(step) {
+                activeStep = step;
+                panels.forEach(panel => {
+                    panel.classList.toggle("is-active", Number(panel.dataset.step) === step);
+                });
+                navButtons.forEach(btn => {
+                    btn.classList.toggle("is-active", Number(btn.dataset.step) === step);
+                });
+                updateButtons();
+            }
+
+            navButtons.forEach(btn => {
+                btn.addEventListener("click", () => showStep(Number(btn.dataset.step)));
+            });
+
+            if (prevBtn) {
+                prevBtn.addEventListener("click", () => {
+                    if (activeStep > 1) showStep(activeStep - 1);
+                });
+            }
+
+            if (nextBtn) {
+                nextBtn.addEventListener("click", () => {
+                    if (activeStep < 5) showStep(activeStep + 1);
+                });
+            }
+
+            showStep(activeStep);
+
+            const previewButtons = document.querySelectorAll("[data-print-preview]");
+            previewButtons.forEach(btn => {
+                btn.addEventListener("click", () => {
+                    const url = btn.dataset.printPreview;
+                    if (!url) return;
+                    const win = window.open(url, "_blank");
+                    if (btn.dataset.autoPrint === "true" && win) {
+                        win.addEventListener("load", () => win.print(), { once: true });
+                    }
+                });
+            });
+
+            const whatsappButton = document.querySelector("[data-whatsapp]");
+            whatsappButton?.addEventListener("click", () => {
+                const dataset = whatsappButton.dataset;
+                if (!dataset.customer) return;
+                const pieces = [
+                    `Hi ${dataset.customer},`,
+                    `here is your ${dataset.invoice === "true" ? "invoice" : "estimate"} for ${dataset.event || "your event"}.`,
+                    `Total: ${dataset.total} ${dataset.currency}`,
+                ];
+                if (dataset.preview) {
+                    pieces.push(`Preview: ${dataset.preview}`);
+                }
+                const text = encodeURIComponent(pieces.join(" "));
+                window.open(`https://web.whatsapp.com/send?text=${text}`, "_blank");
+            });
+        })();
+    </script>
+{% endblock %}

@@ -1,0 +1,518 @@
+{% load i18n static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>{{ title }}</title>
+    <style>
+        :root {
+            --primary: {{ primary_color }};
+            --accent: {{ accent_color }};
+            --body-font: {{ brand_font }};
+        }
+        @page { 
+            size: A4;
+            margin: 0;
+        }
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: var(--body-font);
+            color: #0f172a;
+            background: #f5f6fb;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+        }
+        body.theme-bg-clean { background: #f5f6fb; }
+        body.theme-bg-watercolor_sage {
+            background: #f5f6fb;
+        }
+        .estimate-sheet {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 32px 40px 48px;
+            border-radius: 28px;
+            background: rgba(255,255,255,0.92);
+            box-shadow: 0 30px 60px rgba(15, 23, 42, 0.12);
+            position: relative;
+        }
+        .estimate-sheet.sheet-bg--clean {
+            background: rgba(255,255,255,0.92);
+        }
+        .estimate-sheet.sheet-surface-transparent {
+            background: rgba(255,255,255,0.7);
+            box-shadow: none;
+            border: 1px solid rgba(255,255,255,0.5);
+            backdrop-filter: blur(6px);
+        }
+        .estimate-sheet.sheet-bg--watercolor_sage,
+        .estimate-sheet.sheet-bg--stencil_eucalyptus {
+            background-image: url("{% static 'client_estimates/backgrounds/stencil-eucalyptus.png' %}");
+        }
+        .estimate-sheet.sheet-bg--watercolor_rose,
+        .estimate-sheet.sheet-bg--stencil_blush {
+            background-image: url("{% static 'client_estimates/backgrounds/stencil-blush.png' %}");
+        }
+        .estimate-sheet.sheet-bg--textured_stone,
+        .estimate-sheet.sheet-bg--stencil_marble {
+            background-image: url("{% static 'client_estimates/backgrounds/stencil-marble.png' %}");
+        }
+        .estimate-sheet.sheet-bg--stencil_botanical {
+            background-image: url("{% static 'client_estimates/backgrounds/stencil-botanical.png' %}");
+        }
+        .estimate-sheet.sheet-bg--stencil_woodland {
+            background-image: url("{% static 'client_estimates/backgrounds/stencil-woodland.png' %}");
+        }
+        .estimate-sheet[class*="sheet-bg--"] {
+            background-color: rgba(255,255,255,0.92);
+            background-repeat: repeat-y;
+            background-position: center top;
+            background-size: cover;
+            background-attachment: local;
+        }
+        .sheet-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 40px 8px;
+            border-bottom: 2px solid rgba(15,23,42,0.12);
+            gap: 16px;
+        }
+        .sheet-header-left {
+            font-weight: 600;
+            white-space: nowrap;
+        }
+        .sheet-header-left h1 {
+            margin: 0;
+            letter-spacing: .18em;
+            font-size: 24px;
+            color: var(--primary);
+            font-weight: 700;
+        }
+        .sheet-header-right {
+            text-align: right;
+            font-weight: 600;
+            margin-left: 20px;
+            white-space: nowrap;
+        }
+        .sheet-header-right table {
+            width: auto;
+            margin-left: auto;
+        }
+        .sheet-logo {
+            flex: 0 0 auto;
+            text-align: center;
+        }
+        .sheet-logo img {
+            max-height: 150px;
+            max-width: 360px;
+        }
+        .tagline {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: .25em;
+            color: rgba(15,23,42,0.65);
+        }
+        .muted {
+            color: #6b7280;
+            font-size: 13px;
+        }
+        h2 {
+            font-size: 18px;
+            letter-spacing: .12em;
+            color: var(--primary);
+            margin-bottom: 8px;
+        }
+        h3 {
+            font-size: 16px;
+            margin-bottom: 6px;
+            letter-spacing: .05em;
+            text-transform: uppercase;
+        }
+        section { margin-bottom: 26px; }
+        .info-row {
+            display: flex;
+            justify-content: space-between;
+            gap: 28px;
+            margin-bottom: 24px;
+        }
+        .info-card {
+            width: 50%;
+            padding-left: 15%;
+            padding-top: 24px;
+        }
+        .info-card--right {
+            padding-left: 5%;
+            padding-right: 15%;
+            text-align: right;
+            padding-top: 24px;
+        }
+        .info-card p {
+            line-height: 1.7;
+        }
+        .info-card h4 {
+            margin: 0 0 6px;
+            letter-spacing: .2em;
+            text-transform: uppercase;
+            font-size: 12px;
+            color: rgba(15,23,42,0.7);
+        }
+        .meta-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+        .meta-table th {
+            padding: 2px 6px;
+            text-align: right;
+            color: rgba(15,23,42,0.65);
+            font-weight: 600;
+        }
+        .meta-table td {
+            padding: 2px 0 2px 10px;
+            text-align: left;
+            min-width: 120px;
+            font-weight: 600;
+        }
+        .meal-card {
+            border: 1px solid rgba(15,23,42,0.08);
+            border-radius: 20px;
+            padding: 22px 26px 16px;
+            background: rgba(255,255,255,0.9);
+            margin-bottom: 18px;
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.7);
+        }
+        .meal-card header {
+            border-bottom: 1px solid rgba(15,23,42,0.08);
+            padding-bottom: 6px;
+            margin-bottom: 10px;
+        }
+        .meal-category h4 {
+            margin: 14px 0 6px;
+            font-size: 15px;
+            text-transform: uppercase;
+            letter-spacing: .1em;
+            color: var(--primary);
+        }
+        .meal-category ul {
+            list-style: none;
+            margin: 0;
+            padding: 0;
+        }
+        .meal-category li {
+            padding: 7px 0;
+            border-bottom: 1px solid rgba(15,23,42,0.05);
+        }
+        .meal-category li:last-child { border-bottom: none; }
+        .meal-card-foot {
+            display: flex;
+            justify-content: space-between;
+            font-weight: 600;
+            font-size: 15px;
+            color: var(--primary);
+            border-top: 1px dashed rgba(15,23,42,0.1);
+            padding-top: 6px;
+            margin-top: 12px;
+        }
+        .estimate-number {
+            font-size: 19px;
+            letter-spacing: .22em;
+            margin: 0 0 6px;
+        }
+        .info-table,
+        .summary-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 14px;
+        }
+        .info-table th,
+        .info-table td,
+        .summary-table th,
+        .summary-table td {
+            padding: 8px 10px;
+            border-bottom: 1px solid rgba(15,23,42,0.08);
+        }
+        .summary-table th { text-align: left; }
+        .summary-table td { text-align: right; }
+        .summary-table--totals th,
+        .summary-table--totals td {
+            font-size: 15px;
+            font-weight: 600;
+        }
+        .payment-box {
+            border: 1px solid rgba(15,23,42,0.08);
+            border-radius: 16px;
+            padding: 18px;
+            background: rgba(255,255,255,0.9);
+            line-height: 1.6;
+        }
+        .contract {
+            border: 1px dashed rgba(15,23,42,0.25);
+            border-radius: 16px;
+            padding: 18px;
+            background: rgba(248,248,250,0.9);
+            line-height: 1.6;
+            font-size: 14px;
+        }
+        .signature-line {
+            border-bottom: 1px solid #0f172a;
+            height: 32px;
+            margin-bottom: 6px;
+        }
+        .no-items {
+            color: #94a3b8;
+            font-style: italic;
+        }
+        .page-number {
+            display: none;
+        }
+        @media print {
+            body { padding: 0; }
+            .estimate-sheet { box-shadow: none; border-radius: 0; }
+            .page-number {
+                display: block;
+                position: fixed;
+                bottom: 8mm;
+                right: 12mm;
+                font-family: "Georgia", serif;
+                font-size: 12px;
+                color: rgba(71,85,105,0.85);
+            }
+            .page-number::before {
+                content: "Page " counter(page) " of " counter(pages);
+            }
+        }
+    </style>
+</head>
+<body class="{{ body_theme_class|default:'theme-bg-clean' }}">
+<div class="estimate-sheet {{ sheet_surface_class|default:'' }} {{ sheet_background_class|default:'' }}">
+    <header class="sheet-header">
+        <div class="sheet-header-left">
+            <h1>{{ estimate.caterer.name }}</h1>
+            {% if contact_lines %}
+                <p class="muted" style="margin:4px 0 0;">
+                    {% for line in contact_lines %}
+                        {{ line }}{% if not forloop.last %}<br>{% endif %}
+                    {% endfor %}
+                </p>
+            {% endif %}
+        </div>
+        <div class="sheet-logo">
+            {% if brand_logo %}
+                <img src="{{ brand_logo }}" alt="Company logo">
+            {% endif %}
+        </div>
+        <div class="sheet-header-right">
+            <p class="estimate-number">
+                <strong>{% translate 'Estimate' %} #{{ estimate.estimate_number|default:"—" }}</strong>
+            </p>
+            <table class="meta-table">
+                <tbody>
+                    <tr><th>{% translate 'Event date' %}</th><td>{{ estimate.event_date|date:"M j, Y" }}</td></tr>
+                    <tr><th>{% translate 'Event type' %}</th><td>{{ estimate.event_type|default:"—" }}</td></tr>
+                    <tr><th>{% translate 'Event location' %}</th><td>{{ estimate.event_location|default:"—" }}</td></tr>
+                    <tr><th>{% translate 'Guests' %}</th><td>{{ estimate.guest_count }}</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </header>
+
+    <div class="info-row">
+        <div class="info-card">
+            <h4>{% translate 'Client details' %}</h4>
+            <p style="margin:0;">
+                <strong>{{ estimate.customer_name }}</strong><br>
+                {% if estimate.customer_phone %}{{ estimate.customer_phone }}<br>{% endif %}
+                {% if estimate.customer_email %}{{ estimate.customer_email }}{% endif %}
+            </p>
+        </div>
+        <div class="info-card info-card--right">
+            <p style="margin:0 0 4px;">
+                <strong>{% translate 'Payment method' %}:</strong>
+                {{ estimate.get_payment_method_display|default:"—" }}
+            </p>
+            <p style="margin:4px 0 0;">
+                <strong>{% translate 'Service style' %}:</strong> {{ service_style }}
+            </p>
+        </div>
+    </div>
+
+    <section>
+        <h2>{% translate 'Menu Selection' %}</h2>
+        {% if meal_sections %}
+            {% for meal in meal_sections %}
+                <article class="meal-card">
+                    <header>
+                        <h3>{{ meal.name }}</h3>
+                    </header>
+                    {% if meal.categories %}
+                        {% for category in meal.categories %}
+                            <div class="meal-category">
+                                <h4>{{ category.name }}</h4>
+                                <ul>
+                                    {% for choice in category.choices %}
+                                        <li>{{ choice.menu_item.name }}</li>
+                                    {% endfor %}
+                                </ul>
+                            </div>
+                        {% endfor %}
+                    {% else %}
+                        <p class="no-items">{% translate 'No items selected for this meal.' %}</p>
+                    {% endif %}
+                    <div class="meal-card-foot">
+                        <span>{{ meal.price_per_guest }} {{ estimate.currency }} / {% translate 'guest' %}</span>
+                        <span>{% translate 'Total' %} {{ meal.total }} {{ estimate.currency }}</span>
+                    </div>
+                </article>
+            {% endfor %}
+        {% else %}
+            <p class="no-items">{% translate 'No menu items selected yet.' %}</p>
+        {% endif %}
+    </section>
+
+    <section>
+        <h2>{% translate 'Decor & Extras' %}</h2>
+        {% if extra_lines %}
+            <table class="info-table">
+                <thead>
+                <tr>
+                    <th>{% translate 'Description' %}</th>
+                    <th>{% translate 'Quantity' %}</th>
+                    <th>{% translate 'Notes' %}</th>
+                </tr>
+                </thead>
+                <tbody>
+                {% for line in extra_lines %}
+                    <tr>
+                        <td>{{ line.extra_item.name }}</td>
+                        <td>{{ line.quantity }}</td>
+                        <td>{{ line.notes }}</td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        {% else %}
+            <p class="no-items">{% translate 'No extras selected.' %}</p>
+        {% endif %}
+    </section>
+
+    {% if staff_context %}
+        <section>
+            <h2>{% translate 'Staffing Details' %}</h2>
+            <table class="info-table">
+                <tbody>
+                    <tr><th>{% translate 'Wait staff' %}</th><td>{{ staff_context.waiters }}</td></tr>
+                    <tr><th>{% translate 'Estimated hours' %}</th><td>{{ staff_context.hours }}</td></tr>
+                    <tr><th>{% translate 'Hourly rate' %}</th><td>{{ staff_context.hourly_rate }}</td></tr>
+                    <tr><th>{% translate 'Labor total' %}</th><td>{{ staff_context.labor_total }}</td></tr>
+                    <tr><th>{% translate 'Suggested tip' %}</th><td>{{ staff_context.tip_total }} ({{ staff_context.tip_per_waiter }} {% translate 'per waiter' %})</td></tr>
+                </tbody>
+            </table>
+        </section>
+    {% endif %}
+
+    {% if meal_sections %}
+        <section>
+            <h2>{% translate 'Per-Meal Reference' %}</h2>
+            <table class="summary-table">
+                <thead>
+                    <tr>
+                        <th style="text-align:left; width:50%;">{% translate 'Meal' %}</th>
+                        <th style="text-align:right; width:25%;">{% translate 'Per guest' %}</th>
+                        <th style="text-align:right; width:25%;">{% translate 'Total' %}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for meal in meal_sections %}
+                        <tr>
+                            <td style="text-align:left;">{{ meal.name }}</td>
+                            <td style="text-align:right;">{{ meal.price_per_guest }} {{ estimate.currency }}</td>
+                            <td style="text-align:right;">{{ meal.total }} {{ estimate.currency }}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </section>
+    {% endif %}
+
+    <section>
+        <h2>{% translate 'Totals' %}</h2>
+        <table class="summary-table summary-table--totals">
+            <tbody>
+                <tr>
+                    <th>{% translate 'Total catering cost' %}</th>
+                    <td>{{ meal_total_amount }} {{ estimate.currency }}</td>
+                </tr>
+                <tr>
+                    <th>{% translate 'Extras & decor' %}</th>
+                    <td>{{ estimate.extras_total }} {{ estimate.currency }}</td>
+                </tr>
+                {% if not estimate.is_ala_carte %}
+                    <tr>
+                        <th>{% translate 'Staff total' %}</th>
+                        <td>{{ estimate.staff_total }} {{ estimate.currency }}</td>
+                    </tr>
+                    <tr>
+                        <th>{% translate 'Dishes / rentals' %}</th>
+                        <td>{{ estimate.dishes_total }} {{ estimate.currency }}</td>
+                    </tr>
+                {% endif %}
+                <tr>
+                    <th>{% translate 'Grand total' %}</th>
+                    <td>{{ estimate.grand_total }} {{ estimate.currency }}</td>
+                </tr>
+                <tr>
+                    <th>{% translate 'Deposit' %} ({{ estimate.deposit_percentage }}%)</th>
+                    <td>{{ estimate.deposit_amount }} {{ estimate.currency }}</td>
+                </tr>
+                <tr>
+                    <th>{% translate 'Balance due' %}</th>
+                    <td>{{ estimate.balance_due }} {{ estimate.currency }}</td>
+                </tr>
+            </tbody>
+        </table>
+    </section>
+
+    <section>
+        <h2>{% translate 'Payment & Terms' %}</h2>
+        <div class="payment-box">
+            <p>{{ estimate.payment_terms|default:estimate.caterer.default_payment_terms|linebreaksbr }}</p>
+            {% if estimate.payment_instructions %}
+                <p><strong>{% translate 'Payment Instructions' %}</strong><br>{{ estimate.payment_instructions|linebreaksbr }}</p>
+            {% endif %}
+            {% if bank_details %}
+                <p><strong>{% translate 'Bank details' %}</strong><br>{{ bank_details|linebreaksbr }}</p>
+            {% endif %}
+        </div>
+    </section>
+
+    <section>
+        <h2>{% translate 'Contract / Terms' %}</h2>
+        <div class="contract">
+            {{ estimate.contract_terms|linebreaksbr }}
+        </div>
+    </section>
+
+    <section>
+        <div class="signature-line"></div>
+        <div>
+            <strong>{% translate 'Client signature' %}</strong><br>
+            {% if estimate.signature_name %}
+                {{ estimate.signature_name }}{% if estimate.signature_title %}, {{ estimate.signature_title }}{% endif %}
+            {% endif %}
+            {% if estimate.signature_date %}
+                <br>{% translate 'Signed on' %}: {{ estimate.signature_date|date:"M j, Y" }}
+            {% endif %}
+        </div>
+    </section>
+</div>
+<div class="page-number"></div>
+{% if auto_print %}
+<script>
+    window.addEventListener("load", function() {
+        window.print();
+    });
+</script>
+{% endif %}
+</body>
+</html>

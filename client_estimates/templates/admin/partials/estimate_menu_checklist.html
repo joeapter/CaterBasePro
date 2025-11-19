@@ -1,0 +1,68 @@
+{% load form_extras %}
+{% if form.menu_items %}
+    <h3>🍽 Menu Builder</h3>
+    <p class="help">
+        Use the meal list above to add additional courses (e.g. Friday Dinner, Shabbos Lunch). Each item can be toggled on a per-meal basis below.
+    </p>
+    <div class="meal-column-heads">
+        {% for meal in form.meal_names %}
+            <span>{{ meal }}</span>
+        {% endfor %}
+    </div>
+    {% regroup form.menu_items by category as category_list %}
+    <div class="menu-matrix-card">
+        <table class="menu-matrix">
+            <thead>
+                <tr>
+                    <th style="min-width: 260px;">Menu item</th>
+                    {% for meal in form.meal_names %}
+                        <th>{{ meal }}</th>
+                    {% endfor %}
+                </tr>
+            </thead>
+            {% for group in category_list %}
+                <tbody>
+                    <tr class="category-row">
+                        <td colspan="{{ form.meal_names|length|add:1 }}">
+                            {{ group.grouper.name|default:"Chef's Selection" }}
+                        </td>
+                    </tr>
+                    {% for item in group.list %}
+                        <tr>
+                            <td>
+                                <strong>{{ item.name }}</strong>
+                                {% if item.description %}
+                                    <br><small>{{ item.description }}</small>
+                                {% endif %}
+                            </td>
+                            {% for meal in form.meal_names %}
+                                {% with meal_index=forloop.counter0 %}
+                                    {% meal_field form "include_item" item.id meal_index as include_field %}
+                                    {% meal_field form "servings_item" item.id meal_index as servings_field %}
+                                    <td class="meal-cell">
+                                        {{ include_field }}
+                                        {{ servings_field }}
+                                    </td>
+                                {% endwith %}
+                            {% endfor %}
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            {% endfor %}
+        </table>
+    </div>
+    {% with sections=form.instance.meal_sections %}
+        {% if sections %}
+            <div class="meal-summary-bar">
+                {% for section in sections %}
+                    <div class="meal-summary-pill">
+                        <span>{{ section.name }}</span>
+                        <span>{{ section.price_per_guest }} / guest • {{ section.total }}</span>
+                    </div>
+                {% endfor %}
+            </div>
+        {% endif %}
+    {% endwith %}
+{% else %}
+    <p class="help">No menu items are active for this caterer yet.</p>
+{% endif %}
