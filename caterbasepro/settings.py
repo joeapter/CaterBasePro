@@ -10,6 +10,7 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/4.2/ref/settings/
 """
 
+import os
 from pathlib import Path
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -25,7 +26,9 @@ SECRET_KEY = 'django-insecure-dl7u^ep)@=62gq^@5pj8_)yh6on6*qpel)oo_nm-rxo@75g3wf
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+DEFAULT_ALLOWED = "localhost 127.0.0.1"
+PRODUCTION_HOSTS = "cater-base-pro.herokuapp.com caterbasepro.com www.caterbasepro.com"
+ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", f"{DEFAULT_ALLOWED} {PRODUCTION_HOSTS}").split()
 
 
 # Application definition
