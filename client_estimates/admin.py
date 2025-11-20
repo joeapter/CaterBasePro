@@ -1004,7 +1004,6 @@ class EstimateAdmin(admin.ModelAdmin):
         from django.contrib.admin.options import IS_POPUP_VAR, TO_FIELD_VAR
         from django.contrib.admin.utils import flatten_fieldsets, unquote
         from django.forms.formsets import all_valid
-        from django.core.exceptions import DisallowedModelAdminToField
         from django.contrib.admin import helpers
         from django.utils.translation import gettext as _
         from django.db import router
