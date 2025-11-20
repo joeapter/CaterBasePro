@@ -36,14 +36,22 @@ def _get_bool(name: str, default: str = "0") -> bool:
 DEBUG = _get_bool("DJANGO_DEBUG", "1")
 
 DEFAULT_ALLOWED = "localhost 127.0.0.1"
-PRODUCTION_HOSTS = "cater-base-pro.herokuapp.com caterbasepro.com www.caterbasepro.com"
+PRODUCTION_HOSTS = (
+    "cater-base-pro.herokuapp.com caterbasepro.com www.caterbasepro.com .herokuapp.com"
+)
 ALLOWED_HOSTS = os.getenv(
     "ALLOWED_HOSTS",
     f"{DEFAULT_ALLOWED} {PRODUCTION_HOSTS}",
 ).split()
+default_csrf_trusted = (
+    "https://cater-base-pro.herokuapp.com "
+    "https://caterbasepro.com "
+    "https://www.caterbasepro.com "
+    "https://*.herokuapp.com"
+)
 CSRF_TRUSTED_ORIGINS = os.getenv(
     "CSRF_TRUSTED_ORIGINS",
-    "https://cater-base-pro.herokuapp.com https://caterbasepro.com https://www.caterbasepro.com",
+    default_csrf_trusted,
 ).split()
 
 
