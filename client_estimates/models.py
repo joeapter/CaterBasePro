@@ -142,8 +142,8 @@ class CatererAccount(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        verbose_name = "Caterer"
-        verbose_name_plural = "Caterers"
+        verbose_name = "Company profile"
+        verbose_name_plural = "Company profiles"
 
     def __str__(self):
         return self.name
@@ -163,6 +163,7 @@ class MenuCategory(models.Model):
 
     class Meta:
         ordering = ["sort_order", "name"]
+        verbose_name_plural = "Menu categories"
 
     def __str__(self):
         return f"{self.caterer.name} – {self.name}"
