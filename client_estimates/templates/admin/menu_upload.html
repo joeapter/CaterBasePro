@@ -7,6 +7,14 @@
         gap: 10px;
         align-items: center;
         list-style: none;
+        padding: 0;
+        margin: 0;
+    }
+    .object-tools li::marker {
+        content: none;
+    }
+    .object-tools li {
+        display: inline-flex;
     }
     .object-tools .button {
         border-radius: 999px;
@@ -14,6 +22,10 @@
         font-weight: 600;
         border: none;
         box-shadow: 0 4px 12px rgba(15, 23, 42, 0.12);
+        text-decoration: none;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
     }
     .object-tools .button-secondary {
         background: #e0e7ff;
