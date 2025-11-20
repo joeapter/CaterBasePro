@@ -513,12 +513,8 @@ class Estimate(models.Model):
 
     def calc_food_price_per_person(self) -> Decimal:
         total = Decimal("0.00")
-        for choice in self.food_choices.filter(included=True).select_related("menu_item"):
-            mi = choice.menu_item
-            servings = choice.servings_per_person or mi.default_servings_per_person
-            cost_per_person = mi.cost_per_serving * servings
-            price_per_person = cost_per_person * mi.markup
-            total += price_per_person
+        for section in self.meal_sections():
+            total += section["price_per_guest"]
         return total.quantize(Decimal("0.01"))
 
     def calc_extras_total(self) -> Decimal:
