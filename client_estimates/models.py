@@ -4,6 +4,8 @@ import math
 from django.db import models
 from django.utils import timezone
 from django.conf import settings
+from django.urls import reverse
+from django.utils.text import slugify
 
 # Default footer text appended to every estimate prior to signatures.
 DEFAULT_CONTRACT_TERMS = (
@@ -157,6 +159,12 @@ class CatererAccount(models.Model):
         blank=True,
         help_text="Optional end datetime for the dashboard message.",
     )
+    slug = models.SlugField(
+        unique=True,
+        blank=True,
+        null=True,
+        help_text="Used for public inquiry links. Example: palatecatering",
+    )
 
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -171,6 +179,17 @@ class CatererAccount(models.Model):
         if self.document_font_family == "SERIF":
             return '"Georgia", "Times New Roman", serif'
         return '"Helvetica Neue", Arial, "Segoe UI", sans-serif'
+
+    def save(self, *args, **kwargs):
+        if not self.slug:
+            base_slug = slugify(self.name) or "caterer"
+            slug_candidate = base_slug
+            counter = 1
+            while CatererAccount.objects.filter(slug=slug_candidate).exclude(pk=self.pk).exists():
+                slug_candidate = f"{base_slug}-{counter}"
+                counter += 1
+            self.slug = slug_candidate
+        super().save(*args, **kwargs)
 
 
 class MenuCategory(models.Model):

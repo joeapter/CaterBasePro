@@ -20,7 +20,11 @@ from django.contrib import admin
 from django.urls import path
 from django.views.generic import RedirectView
 
+from client_estimates.views import new_client_inquiry
+
 urlpatterns = [
     path('', RedirectView.as_view(pattern_name='admin:index', permanent=False)),
+    path('new-client-inquiry/', new_client_inquiry, name='public_inquiry_no_slug'),
+    path('new-client-inquiry/<slug:caterer_slug>/', new_client_inquiry, name='public_inquiry'),
     path('admin/', admin.site.urls),
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

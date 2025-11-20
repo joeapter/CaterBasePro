@@ -55,6 +55,7 @@ def parse_meal_plan(raw_value):
 class CatererAccountAdmin(admin.ModelAdmin):
     list_display = ("name", "owner", "default_currency")
     search_fields = ("name",)
+    readonly_fields = ("slug",)
     base_fieldsets = (
         (
             "Company Basics",
@@ -64,6 +65,7 @@ class CatererAccountAdmin(admin.ModelAdmin):
                     "owner",
                     "primary_contact_name",
                     "default_currency",
+                    "slug",
                     "company_phone",
                     "company_email",
                     "company_address",
@@ -175,6 +177,11 @@ class ClientInquiryAdmin(admin.ModelAdmin):
             form.base_fields["caterer"].queryset = CatererAccount.objects.filter(owner=request.user)
         return form
 
+    def has_add_permission(self, request):
+        if request.user.is_superuser:
+            return True
+        return CatererAccount.objects.filter(owner=request.user).exists()
+
 
 @admin.register(ClientProfile)
 class ClientProfileAdmin(admin.ModelAdmin):
@@ -210,6 +217,11 @@ class CatererTaskAdmin(admin.ModelAdmin):
                     caterer__owner=request.user
                 )
         return form
+
+    def has_add_permission(self, request):
+        if request.user.is_superuser:
+            return True
+        return CatererAccount.objects.filter(owner=request.user).exists()
 
 # ==========================
 # MENU ITEM ADMIN + CSV UPLOAD
