@@ -266,7 +266,11 @@ class MenuItemAdmin(admin.ModelAdmin):
             form = MenuUploadForm(request.POST, request.FILES)
             if form.is_valid():
                 file = form.cleaned_data["csv_file"]
-                decoded = file.read().decode("utf-8-sig").splitlines()  # handle BOM
+                raw_bytes = file.read()
+                try:
+                    decoded = raw_bytes.decode("utf-8-sig").splitlines()
+                except UnicodeDecodeError:
+                    decoded = raw_bytes.decode("latin-1").splitlines()
                 reader = csv.DictReader(decoded)
 
                 caterer = CatererAccount.objects.filter(owner=request.user).first()
