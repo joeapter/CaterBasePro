@@ -2,7 +2,7 @@
 {% block extrastyle %}
 {{ block.super }}
 <style>
-    .object-tools {
+    .custom-object-tools {
         display: inline-flex;
         gap: 10px;
         align-items: center;
@@ -10,13 +10,10 @@
         padding: 0;
         margin: 0;
     }
-    .object-tools li::marker {
-        content: none;
-    }
-    .object-tools li {
+    .custom-object-tools li {
         display: inline-flex;
     }
-    .object-tools .button {
+    .custom-object-tools .button {
         border-radius: 999px;
         padding: 6px 18px;
         font-weight: 600;
@@ -27,22 +24,24 @@
         align-items: center;
         justify-content: center;
     }
-    .object-tools .button-secondary {
+    .custom-object-tools .button-secondary {
         background: #e0e7ff;
         color: #1d4ed8;
     }
-    .object-tools .button-primary {
+    .custom-object-tools .button-primary {
         background: #2563eb;
         color: #fff;
     }
 </style>
 {% endblock %}
 
-{% block object-tools-items %}
-<li>
-    <a href="{% url 'admin:menu-upload-csv' %}" class="button button-secondary">Upload Menu (CSV)</a>
-</li>
-<li>
-    <a href="{% url 'admin:client_estimates_menuitem_add' %}" class="button button-primary">Add Menu Item</a>
-</li>
+{% block object-tools %}
+<ul class="object-tools custom-object-tools">
+    <li>
+        <a href="{% url 'admin:menu-upload-csv' %}" class="button button-secondary">Upload Menu (CSV)</a>
+    </li>
+    <li>
+        <a href="{% url 'admin:client_estimates_menuitem_add' %}" class="button button-primary">Add Menu Item</a>
+    </li>
+</ul>
 {% endblock %}
