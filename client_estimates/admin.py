@@ -1,4 +1,4 @@
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 import csv
 from collections import defaultdict
 import json
@@ -288,9 +288,17 @@ class MenuItemAdmin(admin.ModelAdmin):
                         caterer=caterer, name=category_name
                     )
 
-                    cost = Decimal(row["cost_per_serving"])
-                    markup = Decimal(row["markup"]) if row.get("markup") else caterer.default_food_markup
-                    servings = Decimal(row["default_servings_per_person"] or "1.0")
+                    def parse_decimal(value, default="0.0"):
+                        try:
+                            return Decimal(value.strip()) if value and str(value).strip() else Decimal(default)
+                        except (InvalidOperation, AttributeError):
+                            return Decimal(default)
+
+                    cost = parse_decimal(row.get("cost_per_serving"), "0.0")
+                    markup = parse_decimal(row.get("markup"), str(caterer.default_food_markup))
+                    if markup == Decimal("0.0"):
+                        markup = caterer.default_food_markup
+                    servings = parse_decimal(row.get("default_servings_per_person"), "1.0")
                     is_active = str(row.get("is_active", "true")).lower() == "true"
 
                     if item_type == "food":
