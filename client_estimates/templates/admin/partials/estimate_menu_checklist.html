@@ -39,7 +39,10 @@
                                 {% with meal_index=forloop.counter0 %}
                                     {% meal_field form "include_item" item.id meal_index as include_field %}
                                     {% meal_field form "servings_item" item.id meal_index as servings_field %}
-                                    <td class="meal-cell">
+                                    <td class="meal-cell"
+                                        data-meal="{{ meal }}"
+                                        data-price="{{ item.cost_per_serving|mul:item.markup|floatformat:'4' }}"
+                                        data-servings-field-id="{{ servings_field.id_for_label }}">
                                         {{ include_field }}
                                         {{ servings_field }}
                                     </td>
@@ -51,18 +54,23 @@
             {% endfor %}
         </table>
     </div>
-    {% with sections=form.instance.meal_sections %}
-        {% if sections %}
-            <div class="meal-summary-bar">
-                {% for section in sections %}
-                    <div class="meal-summary-pill">
-                        <span>{{ section.name }}</span>
-                        <span>{{ section.price_per_guest }} / guest • {{ section.total }}</span>
-                    </div>
-                {% endfor %}
+    <div class="meal-summary-bar">
+        {% for meal in form.meal_names %}
+            <div class="meal-summary-pill" data-meal="{{ meal }}">
+                <div class="meal-summary-text">
+                    <span>{{ meal }}</span>
+                    <span class="meal-summary-value" data-meal="{{ meal }}">0.00 / guest • 0.00</span>
+                </div>
+                <div class="meal-summary-override">
+                    <input type="number" step="0.01" placeholder="Override per guest" class="meal-override-input" data-meal="{{ meal }}">
+                    <button type="button" class="button meal-override-btn" data-meal="{{ meal }}">Apply</button>
+                </div>
             </div>
-        {% endif %}
-    {% endwith %}
+        {% endfor %}
+    </div>
 {% else %}
     <p class="help">No menu items are active for this caterer yet.</p>
 {% endif %}
+<div style="display:none;">
+    {{ form.manual_meal_totals_json }}
+</div>

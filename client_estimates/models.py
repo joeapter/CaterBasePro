@@ -396,6 +396,11 @@ class Estimate(models.Model):
     balance_due = models.DecimalField(
         max_digits=12, decimal_places=2, default=Decimal("0.00")
     )
+    manual_meal_totals = models.JSONField(
+        blank=True,
+        default=dict,
+        help_text="Stores manual per-meal price overrides.",
+    )
 
     notes_internal = models.TextField(blank=True)
     notes_for_customer = models.TextField(blank=True)
@@ -610,6 +615,7 @@ class Estimate(models.Model):
             self.food_choices.filter(included=True).select_related("menu_item", "menu_item__category")
         )
         sections = []
+        overrides = self.manual_meal_totals or {}
         for meal_name in plan:
             meal_choices = [
                 ch for ch in choices if (ch.meal_name or default_meal) == meal_name
@@ -628,6 +634,12 @@ class Estimate(models.Model):
                 cost_per_person = mi.cost_per_serving * servings
                 price_pp += cost_per_person * mi.markup
             price_pp = price_pp.quantize(Decimal("0.01"))
+            override_value = overrides.get(meal_name)
+            if override_value not in (None, ""):
+                try:
+                    price_pp = Decimal(str(override_value)).quantize(Decimal("0.01"))
+                except Exception:
+                    pass
 
             sections.append(
                 {

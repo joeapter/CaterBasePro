@@ -1,6 +1,7 @@
 # client_estimates/templatetags/form_extras.py
 
 from django import template
+from decimal import Decimal
 
 register = template.Library()
 
@@ -49,3 +50,14 @@ def meal_field(form, prefix, item_id, meal_index):
         return form[field_name]
     except KeyError:
         return ""
+
+
+@register.filter
+def mul(value, arg):
+    try:
+        return Decimal(value) * Decimal(arg)
+    except Exception:
+        try:
+            return float(value) * float(arg)
+        except Exception:
+            return 0

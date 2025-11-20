@@ -85,6 +85,16 @@
             background: #fff;
             display: flex;
             justify-content: space-between;
+            flex-wrap: wrap;
+        }
+        .meal-summary-override {
+            margin-top: 6px;
+            display: flex;
+            gap: 6px;
+            width: 100%;
+        }
+        .meal-summary-override input {
+            flex: 1;
         }
         .menu-matrix tbody td {
             padding: 10px;
@@ -283,6 +293,95 @@
                 const text = encodeURIComponent(pieces.join(" "));
                 window.open(`https://web.whatsapp.com/send?text=${text}`, "_blank");
             });
+
+            const mealPlanField = document.getElementById("id_meal_plan_input");
+            if (mealPlanField && !document.getElementById("apply-meal-plan-btn")) {
+                const applyBtn = document.createElement("button");
+                applyBtn.type = "submit";
+                applyBtn.name = "_apply_meal_plan";
+                applyBtn.value = "1";
+                applyBtn.textContent = "Apply meal list";
+                applyBtn.className = "button button-secondary";
+                applyBtn.id = "apply-meal-plan-btn";
+                mealPlanField.parentElement.appendChild(applyBtn);
+            }
+
+            const summaryBar = document.querySelector(".meal-summary-bar");
+            const overridesField = document.getElementById("id_manual_meal_totals_json");
+            if (summaryBar && overridesField) {
+                let overrides = {};
+                try {
+                    overrides = JSON.parse(overridesField.value || "{}");
+                } catch (err) {
+                    overrides = {};
+                }
+                const guestField = document.getElementById("id_guest_count");
+                const mealCells = wizard.querySelectorAll(".meal-cell");
+                const mealPills = summaryBar.querySelectorAll(".meal-summary-pill");
+
+                const recalcTotals = () => {
+                    const totals = {};
+                    mealPills.forEach(pill => {
+                        totals[pill.dataset.meal] = { base: 0 };
+                    });
+                    mealCells.forEach(cell => {
+                        const meal = cell.dataset.meal;
+                        if (!meal || !(meal in totals)) return;
+                        const price = parseFloat(cell.dataset.price);
+                        if (isNaN(price)) return;
+                        const checkbox = cell.querySelector('input[type="checkbox"]');
+                        const servingsFieldId = cell.dataset.servingsFieldId;
+                        const servingsField = servingsFieldId ? document.getElementById(servingsFieldId) : null;
+                        const servings = servingsField ? parseFloat(servingsField.value) || 1 : 1;
+                        if (checkbox && checkbox.checked) {
+                            totals[meal].base += price * servings;
+                        }
+                    });
+                    const guests = parseFloat(guestField ? guestField.value : "0") || 0;
+                    mealPills.forEach(pill => {
+                        const meal = pill.dataset.meal;
+                        const info = totals[meal] || { base: 0 };
+                        const overrideValue = overrides[meal];
+                        const perGuest = typeof overrideValue === "number" ? overrideValue : info.base;
+                        const totalAmount = perGuest * guests;
+                        const valueEl = pill.querySelector(".meal-summary-value");
+                        if (valueEl) {
+                            valueEl.textContent = `${perGuest.toFixed(2)} / guest • ${totalAmount.toFixed(2)}`;
+                        }
+                        const inputEl = pill.querySelector(".meal-override-input");
+                        if (inputEl && typeof overrideValue === "number") {
+                            inputEl.value = overrideValue;
+                        }
+                    });
+                    overridesField.value = JSON.stringify(overrides);
+                };
+
+                const checkboxes = wizard.querySelectorAll(".meal-cell input[type='checkbox']");
+                checkboxes.forEach(cb => cb.addEventListener("change", recalcTotals));
+                if (guestField) {
+                    guestField.addEventListener("input", recalcTotals);
+                    guestField.addEventListener("change", recalcTotals);
+                }
+
+                summaryBar.querySelectorAll(".meal-override-btn").forEach(btn => {
+                    btn.addEventListener("click", () => {
+                        const meal = btn.dataset.meal;
+                        const input = summaryBar.querySelector(`.meal-override-input[data-meal='${meal}']`);
+                        if (!input) return;
+                        const val = input.value.trim();
+                        if (val === "") {
+                            delete overrides[meal];
+                        } else {
+                            const parsed = parseFloat(val);
+                            if (isNaN(parsed)) return;
+                            overrides[meal] = parsed;
+                        }
+                        recalcTotals();
+                    });
+                });
+
+                recalcTotals();
+            }
         })();
     </script>
 {% endblock %}
