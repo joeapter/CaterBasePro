@@ -18,6 +18,9 @@ from .models import (
     EstimateFoodChoice,
     EstimateExtraItem,
     MenuTemplate,
+    ClientInquiry,
+    ClientProfile,
+    CatererTask,
 )
 
 # ==========================
@@ -59,6 +62,7 @@ class CatererAccountAdmin(admin.ModelAdmin):
                 "fields": (
                     "name",
                     "owner",
+                    "primary_contact_name",
                     "default_currency",
                     "company_phone",
                     "company_email",
@@ -77,6 +81,16 @@ class CatererAccountAdmin(admin.ModelAdmin):
                     "document_font_family",
                     "document_surface_style",
                     "default_payment_terms",
+                )
+            },
+        ),
+        (
+            "Dashboard Messaging",
+            {
+                "fields": (
+                    "dashboard_banner_message",
+                    "dashboard_banner_start",
+                    "dashboard_banner_end",
                 )
             },
         ),
@@ -135,6 +149,59 @@ class MenuCategoryAdmin(admin.ModelAdmin):
         form = super().get_form(request, obj, **kwargs)
         if not request.user.is_superuser:
             form.base_fields["caterer"].queryset = CatererAccount.objects.filter(owner=request.user)
+        return form
+
+
+@admin.register(ClientInquiry)
+class ClientInquiryAdmin(admin.ModelAdmin):
+    list_display = ("contact_name", "caterer", "status", "event_date", "created_at")
+    list_filter = ("status", "caterer")
+    search_fields = ("contact_name", "company_name", "email", "phone")
+    readonly_fields = ("created_at", "updated_at")
+
+    def get_queryset(self, request):
+        return limit_to_user_caterer(super().get_queryset(request), request)
+
+    def get_form(self, request, obj=None, **kwargs):
+        form = super().get_form(request, obj, **kwargs)
+        if not request.user.is_superuser:
+            form.base_fields["caterer"].queryset = CatererAccount.objects.filter(owner=request.user)
+        return form
+
+
+@admin.register(ClientProfile)
+class ClientProfileAdmin(admin.ModelAdmin):
+    list_display = ("name", "caterer", "email", "phone", "birthday")
+    search_fields = ("name", "email", "phone")
+    list_filter = ("caterer",)
+
+    def get_queryset(self, request):
+        return limit_to_user_caterer(super().get_queryset(request), request)
+
+    def get_form(self, request, obj=None, **kwargs):
+        form = super().get_form(request, obj, **kwargs)
+        if not request.user.is_superuser:
+            form.base_fields["caterer"].queryset = CatererAccount.objects.filter(owner=request.user)
+        return form
+
+
+@admin.register(CatererTask)
+class CatererTaskAdmin(admin.ModelAdmin):
+    list_display = ("title", "caterer", "due_date", "completed")
+    list_filter = ("completed", "caterer")
+    search_fields = ("title", "description")
+
+    def get_queryset(self, request):
+        return limit_to_user_caterer(super().get_queryset(request), request)
+
+    def get_form(self, request, obj=None, **kwargs):
+        form = super().get_form(request, obj, **kwargs)
+        if not request.user.is_superuser:
+            form.base_fields["caterer"].queryset = CatererAccount.objects.filter(owner=request.user)
+            if "related_inquiry" in form.base_fields:
+                form.base_fields["related_inquiry"].queryset = ClientInquiry.objects.filter(
+                    caterer__owner=request.user
+                )
         return form
 
 # ==========================

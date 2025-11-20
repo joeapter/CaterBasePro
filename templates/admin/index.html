@@ -1,0 +1,226 @@
+{% extends "admin/base_site.html" %}
+{% load i18n dashboard_extras %}
+
+{% block extrastyle %}
+{{ block.super }}
+<style>
+  .cb-dashboard {
+      display: flex;
+      flex-direction: column;
+      gap: 1.5rem;
+  }
+  .cb-card {
+      background: #fff;
+      border-radius: 12px;
+      padding: 1.5rem;
+      box-shadow: 0 10px 25px rgba(15, 17, 42, 0.08);
+  }
+  .cb-card h2 {
+      margin-top: 0;
+      margin-bottom: 0.75rem;
+      font-size: 1.2rem;
+  }
+  .cb-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 1rem;
+  }
+  .cb-chip {
+      display: inline-flex;
+      align-items: center;
+      padding: 0.15rem 0.75rem;
+      border-radius: 999px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      background: #e2e8f0;
+      color: #1e293b;
+  }
+  .cb-banner {
+      border-left: 6px solid #2563eb;
+      background: #eff6ff;
+      padding: 1rem 1.25rem;
+      border-radius: 10px;
+      font-weight: 500;
+  }
+  .cb-section-actions {
+      display: flex;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+  }
+  .cb-button {
+      border-radius: 8px;
+      padding: 0.4rem 0.9rem;
+      font-size: 0.9rem;
+      text-decoration: none;
+      border: 1px solid transparent;
+      transition: all 0.15s ease;
+  }
+  .cb-button-primary {
+      background: #2563eb;
+      color: white;
+  }
+  .cb-button-secondary {
+      background: transparent;
+      color: #2563eb;
+      border-color: rgba(37,99,235,0.4);
+  }
+  .cb-button:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 16px rgba(15,17,42,0.12);
+  }
+  .cb-empty {
+      color: #64748b;
+      font-style: italic;
+  }
+  .cb-task-completed {
+      text-decoration: line-through;
+      color: #94a3b8;
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+{% get_dashboard_data as dashboard %}
+<div class="cb-dashboard">
+  {% if dashboard.account %}
+    <div class="cb-card">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:1rem;">
+            <div>
+                <p class="cb-chip">{% trans "Today’s dashboard" %}</p>
+                <h1 style="margin:0.5rem 0 0;font-size:1.8rem;">{{ dashboard.greeting }}</h1>
+                <p style="margin:0.35rem 0 0;color:#475569;">
+                    {% if dashboard.account.primary_contact_name %}
+                        {% trans "Welcome back," %} {{ dashboard.account.primary_contact_name }}.
+                    {% else %}
+                        {% trans "Welcome back!" %}
+                    {% endif %}
+                </p>
+            </div>
+            <div class="cb-section-actions">
+                <a class="cb-button cb-button-secondary" href="{% url 'admin:client_estimates_catereraccount_change' dashboard.account.pk %}">
+                    {% trans "Company profile" %}
+                </a>
+                <a class="cb-button cb-button-secondary" href="{% url 'admin:client_estimates_clientinquiry_add' %}?caterer={{ dashboard.account.pk }}">
+                    {% trans "New inquiry" %}
+                </a>
+                <a class="cb-button cb-button-secondary" href="{% url 'admin:client_estimates_caterertask_add' %}?caterer={{ dashboard.account.pk }}">
+                    {% trans "New task" %}
+                </a>
+            </div>
+        </div>
+    </div>
+
+    {% if dashboard.banner %}
+        <div class="cb-banner">
+            {{ dashboard.banner|linebreaks }}
+        </div>
+    {% endif %}
+
+    <div class="cb-card">
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+            <h2>{% trans "New client inquiries" %}</h2>
+            <a class="cb-button cb-button-primary" href="{% url 'admin:client_estimates_clientinquiry_add' %}?caterer={{ dashboard.account.pk }}">
+                {% trans "Create inquiry" %}
+            </a>
+        </div>
+        {% if dashboard.inquiries %}
+            <div class="cb-grid">
+                {% for inquiry in dashboard.inquiries %}
+                    <div class="cb-card" style="box-shadow:none;border:1px solid #e2e8f0;">
+                        <h3 style="margin-top:0;">{{ inquiry.contact_name }}</h3>
+                        <p style="margin:0;color:#475569;">
+                            {% if inquiry.event_type %}{{ inquiry.event_type }} · {% endif %}
+                            {% if inquiry.event_date %}{{ inquiry.event_date|date:"M j, Y" }}{% endif %}
+                        </p>
+                        {% if inquiry.phone %}
+                            <p style="margin:0.35rem 0 0;color:#475569;">{{ inquiry.phone }}</p>
+                        {% endif %}
+                        {% if inquiry.email %}
+                            <p style="margin:0;color:#475569;">{{ inquiry.email }}</p>
+                        {% endif %}
+                        {% if inquiry.notes %}
+                            <p style="margin-top:0.6rem;color:#1f2937;">{{ inquiry.notes|truncatechars:160 }}</p>
+                        {% endif %}
+                        <div class="cb-section-actions" style="margin-top:0.8rem;">
+                            <a class="cb-button cb-button-secondary" href="{% url 'admin:client_estimates_estimate_add' %}?client_inquiry={{ inquiry.pk }}">
+                                {% trans "Create estimate" %}
+                            </a>
+                            <a class="cb-button cb-button-secondary" href="{% url 'admin:client_estimates_caterertask_add' %}?related_inquiry={{ inquiry.pk }}&caterer={{ dashboard.account.pk }}">
+                                {% trans "Create task" %}
+                            </a>
+                            <a class="cb-button cb-button-secondary" href="{% url 'admin:client_estimates_clientprofile_add' %}?source_inquiry={{ inquiry.pk }}&caterer={{ dashboard.account.pk }}">
+                                {% trans "Convert to client" %}
+                            </a>
+                            {% if inquiry.phone %}
+                                <a class="cb-button cb-button-secondary" target="_blank" rel="noopener" href="https://wa.me/{{ inquiry.phone|digits_only }}">
+                                    {% trans "WhatsApp" %}
+                                </a>
+                            {% endif %}
+                            {% if inquiry.email %}
+                                <a class="cb-button cb-button-secondary" href="mailto:{{ inquiry.email }}">
+                                    {% trans "Email" %}
+                                </a>
+                            {% endif %}
+                        </div>
+                    </div>
+                {% endfor %}
+            </div>
+        {% else %}
+            <p class="cb-empty">{% trans "No new inquiries. Enjoy the calm before the bookings!" %}</p>
+        {% endif %}
+    </div>
+
+    <div class="cb-card">
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+            <h2>{% trans "Priority tasks" %}</h2>
+            <a class="cb-button cb-button-primary" href="{% url 'admin:client_estimates_caterertask_add' %}?caterer={{ dashboard.account.pk }}">
+                {% trans "Add task" %}
+            </a>
+        </div>
+        {% if dashboard.tasks %}
+            <ul style="list-style:none;padding:0;margin:0;">
+                {% for task in dashboard.tasks %}
+                    <li style="padding:0.75rem 0;border-bottom:1px solid #e2e8f0;display:flex;justify-content:space-between;gap:1rem;">
+                        <div>
+                            <strong class="{% if task.completed %}cb-task-completed{% endif %}">{{ task.title }}</strong>
+                            {% if task.description %}
+                                <p style="margin:0.25rem 0 0;color:#475569;">{{ task.description|truncatechars:140 }}</p>
+                            {% endif %}
+                            {% if task.related_inquiry %}
+                                <p style="margin:0.25rem 0 0;font-size:0.85rem;color:#64748b;">
+                                    {% trans "Inquiry:" %} {{ task.related_inquiry.contact_name }}
+                                </p>
+                            {% endif %}
+                        </div>
+                        <div style="text-align:right;min-width:120px;">
+                            {% if task.due_date %}
+                                <span class="cb-chip">{{ task.due_date|date:"M j" }}</span>
+                            {% else %}
+                                <span class="cb-chip">{% trans "No due date" %}</span>
+                            {% endif %}
+                            <div style="margin-top:0.5rem;">
+                                <a class="cb-button cb-button-secondary" href="{% url 'admin:client_estimates_caterertask_change' task.pk %}">
+                                    {% trans "Open" %}
+                                </a>
+                            </div>
+                        </div>
+                    </li>
+                {% endfor %}
+            </ul>
+        {% else %}
+            <p class="cb-empty">{% trans "No open tasks. High five!" %}</p>
+        {% endif %}
+    </div>
+  {% else %}
+    <div class="cb-card">
+        <h2>{% trans "Welcome!" %}</h2>
+        <p>{% trans "Create a company profile to unlock the personalized dashboard." %}</p>
+        <a class="cb-button cb-button-primary" href="{% url 'admin:client_estimates_catereraccount_add' %}">{% trans "Create company profile" %}</a>
+  {% endif %}
+
+  <div class="cb-card">
+      <h2>{% trans "Applications" %}</h2>
+      {{ block.super }}
+  </div>
+</div>
+{% endblock %}

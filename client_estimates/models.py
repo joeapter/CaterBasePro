@@ -95,6 +95,11 @@ class CatererAccount(models.Model):
         max_digits=8, decimal_places=2, default=Decimal("400.00")
     )
 
+    primary_contact_name = models.CharField(
+        max_length=200,
+        blank=True,
+        help_text="Name used for greetings and dashboard personalization.",
+    )
     company_phone = models.CharField(max_length=50, blank=True)
     company_email = models.EmailField(blank=True)
     company_address = models.TextField(blank=True)
@@ -137,6 +142,20 @@ class CatererAccount(models.Model):
     estimate_number_counter = models.PositiveIntegerField(
         default=1000,
         help_text="Next estimate/invoice number to issue.",
+    )
+    dashboard_banner_message = models.TextField(
+        blank=True,
+        help_text="Message shown on the dashboard. Leave blank when you have nothing to announce.",
+    )
+    dashboard_banner_start = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Optional start datetime for the dashboard message.",
+    )
+    dashboard_banner_end = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Optional end datetime for the dashboard message.",
     )
 
     created_at = models.DateTimeField(auto_now_add=True)
@@ -665,3 +684,79 @@ class EstimateExtraItem(models.Model):
 
     def __str__(self):
         return f"{self.extra_item.name} for {self.estimate}"
+
+
+class ClientProfile(models.Model):
+    caterer = models.ForeignKey(
+        CatererAccount, on_delete=models.CASCADE, related_name="clients"
+    )
+    name = models.CharField(max_length=200)
+    email = models.EmailField(blank=True)
+    phone = models.CharField(max_length=50, blank=True)
+    birthday = models.DateField(null=True, blank=True)
+    notes = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["name"]
+        unique_together = ("caterer", "email", "phone")
+
+    def __str__(self):
+        return f"{self.name} ({self.caterer.name})"
+
+
+class ClientInquiry(models.Model):
+    STATUS_CHOICES = [
+        ("NEW", "New"),
+        ("IN_PROGRESS", "In progress"),
+        ("WON", "Won"),
+        ("LOST", "Lost"),
+    ]
+
+    caterer = models.ForeignKey(
+        CatererAccount, on_delete=models.CASCADE, related_name="inquiries"
+    )
+    contact_name = models.CharField(max_length=200)
+    company_name = models.CharField(max_length=200, blank=True)
+    email = models.EmailField(blank=True)
+    phone = models.CharField(max_length=50, blank=True)
+    preferred_contact_method = models.CharField(max_length=20, blank=True)
+    event_type = models.CharField(max_length=100, blank=True)
+    event_date = models.DateField(null=True, blank=True)
+    notes = models.TextField(blank=True)
+    status = models.CharField(
+        max_length=20, choices=STATUS_CHOICES, default="NEW"
+    )
+    converted_to_client = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.contact_name} – {self.caterer.name}"
+
+
+class CatererTask(models.Model):
+    caterer = models.ForeignKey(
+        CatererAccount, on_delete=models.CASCADE, related_name="tasks"
+    )
+    title = models.CharField(max_length=200)
+    description = models.TextField(blank=True)
+    due_date = models.DateField(null=True, blank=True)
+    completed = models.BooleanField(default=False)
+    related_inquiry = models.ForeignKey(
+        ClientInquiry,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="tasks",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["completed", "due_date", "-created_at"]
+
+    def __str__(self):
+        return f"{self.title} ({self.caterer.name})"

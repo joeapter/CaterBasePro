@@ -1,0 +1,42 @@
+{% load i18n l10n admin_urls static %}
+
+{% if fieldset.name %}
+<div class="card mb-3">
+    <div class="card-header">
+        <div class="card-title">{{ fieldset.name }}</div>
+    </div>
+    <div class="card-body">
+{% endif %}
+
+    {% for line in fieldset %}
+    {% with line_field_count=line.fields|length %}
+    <div class="form-group {% if line_field_count == 1 and line.errors %}errors{% endif %}{% if not line.has_visible_field %} hidden{% endif %}{% for field in line %}{% if field.field.name %} field-{{ field.field.name }}{% endif %}{% endfor %}">
+        <div class="row">
+            {% for field in line %}
+                <label class="{% if line_field_count != 1 and not forloop.first %}col-auto{% else %}col-sm-3{% endif %} text-left" for="id_{{ field.field.name }}">
+                    {{ field.field.label|capfirst }}
+                    {% if field.field.field.required %}
+                    <span class="text-red">*</span>
+                    {% endif %}
+                </label>
+                <div class="{% if line_field_count != 1 %}col-auto fieldBox{% else %}col-sm-7{% endif %}{% if field.field.name %} field-{{ field.field.name }}{% endif %}">
+                    {{ field.field }}
+                    {% if field.field.help_text %}
+                        <p class="help">{{ field.field.help_text|safe }}</p>
+                    {% endif %}
+                </div>
+            {% endfor %}
+        </div>
+        {% if line.errors %}
+            <div class="text-danger small">
+                {{ line.errors }}
+            </div>
+        {% endif %}
+    </div>
+    {% endwith %}
+    {% endfor %}
+
+{% if fieldset.name %}
+    </div>
+</div>
+{% endif %}
