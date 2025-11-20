@@ -1,5 +1,6 @@
 from decimal import Decimal
 import csv
+from collections import defaultdict
 
 from django import forms
 from django.contrib import admin, messages
@@ -8,6 +9,7 @@ from django.http import HttpResponse
 from django.shortcuts import redirect, render
 from django.urls import path, reverse
 from django.utils.html import format_html
+from django.http import HttpResponseRedirect
 
 from .models import (
     CatererAccount,
@@ -578,6 +580,7 @@ class EstimateAdmin(admin.ModelAdmin):
         "grand_total",
         "is_invoice",
         "print_estimate_button",
+        "workflow_button",
     )
     list_filter = ("event_date", "caterer", "is_invoice")
     search_fields = ("customer_name", "event_type")
@@ -666,8 +669,21 @@ class EstimateAdmin(admin.ModelAdmin):
         "estimate_number",
     )
 
+    actions = ["workflow_bulk_action"]
+
     def get_queryset(self, request):
         return limit_to_user_caterer(super().get_queryset(request), request)
+
+    def workflow_bulk_action(self, request, queryset):
+        ids = list(queryset.values_list("pk", flat=True))
+        if not ids:
+            self.message_user(request, "Select at least one estimate to print workflows.", level=messages.WARNING)
+            return
+        url = reverse("admin:client_estimates_estimate_workflow_bulk")
+        params = ",".join(str(i) for i in ids)
+        return HttpResponseRedirect(f"{url}?ids={params}&print=1")
+
+    workflow_bulk_action.short_description = "Print kitchen workflows"
 
     def get_form(self, request, obj=None, **kwargs):
         """
@@ -795,6 +811,16 @@ class EstimateAdmin(admin.ModelAdmin):
                 self.admin_site.admin_view(self.print_estimate),
                 name="client_estimates_estimate_print",
             ),
+            path(
+                "<int:estimate_id>/workflow/",
+                self.admin_site.admin_view(self.workflow_view),
+                name="client_estimates_estimate_workflow",
+            ),
+            path(
+                "workflow/bulk/",
+                self.admin_site.admin_view(self.workflow_bulk_view),
+                name="client_estimates_estimate_workflow_bulk",
+            ),
         ]
         return custom + urls
 
@@ -803,6 +829,12 @@ class EstimateAdmin(admin.ModelAdmin):
         return format_html('<a class="button" target="_blank" href="{}">Print PDF</a>', url)
 
     print_estimate_button.short_description = "Download"
+
+    def workflow_button(self, obj):
+        url = reverse("admin:client_estimates_estimate_workflow", args=[obj.pk])
+        return format_html('<a class="button" target="_blank" href="{}">Workflow</a>', f"{url}?print=1")
+
+    workflow_button.short_description = "Kitchen"
 
     def print_estimate(self, request, estimate_id):
         estimate = Estimate.objects.select_related("caterer", "caterer__owner").get(pk=estimate_id)
@@ -874,6 +906,78 @@ class EstimateAdmin(admin.ModelAdmin):
             "bank_details": caterer.bank_details,
         }
         return render(request, "admin/estimate_print.html", context)
+
+    def _workflow_payload(self, request, estimate):
+        default_meal = estimate.default_meal_name()
+        choices = (
+            estimate.food_choices.select_related("menu_item", "menu_item__category")
+            .order_by("menu_item__category__sort_order", "menu_item__category__name", "menu_item__name")
+        )
+        grouped = defaultdict(list)
+        for choice in choices:
+            meal_name = choice.meal_name or default_meal
+            category = "Chef's Selection"
+            order = 999
+            if choice.menu_item and choice.menu_item.category:
+                category = choice.menu_item.category.name
+                order = choice.menu_item.category.sort_order or order
+            grouped[(order, category)].append(
+                {
+                    "item": choice.menu_item.name if choice.menu_item else "",
+                    "meal": meal_name,
+                    "notes": choice.notes,
+                }
+            )
+        sections = []
+        for (order, category), rows in sorted(grouped.items(), key=lambda x: (x[0][0], x[0][1])):
+            sections.append({"category": category, "items": rows})
+
+        extras = estimate.extra_lines.select_related("extra_item").order_by("extra_item__category", "extra_item__name")
+
+        logo_url = None
+        if estimate.caterer.brand_logo:
+            logo_url = request.build_absolute_uri(estimate.caterer.brand_logo.url)
+
+        return {
+            "estimate": estimate,
+            "sections": sections,
+            "extras": extras,
+            "logo_url": logo_url,
+            "primary_color": estimate.caterer.brand_primary_color or "#0f172a",
+            "accent_color": estimate.caterer.brand_accent_color or "#b08c6d",
+        }
+
+    def workflow_view(self, request, estimate_id):
+        estimate = Estimate.objects.select_related("caterer", "caterer__owner").get(pk=estimate_id)
+        if not request.user.is_superuser and estimate.caterer.owner != request.user:
+            raise PermissionDenied("You do not have access to this estimate.")
+        payload = self._workflow_payload(request, estimate)
+        return render(
+            request,
+            "admin/estimate_workflow.html",
+            {"workflows": [payload], "auto_print": request.GET.get("print") == "1"},
+        )
+
+    def workflow_bulk_view(self, request):
+        ids = request.GET.get("ids", "")
+        id_list = [int(pk) for pk in ids.split(",") if pk.isdigit()]
+        qs = Estimate.objects.select_related("caterer", "caterer__owner")
+        if not request.user.is_superuser:
+            qs = qs.filter(caterer__owner=request.user)
+        estimates = list(qs.filter(pk__in=id_list).order_by("event_date"))
+        if not estimates:
+            self.message_user(
+                request,
+                "No estimates found for workflow printing.",
+                level=messages.WARNING,
+            )
+            return redirect("admin:client_estimates_estimate_changelist")
+        payloads = [self._workflow_payload(request, estimate) for estimate in estimates]
+        return render(
+            request,
+            "admin/estimate_workflow.html",
+            {"workflows": payloads, "auto_print": request.GET.get("print") == "1"},
+        )
 
     def response_change(self, request, obj):
         if "_convert_to_invoice" in request.POST:

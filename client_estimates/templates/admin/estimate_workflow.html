@@ -1,0 +1,158 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Kitchen Workflow</title>
+    <style>
+        body {
+            font-family: "Inter", "Helvetica Neue", Arial, sans-serif;
+            background: #f5f5f7;
+            margin: 0;
+            padding: 1.5rem;
+        }
+        .sheet {
+            background: #fff;
+            border-radius: 16px;
+            padding: 1.5rem 2rem;
+            margin-bottom: 2rem;
+            box-shadow: 0 15px 35px rgba(15, 23, 42, 0.15);
+        }
+        .sheet h1 {
+            margin: 0;
+            font-size: 1.75rem;
+        }
+        .meta {
+            margin-top: 1rem;
+            font-size: 0.95rem;
+            color: #475569;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 1rem 2rem;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 1.25rem;
+        }
+        th {
+            text-align: left;
+            background: #f1f5f9;
+            color: #0f172a;
+        }
+        th, td {
+            padding: 0.65rem;
+            border: 1px solid #e2e8f0;
+            font-size: 0.92rem;
+        }
+        .status-cell {
+            width: 80px;
+            text-align: center;
+        }
+        .checkbox {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid #94a3b8;
+            border-radius: 3px;
+        }
+        .section-title {
+            margin-top: 2rem;
+            font-size: 1.2rem;
+        }
+        .logo {
+            max-height: 80px;
+        }
+        @media print {
+            body {
+                background: #fff;
+                padding: 0;
+            }
+            .sheet {
+                box-shadow: none;
+                border-radius: 0;
+                page-break-after: always;
+            }
+            .sheet:last-child {
+                page-break-after: auto;
+            }
+        }
+    </style>
+</head>
+<body {% if auto_print %}onload="window.print()" {% endif %}>
+    {% for sheet in workflows %}
+        <div class="sheet">
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+                <div>
+                    <h1>Kitchen Workflow</h1>
+                    <p style="margin:0;color:#64748b;">{{ sheet.estimate.caterer.name }}</p>
+                </div>
+                {% if sheet.logo_url %}
+                    <img class="logo" src="{{ sheet.logo_url }}" alt="Logo">
+                {% endif %}
+            </div>
+            <div class="meta">
+                <div><strong>Client:</strong> {{ sheet.estimate.customer_name }}</div>
+                <div><strong>Event:</strong> {{ sheet.estimate.event_type }}</div>
+                <div><strong>Date:</strong> {{ sheet.estimate.event_date|date:"M j, Y" }}</div>
+                <div><strong>Guest count:</strong> {{ sheet.estimate.guest_count }}</div>
+                <div><strong>Location:</strong> {{ sheet.estimate.event_location }}</div>
+            </div>
+
+            {% for section in sheet.sections %}
+                <h3 class="section-title">{{ section.category }}</h3>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Menu Item</th>
+                            <th>Meal</th>
+                            <th>Notes</th>
+                            <th class="status-cell">Shop</th>
+                            <th class="status-cell">Prep</th>
+                            <th class="status-cell">Cook</th>
+                            <th class="status-cell">On Site</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in section.items %}
+                            <tr>
+                                <td>{{ item.item }}</td>
+                                <td>{{ item.meal }}</td>
+                                <td>{{ item.notes }}</td>
+                                <td class="status-cell"><span class="checkbox"></span></td>
+                                <td class="status-cell"><span class="checkbox"></span></td>
+                                <td class="status-cell"><span class="checkbox"></span></td>
+                                <td class="status-cell"><span class="checkbox"></span></td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            {% endfor %}
+
+            {% if sheet.extras %}
+                <h3 class="section-title">Extras & Rentals</h3>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Category</th>
+                            <th>Notes</th>
+                            <th class="status-cell">Packed</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for extra in sheet.extras %}
+                            <tr>
+                                <td>{{ extra.extra_item.name }}</td>
+                                <td>{{ extra.extra_item.category }}</td>
+                                <td>{{ extra.notes }}</td>
+                                <td class="status-cell"><span class="checkbox"></span></td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            {% endif %}
+        </div>
+    {% endfor %}
+</body>
+</html>

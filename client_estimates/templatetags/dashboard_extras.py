@@ -1,6 +1,7 @@
 import random
 from django import template
 from django.utils import timezone
+from django.urls import reverse
 
 from client_estimates.models import (
     CatererAccount,
@@ -66,6 +67,8 @@ def get_dashboard_data(context):
     inquiries = []
     tasks = []
 
+    public_inquiry_url = None
+
     if selected_account:
         inquiries = list(
             selected_account.inquiries.filter(status="NEW").order_by("-created_at")[:5]
@@ -73,6 +76,13 @@ def get_dashboard_data(context):
         tasks = list(
             selected_account.tasks.filter(completed=False).order_by("due_date")[:6]
         )
+        if selected_account.slug:
+            try:
+                public_inquiry_url = request.build_absolute_uri(
+                    reverse("public_inquiry", kwargs={"caterer_slug": selected_account.slug})
+                )
+            except Exception:
+                public_inquiry_url = None
 
     return {
         "account": selected_account,
@@ -81,6 +91,7 @@ def get_dashboard_data(context):
         "inquiries": inquiries,
         "tasks": tasks,
         "user": user,
+        "public_inquiry_url": public_inquiry_url,
     }
 
 

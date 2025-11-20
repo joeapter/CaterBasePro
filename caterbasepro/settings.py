@@ -54,6 +54,8 @@ CSRF_TRUSTED_ORIGINS = os.getenv(
     default_csrf_trusted,
 ).split()
 
+PUBLIC_BASE_DOMAIN = os.getenv("PUBLIC_BASE_DOMAIN", "caterbasepro.com")
+
 
 # Application definition
 
