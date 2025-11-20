@@ -1,9 +1,9 @@
 {% extends "admin/change_list.html" %}
 {% block object-tools-items %}
 <li>
-    <a href="{% url 'admin:menu-upload-csv' %}" class="historylink">Upload Menu (CSV)</a>
+    <a href="{% url 'admin:menu-upload-csv' %}" class="button button-secondary">Upload Menu (CSV)</a>
 </li>
 <li>
-    <a href="{% url 'admin:client_estimates_menuitem_add' %}" class="addlink">Add Menu Item</a>
+    <a href="{% url 'admin:client_estimates_menuitem_add' %}" class="button button-primary">Add Menu Item</a>
 </li>
 {% endblock %}
