@@ -1,42 +1,36 @@
-{% load i18n l10n admin_urls static %}
-
-{% if fieldset.name %}
-<div class="card mb-3">
-    <div class="card-header">
-        <div class="card-title">{{ fieldset.name }}</div>
-    </div>
-    <div class="card-body">
-{% endif %}
-
+<fieldset class="module aligned {{ fieldset.classes }}">
+    {% if fieldset.name %}<h2>{{ fieldset.name }}</h2>{% endif %}
+    {% if fieldset.description %}
+        <div class="description">{{ fieldset.description|safe }}</div>
+    {% endif %}
     {% for line in fieldset %}
-    {% with line_field_count=line.fields|length %}
-    <div class="form-group {% if line_field_count == 1 and line.errors %}errors{% endif %}{% if not line.has_visible_field %} hidden{% endif %}{% for field in line %}{% if field.field.name %} field-{{ field.field.name }}{% endif %}{% endfor %}">
-        <div class="row">
+        {% with line_field_count=line.fields|length %}
+        <div class="form-row{% if line_field_count == 1 and line.errors %} errors{% endif %}{% if not line.has_visible_field %} hidden{% endif %}{% for field in line %}{% if field.field.name %} field-{{ field.field.name }}{% endif %}{% endfor %}">
+            {% if line_field_count == 1 %}{{ line.errors }}{% else %}<div class="flex-container form-multiline">{% endif %}
             {% for field in line %}
-                <label class="{% if line_field_count != 1 and not forloop.first %}col-auto{% else %}col-sm-3{% endif %} text-left" for="id_{{ field.field.name }}">
-                    {{ field.field.label|capfirst }}
-                    {% if field.field.field.required %}
-                    <span class="text-red">*</span>
-                    {% endif %}
-                </label>
-                <div class="{% if line_field_count != 1 %}col-auto fieldBox{% else %}col-sm-7{% endif %}{% if field.field.name %} field-{{ field.field.name }}{% endif %}">
-                    {{ field.field }}
+                <div>
+                    {% if not line_field_count == 1 and not field.is_readonly %}{{ field.errors }}{% endif %}
+                        <div class="flex-container{% if not line_field_count == 1 %} fieldBox{% if field.field.name %} field-{{ field.field.name }}{% endif %}{% if not field.is_readonly and field.errors %} errors{% endif %}{% if field.field.is_hidden %} hidden{% endif %}{% elif field.is_checkbox %} checkbox-row{% endif %}">
+                            {% if field.is_checkbox %}
+                                {{ field.field }}{{ field.label_tag }}
+                            {% else %}
+                                {{ field.label_tag }}
+                                {% if field.is_readonly %}
+                                    <div class="readonly">{{ field.contents }}</div>
+                                {% else %}
+                                    {{ field.field }}
+                                {% endif %}
+                            {% endif %}
+                        </div>
                     {% if field.field.help_text %}
-                        <p class="help">{{ field.field.help_text|safe }}</p>
+                        <div class="help"{% if field.field.id_for_label %} id="{{ field.field.id_for_label }}_helptext"{% endif %}>
+                            <div>{{ field.field.help_text|safe }}</div>
+                        </div>
                     {% endif %}
                 </div>
             {% endfor %}
+            {% if not line_field_count == 1 %}</div>{% endif %}
         </div>
-        {% if line.errors %}
-            <div class="text-danger small">
-                {{ line.errors }}
-            </div>
-        {% endif %}
-    </div>
-    {% endwith %}
+        {% endwith %}
     {% endfor %}
-
-{% if fieldset.name %}
-    </div>
-</div>
-{% endif %}
+</fieldset>

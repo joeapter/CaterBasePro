@@ -55,7 +55,7 @@ def parse_meal_plan(raw_value):
 class CatererAccountAdmin(admin.ModelAdmin):
     list_display = ("name", "owner", "default_currency")
     search_fields = ("name",)
-    fieldsets = (
+    base_fieldsets = (
         (
             "Company Basics",
             {
@@ -116,6 +116,13 @@ class CatererAccountAdmin(admin.ModelAdmin):
             },
         ),
     )
+    fieldsets = base_fieldsets
+
+    def get_fieldsets(self, request, obj=None):
+        fieldsets = list(self.base_fieldsets)
+        if request.user.is_superuser:
+            return fieldsets
+        return [fs for fs in fieldsets if fs[0] != "Dashboard Messaging"]
 
     def get_queryset(self, request):
         qs = super().get_queryset(request)
