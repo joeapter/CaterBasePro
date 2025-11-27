@@ -18,12 +18,12 @@ from django.conf import settings
 from django.conf.urls.static import static
 from django.contrib import admin
 from django.urls import path
-from django.views.generic import RedirectView
+from django.views.generic import TemplateView
 
 from client_estimates.views import new_client_inquiry
 
 urlpatterns = [
-    path('', RedirectView.as_view(pattern_name='admin:index', permanent=False)),
+    path('', TemplateView.as_view(template_name="marketing/landing.html"), name="marketing_home"),
     path('new-client-inquiry/', new_client_inquiry, name='public_inquiry_no_slug'),
     path('new-client-inquiry/<slug:caterer_slug>/', new_client_inquiry, name='public_inquiry'),
     path('admin/', admin.site.urls),
