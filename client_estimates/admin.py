@@ -711,6 +711,27 @@ class EstimateAdmin(admin.ModelAdmin):
 
     workflow_bulk_action.short_description = "Print kitchen workflows"
 
+    def get_changeform_initial_data(self, request):
+        initial = super().get_changeform_initial_data(request)
+        inquiry_id = request.GET.get("client_inquiry")
+        if inquiry_id:
+            try:
+                inquiry = ClientInquiry.objects.select_related("caterer", "caterer__owner").get(pk=inquiry_id)
+            except ClientInquiry.DoesNotExist:
+                pass
+            else:
+                if request.user.is_superuser or inquiry.caterer.owner == request.user:
+                    initial.setdefault("caterer", inquiry.caterer)
+                    initial.setdefault("customer_name", inquiry.contact_name)
+                    initial.setdefault("customer_phone", inquiry.phone)
+                    initial.setdefault("customer_email", inquiry.email)
+                    initial.setdefault("event_type", inquiry.event_type)
+                    if inquiry.event_date:
+                        initial.setdefault("event_date", inquiry.event_date)
+                    if inquiry.notes:
+                        initial.setdefault("notes_internal", inquiry.notes)
+        return initial
+
     def get_form(self, request, obj=None, **kwargs):
         """
         Inject `request` into the form so it can know which caterer/user.

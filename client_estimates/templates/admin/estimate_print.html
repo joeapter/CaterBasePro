@@ -65,9 +65,9 @@
         }
         .estimate-sheet[class*="sheet-bg--"] {
             background-color: rgba(255,255,255,0.92);
-            background-position: center top;
-            background-size: 100% 100%;
             background-repeat: repeat-y;
+            background-position: center top;
+            background-size: cover;
             background-attachment: local;
         }
         .sheet-header {
@@ -129,14 +129,12 @@
             letter-spacing: .05em;
             text-transform: uppercase;
         }
-        section { margin-bottom: 26px; page-break-inside: avoid; break-inside: avoid; }
+        section { margin-bottom: 26px; }
         .info-row {
             display: flex;
             justify-content: space-between;
             gap: 28px;
             margin-bottom: 24px;
-            page-break-inside: avoid;
-            break-inside: avoid;
         }
         .info-card {
             width: 50%;
@@ -183,8 +181,6 @@
             background: rgba(255,255,255,0.9);
             margin-bottom: 18px;
             box-shadow: inset 0 1px 0 rgba(255,255,255,0.7);
-            page-break-inside: avoid;
-            break-inside: avoid;
         }
         .meal-card header {
             border-bottom: 1px solid rgba(15,23,42,0.08);
@@ -202,8 +198,6 @@
             list-style: none;
             margin: 0;
             padding: 0;
-            page-break-inside: avoid;
-            break-inside: avoid;
         }
         .meal-category li {
             padding: 7px 0;
@@ -230,8 +224,6 @@
             width: 100%;
             border-collapse: collapse;
             font-size: 14px;
-            page-break-inside: avoid;
-            break-inside: avoid;
         }
         .info-table th,
         .info-table td,
@@ -253,8 +245,6 @@
             padding: 18px;
             background: rgba(255,255,255,0.9);
             line-height: 1.6;
-            page-break-inside: avoid;
-            break-inside: avoid;
         }
         .contract {
             border: 1px dashed rgba(15,23,42,0.25);
@@ -263,8 +253,6 @@
             background: rgba(248,248,250,0.9);
             line-height: 1.6;
             font-size: 14px;
-            page-break-inside: avoid;
-            break-inside: avoid;
         }
         .signature-line {
             border-bottom: 1px solid #0f172a;
@@ -281,10 +269,6 @@
         @media print {
             body { padding: 0; }
             .estimate-sheet { box-shadow: none; border-radius: 0; }
-            .estimate-sheet[class*="sheet-bg--"] {
-                background-repeat: repeat;
-                background-size: 100% 100%;
-            }
             .page-number {
                 display: block;
                 position: fixed;
