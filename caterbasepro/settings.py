@@ -56,6 +56,10 @@ CSRF_TRUSTED_ORIGINS = os.getenv(
 
 PUBLIC_BASE_DOMAIN = os.getenv("PUBLIC_BASE_DOMAIN", "caterbasepro.com")
 DATA_UPLOAD_MAX_NUMBER_FIELDS = int(os.getenv("DATA_UPLOAD_MAX_NUMBER_FIELDS", "20000"))
+STRIPE_PRICE_ID = os.getenv(
+    "STRIPE_PRICE_ID",
+    "price_1SXzJuQbAlpqdH44DzmNMrbU",
+)
 
 
 # Application definition
