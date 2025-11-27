@@ -695,7 +695,7 @@ class EstimateAdmin(admin.ModelAdmin):
         "estimate_number",
     )
 
-    actions = ["workflow_bulk_action"]
+    actions = ["delete_selected", "workflow_bulk_action"]
 
     def get_queryset(self, request):
         return limit_to_user_caterer(super().get_queryset(request), request)
