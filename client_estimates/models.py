@@ -713,6 +713,53 @@ class EstimateExtraItem(models.Model):
         return f"{self.extra_item.name} for {self.estimate}"
 
 
+class TastingAppointment(models.Model):
+    """
+    Scheduler entry for tastings or meetings.
+    """
+
+    TYPE_CHOICES = [
+        ("TASTING", "Tasting"),
+        ("MEETING", "Meeting"),
+    ]
+    STATUS_CHOICES = [
+        ("SCHEDULED", "Scheduled"),
+        ("COMPLETED", "Completed"),
+        ("CANCELED", "Canceled"),
+    ]
+
+    caterer = models.ForeignKey(
+        CatererAccount, on_delete=models.CASCADE, related_name="appointments"
+    )
+    estimate = models.ForeignKey(
+        Estimate,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="appointments",
+        help_text="Optional link to an estimate so client info stays in sync.",
+    )
+    title = models.CharField(max_length=200)
+    start_at = models.DateTimeField()
+    duration_minutes = models.PositiveIntegerField(default=60)
+    appointment_type = models.CharField(max_length=20, choices=TYPE_CHOICES, default="TASTING")
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="SCHEDULED")
+    location = models.CharField(max_length=255, blank=True)
+    client_name = models.CharField(max_length=200, blank=True)
+    client_email = models.EmailField(blank=True)
+    client_phone = models.CharField(max_length=50, blank=True)
+    notes = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["start_at"]
+        verbose_name = "Tasting / meeting"
+        verbose_name_plural = "Tastings / meetings"
+
+    def __str__(self):
+        return f"{self.title} ({self.caterer.name})"
+
+
 class ClientProfile(models.Model):
     caterer = models.ForeignKey(
         CatererAccount, on_delete=models.CASCADE, related_name="clients"

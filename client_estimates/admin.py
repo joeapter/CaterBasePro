@@ -29,6 +29,7 @@ from .models import (
     ClientInquiry,
     ClientProfile,
     CatererTask,
+    TastingAppointment,
 )
 
 # ==========================
@@ -252,6 +253,83 @@ class MenuItemAdmin(admin.ModelAdmin):
         if not request.user.is_superuser:
             form.base_fields["caterer"].queryset = CatererAccount.objects.filter(owner=request.user)
         return form
+
+
+@admin.register(TastingAppointment)
+class TastingAppointmentAdmin(admin.ModelAdmin):
+    list_display = (
+        "title",
+        "start_at",
+        "appointment_type",
+        "status",
+        "caterer",
+        "client_name",
+        "estimate",
+    )
+    list_filter = ("appointment_type", "status", "caterer")
+    search_fields = ("title", "client_name", "client_email", "client_phone", "notes")
+    readonly_fields = ("created_at",)
+    ordering = ("start_at",)
+
+    def get_queryset(self, request):
+        return limit_to_user_caterer(super().get_queryset(request), request)
+
+    def get_form(self, request, obj=None, **kwargs):
+        form = super().get_form(request, obj, **kwargs)
+        if not request.user.is_superuser and "caterer" in form.base_fields:
+            form.base_fields["caterer"].queryset = CatererAccount.objects.filter(owner=request.user)
+            form.base_fields["estimate"].queryset = Estimate.objects.filter(caterer__owner=request.user)
+        return form
+
+    def get_changeform_initial_data(self, request):
+        initial = super().get_changeform_initial_data(request)
+        estimate_id = request.GET.get("estimate")
+        if estimate_id:
+            try:
+                estimate = Estimate.objects.select_related("caterer", "caterer__owner").get(pk=estimate_id)
+            except Estimate.DoesNotExist:
+                return initial
+            if request.user.is_superuser or estimate.caterer.owner == request.user:
+                initial.setdefault("caterer", estimate.caterer)
+                initial.setdefault("estimate", estimate)
+                initial.setdefault("client_name", estimate.customer_name)
+                initial.setdefault("client_email", estimate.customer_email)
+                initial.setdefault("client_phone", estimate.customer_phone)
+                initial.setdefault("title", f"Tasting for {estimate.customer_name}")
+        return initial
+
+    def has_view_permission(self, request, obj=None):
+        if request.user.is_superuser:
+            return True
+        if obj is None:
+            return True
+        return obj.caterer.owner == request.user
+
+    def has_change_permission(self, request, obj=None):
+        if request.user.is_superuser:
+            return True
+        return obj and obj.caterer.owner == request.user
+
+    def has_delete_permission(self, request, obj=None):
+        if request.user.is_superuser:
+            return True
+        return obj and obj.caterer.owner == request.user
+
+    def has_add_permission(self, request):
+        if request.user.is_superuser:
+            return True
+        return CatererAccount.objects.filter(owner=request.user).exists()
+
+    def save_model(self, request, obj, form, change):
+        if obj.estimate:
+            obj.caterer = obj.estimate.caterer
+            if not obj.client_name:
+                obj.client_name = obj.estimate.customer_name
+            if not obj.client_email:
+                obj.client_email = obj.estimate.customer_email
+            if not obj.client_phone:
+                obj.client_phone = obj.estimate.customer_phone
+        super().save_model(request, obj, form, change)
 
     def get_urls(self):
         urls = super().get_urls()
@@ -607,6 +685,7 @@ class EstimateAdmin(admin.ModelAdmin):
         "is_invoice",
         "print_estimate_button",
         "workflow_button",
+        "schedule_button",
     )
     list_filter = ("event_date", "caterer", "is_invoice")
     search_fields = ("customer_name", "event_type")
@@ -888,6 +967,16 @@ class EstimateAdmin(admin.ModelAdmin):
         return format_html('<a class="button" target="_blank" href="{}">Workflow</a>', f"{url}?print=1")
 
     workflow_button.short_description = "Kitchen"
+
+    def schedule_button(self, obj):
+        url = reverse("admin:client_estimates_tastingappointment_add")
+        return format_html(
+            '<a class="button" href="{}?estimate={}">Schedule tasting/meeting</a>',
+            url,
+            obj.pk,
+        )
+
+    schedule_button.short_description = "Schedule"
 
     def print_estimate(self, request, estimate_id):
         estimate = Estimate.objects.select_related("caterer", "caterer__owner").get(pk=estimate_id)
