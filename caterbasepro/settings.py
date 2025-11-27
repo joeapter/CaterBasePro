@@ -60,6 +60,10 @@ STRIPE_PRICE_ID = os.getenv(
     "STRIPE_PRICE_ID",
     "price_1SXzJuQbAlpqdH44DzmNMrbU",
 )
+STRIPE_PUBLISHABLE_KEY = os.getenv(
+    "STRIPE_PUBLISHABLE_KEY",
+    "pk_live_51S6X5IQbAlpqdH44yb0hbeAJseFJGoLYmijtZ7DtbRyQvEzsBnZKKV5aImEKyq6cHYlsIgWYBal68OTI7wY5ccWu00BfUDU93P",
+)
 
 
 # Application definition
