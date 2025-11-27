@@ -2,6 +2,7 @@ import logging
 
 from django.conf import settings
 from django.contrib import messages
+from django.core.mail import send_mail
 from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -10,9 +11,58 @@ from django.views.decorators.csrf import csrf_exempt
 import stripe
 
 from .forms import ClientInquiryForm
-from .models import CatererAccount
+from .models import CatererAccount, TrialRequest
 
 logger = logging.getLogger(__name__)
+
+
+def marketing_home(request):
+    if request.method == "POST":
+        name = (request.POST.get("name") or "").strip()
+        email = (request.POST.get("email") or "").strip()
+        phone = (request.POST.get("phone") or "").strip()
+        notes = (request.POST.get("notes") or "").strip()
+
+        if not name:
+            messages.error(request, "Please add your name to start the 30-day trial.")
+            return redirect(reverse("marketing_home") + "#cta")
+
+        trial = TrialRequest.objects.create(
+            name=name,
+            email=email,
+            phone=phone,
+            notes=notes,
+        )
+
+        notify_email = getattr(settings, "TRIAL_NOTIFY_EMAIL", "")
+        if notify_email:
+            subject = f"New 30-day trial request: {trial.name}"
+            body_lines = [
+                f"Name: {trial.name}",
+                f"Email: {trial.email}",
+                f"Phone: {trial.phone}",
+                "",
+                "Notes:",
+                trial.notes or "(none)",
+            ]
+            try:
+                send_mail(
+                    subject=subject,
+                    message="\n".join(body_lines),
+                    from_email=getattr(settings, "DEFAULT_FROM_EMAIL", None),
+                    recipient_list=[notify_email],
+                    fail_silently=True,
+                )
+            except Exception:
+                logger.exception("Failed to send trial notification email.")
+
+        messages.success(
+            request,
+            "Thanks! Your 30-day trial request is in. We’ll reach out shortly to finish setup.",
+        )
+        return redirect(reverse("marketing_home") + "#cta")
+
+    return render(request, "marketing/landing.html")
 
 
 def _get_caterer_from_host(request):

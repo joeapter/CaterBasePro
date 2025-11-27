@@ -20,10 +20,10 @@ from django.contrib import admin
 from django.urls import path
 from django.views.generic import TemplateView
 
-from client_estimates.views import new_client_inquiry, stripe_webhook
+from client_estimates.views import marketing_home, new_client_inquiry, stripe_webhook
 
 urlpatterns = [
-    path('', TemplateView.as_view(template_name="marketing/landing.html"), name="marketing_home"),
+    path('', marketing_home, name="marketing_home"),
     path('new-client-inquiry/', new_client_inquiry, name='public_inquiry_no_slug'),
     path('new-client-inquiry/<slug:caterer_slug>/', new_client_inquiry, name='public_inquiry'),
     path('stripe/webhook/', stripe_webhook, name='stripe_webhook'),

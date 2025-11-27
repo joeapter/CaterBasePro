@@ -30,6 +30,7 @@ from .models import (
     ClientProfile,
     CatererTask,
     TastingAppointment,
+    TrialRequest,
 )
 
 # ==========================
@@ -330,6 +331,14 @@ class TastingAppointmentAdmin(admin.ModelAdmin):
             if not obj.client_phone:
                 obj.client_phone = obj.estimate.customer_phone
         super().save_model(request, obj, form, change)
+
+
+@admin.register(TrialRequest)
+class TrialRequestAdmin(admin.ModelAdmin):
+    list_display = ("name", "email", "phone", "created_at")
+    search_fields = ("name", "email", "phone", "notes")
+    readonly_fields = ("created_at",)
+    ordering = ("-created_at",)
 
     def get_urls(self):
         urls = super().get_urls()

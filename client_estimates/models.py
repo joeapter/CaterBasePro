@@ -760,6 +760,26 @@ class TastingAppointment(models.Model):
         return f"{self.title} ({self.caterer.name})"
 
 
+class TrialRequest(models.Model):
+    """
+    Public 30-day trial request captured from the marketing page.
+    """
+
+    name = models.CharField(max_length=200)
+    email = models.EmailField(blank=True)
+    phone = models.CharField(max_length=50, blank=True)
+    notes = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        verbose_name = "Trial request"
+        verbose_name_plural = "Trial requests"
+
+    def __str__(self):
+        return f"{self.name} ({self.email or self.phone})"
+
+
 class ClientProfile(models.Model):
     caterer = models.ForeignKey(
         CatererAccount, on_delete=models.CASCADE, related_name="clients"

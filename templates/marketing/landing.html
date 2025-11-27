@@ -161,12 +161,22 @@
             <p class="eyebrow">Try it now</p>
             <h2>Free 30-day trial with concierge onboarding.</h2>
             <p class="muted">Tell us how to reach you. We’ll reply on WhatsApp and email with your branded page preview.</p>
+            {% if messages %}
+              <div class="pill-row">
+                {% for message in messages %}
+                  <span class="pill soft" style="background: {% if message.tags == 'error' %}rgba(239,68,68,0.12){% else %}rgba(15,61,99,0.08){% endif %}; color: {% if message.tags == 'error' %}#b91c1c{% else %}#0f3d63{% endif %};">
+                    {{ message }}
+                  </span>
+                {% endfor %}
+              </div>
+            {% endif %}
           <div class="pill-row">
             <span class="pill soft">No credit card</span>
             <span class="pill soft">Free onboarding support</span>
           </div>
         </div>
-          <form class="cta-form" id="cta-form">
+          <form class="cta-form" id="cta-form" method="post" action="#cta">
+            {% csrf_token %}
             <label>
               Name
               <input name="name" type="text" placeholder="Jordan Lee" required>
@@ -181,10 +191,10 @@
             </label>
             <label>
               What do you need help with?
-              <textarea name="notes" rows="3" placeholder="Menu uploads, intake form, Stripe, onboarding for the team"></textarea>
+              <textarea name="notes" rows="3" placeholder="Menu uploads, intake form, payments, onboarding for the team"></textarea>
             </label>
-            <button type="submit" class="btn primary btn-block">Send via WhatsApp</button>
-            <p class="tiny muted">By tapping send we’ll open WhatsApp with a pre-filled message to +972-58-793-9426.</p>
+            <button type="submit" class="btn primary btn-block">Start free 30-day trial</button>
+            <p class="tiny muted">No credit card needed. We’ll confirm on WhatsApp/email.</p>
           </form>
         </div>
       </section>
@@ -213,36 +223,5 @@
     <a class="chat-button" href="https://wa.me/972587939426?text=Hi%20CaterBase%20team%2C%20can%20you%20help%20me%20set%20up%20my%20marketing%20page%3F">Open chat</a>
   </div>
 
-  <script>
-    (function () {
-      function buildMessage(formData) {
-        var name = formData.get("name") || "New CaterBase Pro lead";
-        var email = formData.get("email") || "";
-        var phone = formData.get("phone") || "";
-        var notes = formData.get("notes") || "";
-        var intro = "Hi CaterBase team, I’d like to start the free 30-day trial.";
-        var lines = [
-          intro,
-          "Name: " + name,
-          email ? "Email: " + email : "",
-          phone ? "Phone/WhatsApp: " + phone : "",
-          notes ? "Notes: " + notes : "",
-          "Please brand my marketing page and guide me through onboarding."
-        ].filter(Boolean);
-        return encodeURIComponent(lines.join("\\n"));
-      }
-
-      var form = document.getElementById("cta-form");
-      if (form) {
-        form.addEventListener("submit", function (event) {
-          event.preventDefault();
-          var data = new FormData(form);
-          var msg = buildMessage(data);
-          var url = "https://wa.me/972587939426?text=" + msg;
-          window.open(url, "_blank");
-        });
-      }
-    }());
-  </script>
 </body>
 </html>
