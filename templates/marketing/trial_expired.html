@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Trial expired | CaterBase Pro</title>
+  <style>
+    body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background:#f5f7fa; display:flex; justify-content:center; align-items:center; min-height:100vh; margin:0; color:#0f2f4f; }
+    .panel { background:#fff; padding:24px; border-radius:16px; box-shadow:0 16px 32px rgba(15,61,99,0.12); width:min(520px, 94vw); border:1px solid rgba(95,112,131,0.16); }
+    h1 { margin:0 0 10px; }
+    p { margin:0 0 12px; color:#4f6073; }
+    .btn { display:inline-block; padding:12px 16px; background:linear-gradient(135deg,#1d6ea2,#0f3d63); color:#fff; border-radius:12px; text-decoration:none; font-weight:800; box-shadow:0 12px 24px rgba(15,61,99,0.18); }
+    .muted { color:#4f6073; }
+  </style>
+</head>
+<body>
+  <div class="panel">
+    <h1>Your 30-day trial has ended</h1>
+    <p class="muted">To keep using CaterBase Pro, please activate your account.</p>
+    {% if payment_url %}
+      <a class="btn" href="{{ payment_url }}">Activate account</a>
+    {% else %}
+      <p class="muted">Contact us to activate: <a href="mailto:caterbasepro@gmail.com">caterbasepro@gmail.com</a></p>
+    {% endif %}
+    <p class="muted">Need help? Ping us on WhatsApp: <a href="https://wa.me/972587939426">+972-58-793-9426</a></p>
+  </div>
+</body>
+</html>

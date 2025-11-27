@@ -1,7 +1,9 @@
 import logging
 
+from django import forms
 from django.conf import settings
 from django.contrib import messages
+from django.contrib.auth import get_user_model, login
 from django.core.mail import send_mail
 from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -14,6 +16,30 @@ from .forms import ClientInquiryForm
 from .models import CatererAccount, TrialRequest
 
 logger = logging.getLogger(__name__)
+User = get_user_model()
+
+
+class TrialSignupForm(forms.Form):
+    name = forms.CharField(max_length=200)
+    company_name = forms.CharField(max_length=200)
+    email = forms.EmailField()
+    phone = forms.CharField(max_length=50, required=False)
+    password = forms.CharField(widget=forms.PasswordInput)
+    password_confirm = forms.CharField(widget=forms.PasswordInput)
+
+    def clean_email(self):
+        email = self.cleaned_data["email"].strip().lower()
+        if User.objects.filter(email__iexact=email).exists():
+            raise forms.ValidationError("An account with this email already exists.")
+        return email
+
+    def clean(self):
+        cleaned = super().clean()
+        pwd = cleaned.get("password")
+        pwd2 = cleaned.get("password_confirm")
+        if pwd and pwd2 and pwd != pwd2:
+            self.add_error("password_confirm", "Passwords do not match.")
+        return cleaned
 
 
 def marketing_home(request):
@@ -63,6 +89,39 @@ def marketing_home(request):
         return redirect(reverse("marketing_home") + "#cta")
 
     return render(request, "marketing/landing.html")
+
+
+def start_trial(request):
+    if request.method == "POST":
+        form = TrialSignupForm(request.POST)
+        if form.is_valid():
+            email = form.cleaned_data["email"].strip().lower()
+            user = User.objects.create_user(
+                username=email,
+                email=email,
+                password=form.cleaned_data["password"],
+                first_name=form.cleaned_data["name"],
+                is_staff=True,
+                is_active=True,
+            )
+            CatererAccount.objects.create(
+                name=form.cleaned_data["company_name"],
+                owner=user,
+                primary_contact_name=form.cleaned_data["name"],
+                company_email=email,
+                company_phone=form.cleaned_data.get("phone", ""),
+            )
+            messages.success(request, "Welcome! Your 30-day trial has started.")
+            login(request, user)
+            return redirect("/admin/")
+    else:
+        form = TrialSignupForm()
+    return render(request, "marketing/start_trial.html", {"form": form})
+
+
+def trial_expired(request):
+    payment_url = getattr(settings, "TRIAL_PAYMENT_URL", "")
+    return render(request, "marketing/trial_expired.html", {"payment_url": payment_url})
 
 
 def _get_caterer_from_host(request):

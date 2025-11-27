@@ -1,5 +1,6 @@
 from decimal import Decimal
 import math
+from datetime import timedelta
 
 from django.db import models
 from django.utils import timezone
@@ -159,6 +160,8 @@ class CatererAccount(models.Model):
         blank=True,
         help_text="Optional end datetime for the dashboard message.",
     )
+    trial_started_at = models.DateTimeField(null=True, blank=True)
+    trial_expires_at = models.DateTimeField(null=True, blank=True)
     slug = models.SlugField(
         unique=True,
         blank=True,
@@ -189,6 +192,11 @@ class CatererAccount(models.Model):
                 slug_candidate = f"{base_slug}-{counter}"
                 counter += 1
             self.slug = slug_candidate
+        now = timezone.now()
+        if not self.trial_started_at:
+            self.trial_started_at = now
+        if not self.trial_expires_at and self.trial_started_at:
+            self.trial_expires_at = self.trial_started_at + timedelta(days=30)
         super().save(*args, **kwargs)
 
 
@@ -778,6 +786,21 @@ class TrialRequest(models.Model):
 
     def __str__(self):
         return f"{self.name} ({self.email or self.phone})"
+
+
+class TrialPaymentLink(models.Model):
+    """
+    Optional payment link for expired trials.
+    """
+
+    caterer = models.OneToOneField(
+        CatererAccount, on_delete=models.CASCADE, related_name="trial_payment_link"
+    )
+    url = models.URLField(help_text="Payment link to restart after trial.")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.caterer.name} payment link"
 
 
 class ClientProfile(models.Model):

@@ -1,0 +1,65 @@
+{% load static %}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Start Trial | CaterBase Pro</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root { font-family: 'Manrope', 'Segoe UI', system-ui, -apple-system, sans-serif; color:#0f2f4f; }
+    body { margin:0; background:#f5f7fa; display:flex; align-items:center; justify-content:center; min-height:100vh; }
+    .card { width: min(520px, 94vw); background:#fff; border-radius:18px; padding:22px; box-shadow:0 16px 36px rgba(15,61,99,0.12); border:1px solid rgba(95,112,131,0.15); }
+    h1 { margin:0 0 10px; }
+    p { margin:0 0 14px; color:#4f6073; }
+    form { display:grid; gap:12px; }
+    label { font-weight:700; color:#0f3d63; font-size:0.95rem; }
+    input { width:100%; padding:11px 12px; border-radius:10px; border:1px solid rgba(95,112,131,0.3); font-size:1rem; }
+    input:focus { outline:none; border-color:#1d6ea2; box-shadow:0 0 0 3px rgba(89,168,255,0.25); }
+    .btn { background:linear-gradient(135deg,#1d6ea2,#0f3d63); color:#fff; border:none; border-radius:12px; padding:12px 16px; font-weight:800; cursor:pointer; box-shadow:0 12px 24px rgba(15,61,99,0.18); }
+    .errors { background:rgba(239,68,68,0.08); border:1px solid rgba(239,68,68,0.3); border-radius:12px; padding:12px; color:#b91c1c; }
+    .back { display:inline-block; margin-bottom:12px; color:#0f3d63; text-decoration:none; font-weight:700; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <a class="back" href="/">← Back</a>
+    <h1>Start your 30-day trial</h1>
+    <p>No credit card needed. We’ll set up your workspace and import menus.</p>
+    {% if form.errors %}
+      <div class="errors">
+        <ul>
+          {% for field in form %}
+            {% for error in field.errors %}<li>{{ error }}</li>{% endfor %}
+          {% endfor %}
+          {% for error in form.non_field_errors %}<li>{{ error }}</li>{% endfor %}
+        </ul>
+      </div>
+    {% endif %}
+    <form method="post">
+      {% csrf_token %}
+      <label>Full name
+        <input type="text" name="name" value="{{ form.name.value }}" required>
+      </label>
+      <label>Company name
+        <input type="text" name="company_name" value="{{ form.company_name.value }}" required>
+      </label>
+      <label>Work email
+        <input type="email" name="email" value="{{ form.email.value }}" required>
+      </label>
+      <label>Phone / WhatsApp (optional)
+        <input type="text" name="phone" value="{{ form.phone.value }}">
+      </label>
+      <label>Password
+        <input type="password" name="password" required>
+      </label>
+      <label>Confirm password
+        <input type="password" name="password_confirm" required>
+      </label>
+      <button class="btn" type="submit">Create trial account</button>
+    </form>
+  </div>
+</body>
+</html>

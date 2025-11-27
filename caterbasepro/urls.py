@@ -20,10 +20,12 @@ from django.contrib import admin
 from django.urls import path
 from django.views.generic import TemplateView
 
-from client_estimates.views import marketing_home, new_client_inquiry, stripe_webhook
+from client_estimates.views import marketing_home, new_client_inquiry, stripe_webhook, start_trial, trial_expired
 
 urlpatterns = [
     path('', marketing_home, name="marketing_home"),
+    path('start-trial/', start_trial, name='start_trial'),
+    path('trial-expired/', trial_expired, name='trial_expired'),
     path('new-client-inquiry/', new_client_inquiry, name='public_inquiry_no_slug'),
     path('new-client-inquiry/<slug:caterer_slug>/', new_client_inquiry, name='public_inquiry'),
     path('stripe/webhook/', stripe_webhook, name='stripe_webhook'),
