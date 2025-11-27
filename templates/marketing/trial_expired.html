@@ -12,15 +12,22 @@
     .btn { display:inline-block; padding:12px 16px; background:linear-gradient(135deg,#1d6ea2,#0f3d63); color:#fff; border-radius:12px; text-decoration:none; font-weight:800; box-shadow:0 12px 24px rgba(15,61,99,0.18); }
     .muted { color:#4f6073; }
   </style>
+  <script async src="https://js.stripe.com/v3/buy-button.js"></script>
 </head>
 <body>
   <div class="panel">
     <h1>Your 30-day trial has ended</h1>
     <p class="muted">To keep using CaterBase Pro, please activate your account.</p>
+    <div style="margin:14px 0;">
+      <stripe-buy-button
+        buy-button-id="buy_btn_1SYEjoQbAlpqdH44fSD4Usc6"
+        publishable-key="pk_live_51S6X5IQbAlpqdH44yb0hbeAJseFJGoLYmijtZ7DtbRyQvEzsBnZKKV5aImEKyq6cHYlsIgWYBal68OTI7wY5ccWu00BfUDU93P">
+      </stripe-buy-button>
+    </div>
     {% if payment_url %}
-      <a class="btn" href="{{ payment_url }}">Activate account</a>
+      <p class="muted">If the button above doesn’t load, use this link: <a href="{{ payment_url }}">{{ payment_url }}</a></p>
     {% else %}
-      <p class="muted">Contact us to activate: <a href="mailto:caterbasepro@gmail.com">caterbasepro@gmail.com</a></p>
+      <p class="muted">If the button above doesn’t load, use this link: <a href="https://buy.stripe.com/28E3cxa4q1dL1pEg0q00001">Activate account</a></p>
     {% endif %}
     <p class="muted">Need help? Ping us on WhatsApp: <a href="https://wa.me/972587939426">+972-58-793-9426</a></p>
   </div>
