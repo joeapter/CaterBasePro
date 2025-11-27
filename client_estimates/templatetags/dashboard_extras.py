@@ -2,6 +2,7 @@ import random
 from django import template
 from django.utils import timezone
 from django.urls import reverse
+from django.db import models
 
 from client_estimates.models import (
     CatererAccount,
@@ -10,6 +11,13 @@ from client_estimates.models import (
 )
 
 register = template.Library()
+
+PIPELINE_STATES = [
+    ("NEW", "New"),
+    ("IN_PROGRESS", "In progress"),
+    ("WON", "Won"),
+    ("LOST", "Lost"),
+]
 
 COMPLIMENTS = [
     "Hey {name}, you are great at your job!",
@@ -68,6 +76,7 @@ def get_dashboard_data(context):
     tasks = []
 
     public_inquiry_url = None
+    pipeline = []
 
     if selected_account:
         inquiries = list(
@@ -76,6 +85,23 @@ def get_dashboard_data(context):
         tasks = list(
             selected_account.tasks.filter(completed=False).order_by("due_date")[:6]
         )
+        counts = {code: 0 for code, _ in PIPELINE_STATES}
+        for row in (
+            selected_account.inquiries.values("status")
+            .order_by()
+            .annotate(total=models.Count("id"))
+        ):
+            counts[row["status"]] = row["total"]
+        total_inquiries = sum(counts.values()) or 1  # avoid zero division
+        pipeline = [
+            {
+                "code": code,
+                "label": label,
+                "count": counts.get(code, 0),
+                "percent": round((counts.get(code, 0) / total_inquiries) * 100),
+            }
+            for code, label in PIPELINE_STATES
+        ]
         if selected_account.slug:
             try:
                 public_inquiry_url = request.build_absolute_uri(
@@ -92,6 +118,7 @@ def get_dashboard_data(context):
         "tasks": tasks,
         "user": user,
         "public_inquiry_url": public_inquiry_url,
+        "pipeline": pipeline,
     }
 
 
