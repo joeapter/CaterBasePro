@@ -7,3 +7,4 @@ psycopg2-binary==2.9.11
 sqlparse==0.5.3
 whitenoise==6.11.0
 django-jazzmin==3.0.0
+stripe==10.10.0
