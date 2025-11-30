@@ -1130,6 +1130,66 @@ class EstimateAdmin(admin.ModelAdmin):
             {"workflows": payloads, "auto_print": request.GET.get("print") == "1"},
         )
 
+    def _create_inline_menu_items(self, request):
+        if request.method != "POST":
+            return
+        caterer_id = request.POST.get("caterer")
+        if not caterer_id:
+            return
+        try:
+            caterer = CatererAccount.objects.get(pk=caterer_id)
+        except CatererAccount.DoesNotExist:
+            return
+
+        created = 0
+        for key, value in request.POST.items():
+            if not key.startswith("new_item_name_"):
+                continue
+            raw_cat_id = key.replace("new_item_name_", "")
+            name = (value or "").strip()
+            if not name:
+                continue
+            desc = (request.POST.get(f"new_item_description_{raw_cat_id}", "") or "").strip()
+            cost_raw = (request.POST.get(f"new_item_cost_{raw_cat_id}", "") or "0").strip()
+            markup_raw = (request.POST.get(f"new_item_markup_{raw_cat_id}", "") or str(caterer.default_food_markup or "3.00")).strip()
+            servings_raw = (request.POST.get(f"new_item_servings_{raw_cat_id}", "") or "1").strip()
+
+            try:
+                cost = Decimal(cost_raw)
+            except InvalidOperation:
+                cost = Decimal("0.00")
+            try:
+                markup = Decimal(markup_raw)
+            except InvalidOperation:
+                markup = Decimal("3.00")
+            try:
+                servings = Decimal(servings_raw)
+            except InvalidOperation:
+                servings = Decimal("1.00")
+
+            category = None
+            if raw_cat_id and raw_cat_id.lower() not in {"none", "null"}:
+                category = MenuCategory.objects.filter(pk=raw_cat_id, caterer=caterer).first()
+
+            MenuItem.objects.create(
+                caterer=caterer,
+                category=category,
+                name=name,
+                description=desc,
+                cost_per_serving=cost,
+                markup=markup,
+                default_servings_per_person=servings,
+                is_active=True,
+            )
+            created += 1
+
+        if created:
+            self.message_user(
+                request,
+                f"Added {created} new menu item(s) to the catalog for this caterer.",
+                level=messages.SUCCESS,
+            )
+
     # Override changeform to allow preview actions (apply meal plan) without saving.
     def _changeform_view(self, request, object_id, form_url, extra_context):
         from django.contrib.admin.options import IS_POPUP_VAR, TO_FIELD_VAR
@@ -1171,6 +1231,11 @@ class EstimateAdmin(admin.ModelAdmin):
                 )
 
         fieldsets = self.get_fieldsets(request, obj)
+
+        # Inline "add new menu item" handler before binding the form so new items appear immediately
+        if request.method == "POST":
+            self._create_inline_menu_items(request)
+
         ModelForm = self.get_form(
             request, obj, change=not add, fields=flatten_fieldsets(fieldsets)
         )
