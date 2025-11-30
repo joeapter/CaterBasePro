@@ -586,8 +586,7 @@ class Estimate(models.Model):
         staff = self.calc_staff_total()
         dishes = self.calc_dishes_total()
 
-        guests = Decimal(self.guest_count or 0)
-        food_total = food_pp * guests
+        food_total = self.meal_grand_total()
 
         grand = food_total + extras + staff + dishes
         deposit_rate = (self.deposit_percentage or Decimal("0.00")) / Decimal("100.0")
@@ -645,8 +644,10 @@ class Estimate(models.Model):
                     ch.menu_item.category.name if ch.menu_item.category else "Chef's Selection"
                 )
                 target = categories
-                if ch.menu_item and ch.menu_item.category and "kid" in ch.menu_item.category.name.lower():
-                    target = kids_categories
+                if ch.menu_item and ch.menu_item.category:
+                    cat_name = ch.menu_item.category.name.lower()
+                    if "kid" in cat_name or "child" in cat_name:
+                        target = kids_categories
                 target.setdefault(category_name, []).append(ch)
 
             def _price_for(items):
