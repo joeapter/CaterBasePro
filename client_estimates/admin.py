@@ -715,6 +715,7 @@ class EstimateAdmin(admin.ModelAdmin):
                     "event_date",
                     "event_location",
                     "guest_count",
+                    "guest_count_kids",
                     "include_premium_plastic",
                     "include_premium_tablecloths",
                 ),

@@ -338,6 +338,10 @@ class Estimate(models.Model):
     event_date = models.DateField(default=timezone.now)
     event_location = models.CharField(max_length=255, blank=True)
     guest_count = models.PositiveIntegerField(default=0)
+    guest_count_kids = models.PositiveIntegerField(
+        default=0,
+        help_text="Kids count for separate pricing when using kids menu category.",
+    )
 
     currency = models.CharField(
         max_length=3, choices=CURRENCY_CHOICES, default="ILS"
@@ -612,7 +616,15 @@ class Estimate(models.Model):
         default_meal = plan[0]
         if not self.pk:
             return [
-                {"name": name, "categories": [], "price_per_guest": Decimal("0.00"), "total": Decimal("0.00")}
+                {
+                    "name": name,
+                    "categories": [],
+                    "kids_categories": [],
+                    "price_per_guest": Decimal("0.00"),
+                    "price_per_child": Decimal("0.00"),
+                    "total": Decimal("0.00"),
+                    "kids_total": Decimal("0.00"),
+                }
                 for name in plan
             ]
         choices = list(
@@ -620,24 +632,37 @@ class Estimate(models.Model):
         )
         sections = []
         overrides = self.manual_meal_totals or {}
+        guest_count = Decimal(self.guest_count or 0)
+        guest_count_kids = Decimal(self.guest_count_kids or 0)
         for meal_name in plan:
             meal_choices = [
                 ch for ch in choices if (ch.meal_name or default_meal) == meal_name
             ]
             categories = {}
+            kids_categories = {}
             for ch in meal_choices:
                 category_name = (
                     ch.menu_item.category.name if ch.menu_item.category else "Chef's Selection"
                 )
-                categories.setdefault(category_name, []).append(ch)
+                target = categories
+                if ch.menu_item and ch.menu_item.category and "kid" in ch.menu_item.category.name.lower():
+                    target = kids_categories
+                target.setdefault(category_name, []).append(ch)
 
-            price_pp = Decimal("0.00")
-            for ch in meal_choices:
-                mi = ch.menu_item
-                servings = ch.servings_per_person or mi.default_servings_per_person
-                cost_per_person = mi.cost_per_serving * servings
-                price_pp += cost_per_person * mi.markup
-            price_pp = price_pp.quantize(Decimal("0.01"))
+            def _price_for(items):
+                price_pp_local = Decimal("0.00")
+                for ch in items:
+                    mi = ch.menu_item
+                    servings = ch.servings_per_person or mi.default_servings_per_person
+                    cost_per_person = mi.cost_per_serving * servings
+                    price_pp_local += cost_per_person * mi.markup
+                return price_pp_local.quantize(Decimal("0.01"))
+
+            adult_items = [c for items in categories.values() for c in items]
+            kids_items = [c for items in kids_categories.values() for c in items]
+
+            price_pp = _price_for(adult_items)
+            price_pp_kids = _price_for(kids_items)
             override_value = overrides.get(meal_name)
             if override_value not in (None, ""):
                 try:
@@ -652,8 +677,14 @@ class Estimate(models.Model):
                         {"name": cat, "choices": items}
                         for cat, items in categories.items()
                     ],
+                    "kids_categories": [
+                        {"name": f"{cat} (Kids)", "choices": items}
+                        for cat, items in kids_categories.items()
+                    ],
                     "price_per_guest": price_pp,
-                    "total": (price_pp * Decimal(self.guest_count or 0)).quantize(Decimal("0.01")),
+                    "price_per_child": price_pp_kids,
+                    "total": (price_pp * guest_count).quantize(Decimal("0.01")),
+                    "kids_total": (price_pp_kids * guest_count_kids).quantize(Decimal("0.01")),
                 }
             )
         return sections
@@ -661,7 +692,7 @@ class Estimate(models.Model):
     def meal_grand_total(self):
         total = Decimal("0.00")
         for section in self.meal_sections():
-            total += section["total"]
+            total += section["total"] + section.get("kids_total", Decimal("0.00"))
         return total.quantize(Decimal("0.01")) if total else Decimal("0.00")
 
 

@@ -356,12 +356,32 @@
                                 </ul>
                             </div>
                         {% endfor %}
+                        {% for category in meal.kids_categories %}
+                            <div class="meal-category">
+                                <h4>{{ category.name }}</h4>
+                                <ul>
+                                    {% for choice in category.choices %}
+                                        <li>{{ choice.menu_item.name }}</li>
+                                    {% endfor %}
+                                </ul>
+                            </div>
+                        {% endfor %}
                     {% else %}
                         <p class="no-items">{% translate 'No items selected for this meal.' %}</p>
                     {% endif %}
                     <div class="meal-card-foot">
-                        <span>{{ meal.price_per_guest }} {{ estimate.currency }} / {% translate 'guest' %}</span>
-                        <span>{% translate 'Total' %} {{ meal.total }} {{ estimate.currency }}</span>
+                        <div>
+                            <div>{{ meal.price_per_guest }} {{ estimate.currency }} / {% translate 'guest' %}</div>
+                            {% if meal.price_per_child and meal.kids_total %}
+                                <div>{{ meal.price_per_child }} {{ estimate.currency }} / {% translate 'child' %}</div>
+                            {% endif %}
+                        </div>
+                        <div style="text-align:right;">
+                            <div>{% translate 'Total' %} {{ meal.total }} {{ estimate.currency }}</div>
+                            {% if meal.kids_total %}
+                                <div>{% translate 'Kids total' %} {{ meal.kids_total }} {{ estimate.currency }}</div>
+                            {% endif %}
+                        </div>
                     </div>
                 </article>
             {% endfor %}
@@ -429,6 +449,13 @@
                             <td style="text-align:right;">{{ meal.price_per_guest }} {{ estimate.currency }}</td>
                             <td style="text-align:right;">{{ meal.total }} {{ estimate.currency }}</td>
                         </tr>
+                        {% if meal.kids_total %}
+                            <tr>
+                                <td style="text-align:left;">{{ meal.name }} – {% translate 'Kids' %}</td>
+                                <td style="text-align:right;">{{ meal.price_per_child }} {{ estimate.currency }}</td>
+                                <td style="text-align:right;">{{ meal.kids_total }} {{ estimate.currency }}</td>
+                            </tr>
+                        {% endif %}
                     {% endfor %}
                 </tbody>
             </table>
