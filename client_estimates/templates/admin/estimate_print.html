@@ -356,16 +356,18 @@
                                 </ul>
                             </div>
                         {% endfor %}
+                    {% if meal.kids_total %}
                         {% for category in meal.kids_categories %}
-                            <div class="meal-category">
-                                <h4>{{ category.name }}</h4>
-                                <ul>
-                                    {% for choice in category.choices %}
-                                        <li>{{ choice.menu_item.name }}</li>
-                                    {% endfor %}
-                                </ul>
-                            </div>
-                        {% endfor %}
+                                <div class="meal-category">
+                                    <h4>{{ category.name }}</h4>
+                                    <ul>
+                                        {% for choice in category.choices %}
+                                            <li>{{ choice.menu_item.name }}</li>
+                                        {% endfor %}
+                                    </ul>
+                                </div>
+                            {% endfor %}
+                    {% endif %}
                     {% else %}
                         <p class="no-items">{% translate 'No items selected for this meal.' %}</p>
                     {% endif %}
