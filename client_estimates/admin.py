@@ -694,6 +694,7 @@ class EstimateAdmin(admin.ModelAdmin):
         "is_invoice",
         "print_estimate_button",
         "workflow_button",
+        "flat_print_button",
         "schedule_button",
     )
     list_filter = ("event_date", "caterer", "is_invoice")
@@ -954,6 +955,11 @@ class EstimateAdmin(admin.ModelAdmin):
                 name="client_estimates_estimate_print",
             ),
             path(
+                "<int:estimate_id>/print-flat/",
+                self.admin_site.admin_view(self.print_estimate_flat),
+                name="client_estimates_estimate_print_flat",
+            ),
+            path(
                 "<int:estimate_id>/workflow/",
                 self.admin_site.admin_view(self.workflow_view),
                 name="client_estimates_estimate_workflow",
@@ -977,6 +983,12 @@ class EstimateAdmin(admin.ModelAdmin):
         return format_html('<a class="button" target="_blank" href="{}">Workflow</a>', f"{url}?print=1")
 
     workflow_button.short_description = "Kitchen"
+
+    def flat_print_button(self, obj):
+        url = reverse("admin:client_estimates_estimate_print_flat", args=[obj.pk])
+        return format_html('<a class="button" target="_blank" href="{}">PP Flat Estimate</a>', url)
+
+    flat_print_button.short_description = "PP Flat"
 
     def schedule_button(self, obj):
         url = reverse("admin:client_estimates_tastingappointment_add")
@@ -1058,6 +1070,27 @@ class EstimateAdmin(admin.ModelAdmin):
             "bank_details": caterer.bank_details,
         }
         return render(request, "admin/estimate_print.html", context)
+
+    def print_estimate_flat(self, request, estimate_id):
+        estimate = Estimate.objects.select_related("caterer", "caterer__owner").get(pk=estimate_id)
+        if not request.user.is_superuser and estimate.caterer.owner != request.user:
+            raise PermissionDenied("You do not have access to this estimate.")
+        estimate.recalc_totals()
+        meal_sections = estimate.meal_sections()
+        total_guests = (estimate.guest_count or 0) + (estimate.guest_count_kids or 0)
+        per_person = Decimal("0.00")
+        if total_guests:
+            per_person = (estimate.grand_total / Decimal(total_guests)).quantize(Decimal("0.01"))
+
+        context = {
+            "estimate": estimate,
+            "meal_sections": meal_sections,
+            "extra_lines": estimate.extra_lines.select_related("extra_item").order_by("extra_item__category", "extra_item__name"),
+            "per_person_flat": per_person,
+            "total_guests": total_guests,
+            "auto_print": request.GET.get("print") == "1",
+        }
+        return render(request, "admin/estimate_print_flat.html", context)
 
     def _workflow_payload(self, request, estimate):
         default_meal = estimate.default_meal_name()
