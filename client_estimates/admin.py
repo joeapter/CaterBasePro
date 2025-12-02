@@ -1118,6 +1118,9 @@ class EstimateAdmin(admin.ModelAdmin):
         per_person = Decimal("0.00")
         if total_guests:
             per_person = (estimate.grand_total / Decimal(total_guests)).quantize(Decimal("0.01"))
+        flat_deposit_pct = Decimal("30.00")
+        flat_deposit_amount = (estimate.grand_total * Decimal("0.30")).quantize(Decimal("0.01"))
+        flat_balance = (estimate.grand_total - flat_deposit_amount).quantize(Decimal("0.01"))
 
         context = {
             "estimate": estimate,
@@ -1146,6 +1149,10 @@ class EstimateAdmin(admin.ModelAdmin):
             "flat_mode": True,
             "per_person_flat": per_person,
             "total_guests": total_guests,
+            "flat_deposit_pct": flat_deposit_pct,
+            "flat_deposit_amount": flat_deposit_amount,
+            "flat_balance": flat_balance,
+            "staff_context": None,  # hide staff section in flat mode
         }
         return render(request, "admin/estimate_print.html", context)
 

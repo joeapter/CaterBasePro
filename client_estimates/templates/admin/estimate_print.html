@@ -420,7 +420,7 @@
         {% endif %}
     </section>
 
-    {% if staff_context %}
+    {% if staff_context and not flat_mode %}
         <section>
             <h2>{% translate 'Staffing Details' %}</h2>
             <table class="info-table">
@@ -479,37 +479,50 @@
                         <th>{% translate 'Flat price per person' %}</th>
                         <td>{{ per_person_flat }} {{ estimate.currency }}</td>
                     </tr>
-                {% endif %}
-                <tr>
-                    <th>{% translate 'Total catering cost' %}</th>
-                    <td>{{ meal_total_amount }} {{ estimate.currency }}</td>
-                </tr>
-                <tr>
-                    <th>{% translate 'Extras & decor' %}</th>
-                    <td>{{ estimate.extras_total }} {{ estimate.currency }}</td>
-                </tr>
-                {% if not estimate.is_ala_carte %}
                     <tr>
-                        <th>{% translate 'Staff total' %}</th>
-                        <td>{{ estimate.staff_total }} {{ estimate.currency }}</td>
+                        <th>{% translate 'Grand total' %}</th>
+                        <td>{{ estimate.grand_total }} {{ estimate.currency }}</td>
                     </tr>
                     <tr>
-                        <th>{% translate 'Dishes / rentals' %}</th>
-                        <td>{{ estimate.dishes_total }} {{ estimate.currency }}</td>
+                        <th>{% translate 'Deposit' %} (30%)</th>
+                        <td>{{ flat_deposit_amount }} {{ estimate.currency }}</td>
+                    </tr>
+                    <tr>
+                        <th>{% translate 'Balance due on event day' %}</th>
+                        <td>{{ flat_balance }} {{ estimate.currency }}</td>
+                    </tr>
+                {% else %}
+                    <tr>
+                        <th>{% translate 'Total catering cost' %}</th>
+                        <td>{{ meal_total_amount }} {{ estimate.currency }}</td>
+                    </tr>
+                    <tr>
+                        <th>{% translate 'Extras & decor' %}</th>
+                        <td>{{ estimate.extras_total }} {{ estimate.currency }}</td>
+                    </tr>
+                    {% if not estimate.is_ala_carte %}
+                        <tr>
+                            <th>{% translate 'Staff total' %}</th>
+                            <td>{{ estimate.staff_total }} {{ estimate.currency }}</td>
+                        </tr>
+                        <tr>
+                            <th>{% translate 'Dishes / rentals' %}</th>
+                            <td>{{ estimate.dishes_total }} {{ estimate.currency }}</td>
+                        </tr>
+                    {% endif %}
+                    <tr>
+                        <th>{% translate 'Grand total' %}</th>
+                        <td>{{ estimate.grand_total }} {{ estimate.currency }}</td>
+                    </tr>
+                    <tr>
+                        <th>{% translate 'Deposit' %} ({{ estimate.deposit_percentage }}%)</th>
+                        <td>{{ estimate.deposit_amount }} {{ estimate.currency }}</td>
+                    </tr>
+                    <tr>
+                        <th>{% translate 'Balance due' %}</th>
+                        <td>{{ estimate.balance_due }} {{ estimate.currency }}</td>
                     </tr>
                 {% endif %}
-                <tr>
-                    <th>{% translate 'Grand total' %}</th>
-                    <td>{{ estimate.grand_total }} {{ estimate.currency }}</td>
-                </tr>
-                <tr>
-                    <th>{% translate 'Deposit' %} ({{ estimate.deposit_percentage }}%)</th>
-                    <td>{{ estimate.deposit_amount }} {{ estimate.currency }}</td>
-                </tr>
-                <tr>
-                    <th>{% translate 'Balance due' %}</th>
-                    <td>{{ estimate.balance_due }} {{ estimate.currency }}</td>
-                </tr>
             </tbody>
         </table>
     </section>
