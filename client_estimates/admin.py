@@ -1068,6 +1068,7 @@ class EstimateAdmin(admin.ModelAdmin):
                 ] if line
             ],
             "bank_details": caterer.bank_details,
+            "flat_mode": False,
         }
         return render(request, "admin/estimate_print.html", context)
 
@@ -1076,7 +1077,43 @@ class EstimateAdmin(admin.ModelAdmin):
         if not request.user.is_superuser and estimate.caterer.owner != request.user:
             raise PermissionDenied("You do not have access to this estimate.")
         estimate.recalc_totals()
+        extra_lines = (
+            estimate.extra_lines.select_related("extra_item")
+            .order_by("extra_item__category", "extra_item__name")
+        )
+        caterer = estimate.caterer
+        staff_context = None
+        if not estimate.is_ala_carte:
+            waiters = estimate.total_waiter_count()
+            staff_hours = estimate.staff_hours or Decimal("0.00")
+            rate = estimate._get_staff_hourly_rate()
+            tip = estimate._get_staff_tip_per_waiter()
+            staff_pay = (rate * staff_hours * waiters).quantize(Decimal("0.01"))
+            staff_tip = (tip * waiters).quantize(Decimal("0.01"))
+            staff_context = {
+                "waiters": waiters,
+                "hours": staff_hours,
+                "hourly_rate": rate,
+                "labor_total": staff_pay,
+                "tip_per_waiter": tip,
+                "tip_total": staff_tip,
+                "grand": staff_pay + staff_tip,
+            }
+
         meal_sections = estimate.meal_sections()
+        meal_total_amount = (
+            sum((section["total"] + section.get("kids_total", Decimal("0.00")) for section in meal_sections), Decimal("0.00"))
+            if meal_sections
+            else Decimal("0.00")
+        )
+        sheet_surface_class = "sheet-surface-transparent" if caterer.document_surface_style == "TRANSPARENT" else ""
+        sheet_background_class = f"sheet-bg--{caterer.document_background.lower()}"
+        body_theme_class = "theme-bg-clean"
+        service_style = "A la carte delivery" if estimate.is_ala_carte else "Full service catering"
+        logo_url = None
+        if caterer.brand_logo:
+            logo_url = request.build_absolute_uri(caterer.brand_logo.url)
+
         total_guests = (estimate.guest_count or 0) + (estimate.guest_count_kids or 0)
         per_person = Decimal("0.00")
         if total_guests:
@@ -1085,12 +1122,32 @@ class EstimateAdmin(admin.ModelAdmin):
         context = {
             "estimate": estimate,
             "meal_sections": meal_sections,
-            "extra_lines": estimate.extra_lines.select_related("extra_item").order_by("extra_item__category", "extra_item__name"),
+            "extra_lines": extra_lines,
+            "title": f"PP Flat Estimate for {estimate.customer_name}",
+            "auto_print": request.GET.get("print") == "1",
+            "staff_context": staff_context,
+            "brand_logo": logo_url,
+            "brand_font": caterer.get_brand_font_stack(),
+            "primary_color": caterer.brand_primary_color or "#0f172a",
+            "accent_color": caterer.brand_accent_color or "#b08c6d",
+            "sheet_surface_class": sheet_surface_class,
+            "sheet_background_class": sheet_background_class,
+            "body_theme_class": body_theme_class,
+            "meal_total_amount": meal_total_amount,
+            "service_style": service_style,
+            "contact_lines": [
+                line for line in [
+                    caterer.company_phone,
+                    caterer.company_email,
+                    caterer.company_address,
+                ] if line
+            ],
+            "bank_details": caterer.bank_details,
+            "flat_mode": True,
             "per_person_flat": per_person,
             "total_guests": total_guests,
-            "auto_print": request.GET.get("print") == "1",
         }
-        return render(request, "admin/estimate_print_flat.html", context)
+        return render(request, "admin/estimate_print.html", context)
 
     def _workflow_payload(self, request, estimate):
         default_meal = estimate.default_meal_name()

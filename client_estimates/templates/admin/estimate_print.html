@@ -356,8 +356,8 @@
                                 </ul>
                             </div>
                         {% endfor %}
-                    {% if meal.kids_total %}
-                        {% for category in meal.kids_categories %}
+                        {% if meal.kids_total %}
+                            {% for category in meal.kids_categories %}
                                 <div class="meal-category">
                                     <h4>{{ category.name }}</h4>
                                     <ul>
@@ -367,24 +367,26 @@
                                     </ul>
                                 </div>
                             {% endfor %}
-                    {% endif %}
+                        {% endif %}
                     {% else %}
                         <p class="no-items">{% translate 'No items selected for this meal.' %}</p>
                     {% endif %}
-                    <div class="meal-card-foot">
-                        <div>
-                            <div>{{ meal.price_per_guest }} {{ estimate.currency }} / {% translate 'guest' %}</div>
-                            {% if meal.price_per_child and meal.kids_total %}
-                                <div>{{ meal.price_per_child }} {{ estimate.currency }} / {% translate 'child' %}</div>
-                            {% endif %}
+                    {% if not flat_mode %}
+                        <div class="meal-card-foot">
+                            <div>
+                                <div>{{ meal.price_per_guest }} {{ estimate.currency }} / {% translate 'guest' %}</div>
+                                {% if meal.price_per_child and meal.kids_total %}
+                                    <div>{{ meal.price_per_child }} {{ estimate.currency }} / {% translate 'child' %}</div>
+                                {% endif %}
+                            </div>
+                            <div style="text-align:right;">
+                                <div>{% translate 'Total' %} {{ meal.total }} {{ estimate.currency }}</div>
+                                {% if meal.kids_total %}
+                                    <div>{% translate 'Kids total' %} {{ meal.kids_total }} {{ estimate.currency }}</div>
+                                {% endif %}
+                            </div>
                         </div>
-                        <div style="text-align:right;">
-                            <div>{% translate 'Total' %} {{ meal.total }} {{ estimate.currency }}</div>
-                            {% if meal.kids_total %}
-                                <div>{% translate 'Kids total' %} {{ meal.kids_total }} {{ estimate.currency }}</div>
-                            {% endif %}
-                        </div>
-                    </div>
+                    {% endif %}
                 </article>
             {% endfor %}
         {% else %}
@@ -433,7 +435,7 @@
         </section>
     {% endif %}
 
-    {% if meal_sections %}
+    {% if meal_sections and not flat_mode %}
         <section>
             <h2>{% translate 'Per-Meal Reference' %}</h2>
             <table class="summary-table">
@@ -468,6 +470,16 @@
         <h2>{% translate 'Totals' %}</h2>
         <table class="summary-table summary-table--totals">
             <tbody>
+                {% if flat_mode %}
+                    <tr>
+                        <th>{% translate 'Total guests (adults + kids)' %}</th>
+                        <td>{{ total_guests }}</td>
+                    </tr>
+                    <tr>
+                        <th>{% translate 'Flat price per person' %}</th>
+                        <td>{{ per_person_flat }} {{ estimate.currency }}</td>
+                    </tr>
+                {% endif %}
                 <tr>
                     <th>{% translate 'Total catering cost' %}</th>
                     <td>{{ meal_total_amount }} {{ estimate.currency }}</td>
