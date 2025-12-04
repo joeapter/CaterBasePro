@@ -382,6 +382,12 @@ class Estimate(models.Model):
         blank=True,
         help_text="Sequential estimate/invoice number for client-facing docs.",
     )
+    exchange_rate = models.DecimalField(
+        max_digits=10,
+        decimal_places=4,
+        default=Decimal("1.00"),
+        help_text="Optional manual FX rate to convert totals into the selected currency.",
+    )
 
     # Stored totals (we can recalc in save())
     food_price_per_person = models.DecimalField(
@@ -593,6 +599,16 @@ class Estimate(models.Model):
         deposit = (grand * deposit_rate).quantize(Decimal("0.01"))
         balance = grand - deposit
 
+        rate = self.exchange_rate or Decimal("1.00")
+        if rate != Decimal("1.00"):
+            food_pp = (food_pp * rate).quantize(Decimal("0.01"))
+            extras = (extras * rate).quantize(Decimal("0.01"))
+            staff = (staff * rate).quantize(Decimal("0.01"))
+            dishes = (dishes * rate).quantize(Decimal("0.01"))
+            grand = (grand * rate).quantize(Decimal("0.01"))
+            deposit = (deposit * rate).quantize(Decimal("0.01"))
+            balance = (balance * rate).quantize(Decimal("0.01"))
+
         self.food_price_per_person = food_pp
         self.extras_total = extras
         self.staff_total = staff
@@ -633,6 +649,7 @@ class Estimate(models.Model):
         overrides = self.manual_meal_totals or {}
         guest_count = Decimal(self.guest_count or 0)
         guest_count_kids = Decimal(self.guest_count_kids or 0)
+        rate = self.exchange_rate or Decimal("1.00")
         for meal_name in plan:
             meal_choices = [
                 ch for ch in choices if (ch.meal_name or default_meal) == meal_name
@@ -682,10 +699,10 @@ class Estimate(models.Model):
                         {"name": f"{cat} (Kids)", "choices": items}
                         for cat, items in kids_categories.items()
                     ],
-                    "price_per_guest": price_pp,
-                    "price_per_child": price_pp_kids,
-                    "total": (price_pp * guest_count).quantize(Decimal("0.01")),
-                    "kids_total": (price_pp_kids * guest_count_kids).quantize(Decimal("0.01")),
+                    "price_per_guest": (price_pp * rate).quantize(Decimal("0.01")),
+                    "price_per_child": (price_pp_kids * rate).quantize(Decimal("0.01")),
+                    "total": (price_pp * guest_count * rate).quantize(Decimal("0.01")),
+                    "kids_total": (price_pp_kids * guest_count_kids * rate).quantize(Decimal("0.01")),
                 }
             )
         return sections
