@@ -1156,11 +1156,11 @@ class EstimateAdmin(admin.ModelAdmin):
         }
         return render(request, "admin/estimate_print.html", context)
 
-    def _workflow_payload(self, request, estimate):
+    def _workflow_pages(self, request, estimate):
         """
-        Build workflow context grouped by meal first, then category, so each meal prints
-        on its own page. Meal ordering follows the planned meal list; ad-hoc meal names
-        from choices are appended in alpha order.
+        Build one payload per meal (page) so each meal prints separately.
+        Meal ordering follows the planned meal list; ad-hoc meal names from choices
+        are appended in alpha order.
         """
 
         def normalize(name: str, default: str) -> str:
@@ -1209,43 +1209,46 @@ class EstimateAdmin(admin.ModelAdmin):
             if key not in meal_order_keys:
                 meal_order_keys.append(key)
 
-        meals = []
+        logo_url = None
+        if estimate.caterer.brand_logo:
+            logo_url = request.build_absolute_uri(estimate.caterer.brand_logo.url)
+
+        pages = []
         for key in meal_order_keys or [normalize(default_meal, default_meal)]:
             display_name = meal_display.get(key, default_meal)
             section_map = grouped_by_meal.get(key, {})
             meal_sections = []
             for (order, category), rows in sorted(section_map.items(), key=lambda x: (x[0][0], x[0][1])):
                 meal_sections.append({"category": category, "items": rows})
-            meals.append({"name": display_name, "sections": meal_sections, "show_extras": False})
+            pages.append(
+                {
+                    "estimate": estimate,
+                    "meal_name": display_name,
+                    "sections": meal_sections,
+                    "extras": [],
+                    "logo_url": logo_url,
+                    "primary_color": estimate.caterer.brand_primary_color or "#0f172a",
+                    "accent_color": estimate.caterer.brand_accent_color or "#b08c6d",
+                }
+            )
 
         extras = list(
             estimate.extra_lines.select_related("extra_item").order_by("extra_item__category", "extra_item__name")
         )
-        if meals and extras:
-            meals[-1]["show_extras"] = True
+        if pages and extras:
+            pages[-1]["extras"] = extras
 
-        logo_url = None
-        if estimate.caterer.brand_logo:
-            logo_url = request.build_absolute_uri(estimate.caterer.brand_logo.url)
-
-        return {
-            "estimate": estimate,
-            "meals": meals,
-            "extras": extras,
-            "logo_url": logo_url,
-            "primary_color": estimate.caterer.brand_primary_color or "#0f172a",
-            "accent_color": estimate.caterer.brand_accent_color or "#b08c6d",
-        }
+        return pages
 
     def workflow_view(self, request, estimate_id):
         estimate = Estimate.objects.select_related("caterer", "caterer__owner").get(pk=estimate_id)
         if not request.user.is_superuser and estimate.caterer.owner != request.user:
             raise PermissionDenied("You do not have access to this estimate.")
-        payload = self._workflow_payload(request, estimate)
+        payload = self._workflow_pages(request, estimate)
         return render(
             request,
             "admin/estimate_workflow.html",
-            {"workflows": [payload], "auto_print": request.GET.get("print") == "1"},
+            {"workflows": payload, "auto_print": request.GET.get("print") == "1"},
         )
 
     def workflow_bulk_view(self, request):
@@ -1262,7 +1265,9 @@ class EstimateAdmin(admin.ModelAdmin):
                 level=messages.WARNING,
             )
             return redirect("admin:client_estimates_estimate_changelist")
-        payloads = [self._workflow_payload(request, estimate) for estimate in estimates]
+        payloads = []
+        for estimate in estimates:
+            payloads.extend(self._workflow_pages(request, estimate))
         return render(
             request,
             "admin/estimate_workflow.html",

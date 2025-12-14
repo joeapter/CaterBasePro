@@ -96,83 +96,81 @@
 </head>
 <body {% if auto_print %}onload="window.print()" {% endif %}>
     {% for sheet in workflows %}
-        {% for meal in sheet.meals %}
-            <div class="sheet">
-                <div style="display:flex;justify-content:space-between;align-items:center;">
-                    <div>
-                        <h1>Kitchen Workflow</h1>
-                        <p style="margin:0;color:#64748b;">{{ sheet.estimate.caterer.name }}</p>
-                        <div class="meal-chip">Meal: {{ meal.name }}</div>
-                    </div>
-                    {% if sheet.logo_url %}
-                        <img class="logo" src="{{ sheet.logo_url }}" alt="Logo">
-                    {% endif %}
+        <div class="sheet">
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+                <div>
+                    <h1>Kitchen Workflow</h1>
+                    <p style="margin:0;color:#64748b;">{{ sheet.estimate.caterer.name }}</p>
+                    <div class="meal-chip">Meal: {{ sheet.meal_name }}</div>
                 </div>
-                <div class="meta">
-                    <div><strong>Client:</strong> {{ sheet.estimate.customer_name }}</div>
-                    <div><strong>Event:</strong> {{ sheet.estimate.event_type }}</div>
-                    <div><strong>Date:</strong> {{ sheet.estimate.event_date|date:"M j, Y" }}</div>
-                    <div><strong>Guest count:</strong> {{ sheet.estimate.guest_count }}</div>
-                    <div><strong>Location:</strong> {{ sheet.estimate.event_location }}</div>
-                </div>
-
-                {% if meal.sections %}
-                    {% for section in meal.sections %}
-                        <h3 class="section-title">{{ section.category }}</h3>
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th>Menu Item</th>
-                                    <th>Notes</th>
-                                    <th class="status-cell">Shop</th>
-                                    <th class="status-cell">Prep</th>
-                                    <th class="status-cell">Cook</th>
-                                    <th class="status-cell">On Site</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {% for item in section.items %}
-                                    <tr>
-                                        <td>{{ item.item }}</td>
-                                        <td>{{ item.notes }}</td>
-                                        <td class="status-cell"><span class="checkbox"></span></td>
-                                        <td class="status-cell"><span class="checkbox"></span></td>
-                                        <td class="status-cell"><span class="checkbox"></span></td>
-                                        <td class="status-cell"><span class="checkbox"></span></td>
-                                    </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
-                    {% endfor %}
-                {% else %}
-                    <p class="empty-note">No menu items assigned for this meal.</p>
+                {% if sheet.logo_url %}
+                    <img class="logo" src="{{ sheet.logo_url }}" alt="Logo">
                 {% endif %}
+            </div>
+            <div class="meta">
+                <div><strong>Client:</strong> {{ sheet.estimate.customer_name }}</div>
+                <div><strong>Event:</strong> {{ sheet.estimate.event_type }}</div>
+                <div><strong>Date:</strong> {{ sheet.estimate.event_date|date:"M j, Y" }}</div>
+                <div><strong>Guest count:</strong> {{ sheet.estimate.guest_count }}</div>
+                <div><strong>Location:</strong> {{ sheet.estimate.event_location }}</div>
+            </div>
 
-                {% if sheet.extras and meal.show_extras %}
-                    <h3 class="section-title">Extras & Rentals</h3>
+            {% if sheet.sections %}
+                {% for section in sheet.sections %}
+                    <h3 class="section-title">{{ section.category }}</h3>
                     <table>
                         <thead>
                             <tr>
-                                <th>Name</th>
-                                <th>Category</th>
+                                <th>Menu Item</th>
                                 <th>Notes</th>
-                                <th class="status-cell">Packed</th>
+                                <th class="status-cell">Shop</th>
+                                <th class="status-cell">Prep</th>
+                                <th class="status-cell">Cook</th>
+                                <th class="status-cell">On Site</th>
                             </tr>
                         </thead>
                         <tbody>
-                            {% for extra in sheet.extras %}
+                            {% for item in section.items %}
                                 <tr>
-                                    <td>{{ extra.extra_item.name }}</td>
-                                    <td>{{ extra.extra_item.category }}</td>
-                                    <td>{{ extra.notes }}</td>
+                                    <td>{{ item.item }}</td>
+                                    <td>{{ item.notes }}</td>
+                                    <td class="status-cell"><span class="checkbox"></span></td>
+                                    <td class="status-cell"><span class="checkbox"></span></td>
+                                    <td class="status-cell"><span class="checkbox"></span></td>
                                     <td class="status-cell"><span class="checkbox"></span></td>
                                 </tr>
                             {% endfor %}
                         </tbody>
                     </table>
-                {% endif %}
-            </div>
-        {% endfor %}
+                {% endfor %}
+            {% else %}
+                <p class="empty-note">No menu items assigned for this meal.</p>
+            {% endif %}
+
+            {% if sheet.extras %}
+                <h3 class="section-title">Extras & Rentals</h3>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Category</th>
+                            <th>Notes</th>
+                            <th class="status-cell">Packed</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for extra in sheet.extras %}
+                            <tr>
+                                <td>{{ extra.extra_item.name }}</td>
+                                <td>{{ extra.extra_item.category }}</td>
+                                <td>{{ extra.notes }}</td>
+                                <td class="status-cell"><span class="checkbox"></span></td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            {% endif %}
+        </div>
     {% endfor %}
 </body>
 </html>
