@@ -1157,26 +1157,66 @@ class EstimateAdmin(admin.ModelAdmin):
         return render(request, "admin/estimate_print.html", context)
 
     def _workflow_payload(self, request, estimate):
-        # Use the canonical meal_sections helper to keep ordering and meal grouping consistent
-        # with estimates elsewhere in the app (includes planned meals even if empty).
-        meal_sections = estimate.meal_sections()
+        """
+        Build workflow context grouped by meal first, then category, so each meal prints
+        on its own page. Meal ordering follows the planned meal list; ad-hoc meal names
+        from choices are appended in alpha order.
+        """
+
+        def normalize(name: str, default: str) -> str:
+            val = (name or default or "").strip()
+            return val.lower()
+
+        plan = estimate.get_meal_plan()
+        default_meal = plan[0] if plan else estimate.default_meal_name()
+        choices = (
+            estimate.food_choices.select_related("menu_item", "menu_item__category")
+            .order_by("menu_item__category__sort_order", "menu_item__category__name", "menu_item__name")
+        )
+
+        meal_display = {}
+        meal_order_keys = []
+        for name in plan:
+            key = normalize(name, default_meal)
+            if key not in meal_display:
+                meal_order_keys.append(key)
+            meal_display[key] = name
+
+        grouped_by_meal = {}
+        seen_choice_keys = set()
+        for choice in choices:
+            meal_name = choice.meal_name or default_meal
+            meal_key = normalize(meal_name, default_meal)
+            seen_choice_keys.add(meal_key)
+            meal_display.setdefault(meal_key, meal_name)
+            meal_entry = grouped_by_meal.setdefault(meal_key, {})
+
+            category = "Chef's Selection"
+            order = 999
+            if choice.menu_item and choice.menu_item.category:
+                category = choice.menu_item.category.name
+                order = choice.menu_item.category.sort_order or order
+
+            meal_entry.setdefault((order, category), []).append(
+                {
+                    "item": choice.menu_item.name if choice.menu_item else "",
+                    "notes": choice.notes,
+                }
+            )
+
+        # Append any meals that appeared only in food choices (e.g., renamed meals)
+        for key in sorted(seen_choice_keys):
+            if key not in meal_order_keys:
+                meal_order_keys.append(key)
 
         meals = []
-        for meal in meal_sections:
-            meal_rows = []
-            categories = meal.get("categories", []) + meal.get("kids_categories", [])
-            for cat in categories:
-                rows = []
-                for choice in cat.get("choices", []):
-                    mi = choice.menu_item
-                    rows.append(
-                        {
-                            "item": mi.name if mi else "",
-                            "notes": choice.notes,
-                        }
-                    )
-                meal_rows.append({"category": cat.get("name") or "Chef's Selection", "items": rows})
-            meals.append({"name": meal.get("name"), "sections": meal_rows, "show_extras": False})
+        for key in meal_order_keys or [normalize(default_meal, default_meal)]:
+            display_name = meal_display.get(key, default_meal)
+            section_map = grouped_by_meal.get(key, {})
+            meal_sections = []
+            for (order, category), rows in sorted(section_map.items(), key=lambda x: (x[0][0], x[0][1])):
+                meal_sections.append({"category": category, "items": rows})
+            meals.append({"name": display_name, "sections": meal_sections, "show_extras": False})
 
         extras = list(
             estimate.extra_lines.select_related("extra_item").order_by("extra_item__category", "extra_item__name")
