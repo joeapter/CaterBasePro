@@ -1,6 +1,5 @@
 from decimal import Decimal, InvalidOperation
 import csv
-from collections import defaultdict
 import json
 
 from django import forms
@@ -1158,46 +1157,26 @@ class EstimateAdmin(admin.ModelAdmin):
         return render(request, "admin/estimate_print.html", context)
 
     def _workflow_payload(self, request, estimate):
-        plan = estimate.get_meal_plan()
-        default_meal = plan[0]
-        choices = (
-            estimate.food_choices.select_related("menu_item", "menu_item__category")
-            .order_by("menu_item__category__sort_order", "menu_item__category__name", "menu_item__name")
-        )
-
-        # Group items by meal and category to keep each meal's workflow separate.
-        grouped_by_meal = defaultdict(lambda: defaultdict(list))
-        seen_meals = set()
-        for choice in choices:
-            meal_name = choice.meal_name or default_meal
-            seen_meals.add(meal_name)
-            category = "Chef's Selection"
-            order = 999
-            if choice.menu_item and choice.menu_item.category:
-                category = choice.menu_item.category.name
-                order = choice.menu_item.category.sort_order or order
-            grouped_by_meal[meal_name][(order, category)].append(
-                {
-                    "item": choice.menu_item.name if choice.menu_item else "",
-                    "meal": meal_name,
-                    "notes": choice.notes,
-                }
-            )
-
-        # Preserve the caterer's planned meal order, then append any ad-hoc meal names.
-        meal_names = list(plan)
-        for meal_name in sorted(seen_meals):
-            if meal_name not in meal_names:
-                meal_names.append(meal_name)
+        # Use the canonical meal_sections helper to keep ordering and meal grouping consistent
+        # with estimates elsewhere in the app (includes planned meals even if empty).
+        meal_sections = estimate.meal_sections()
 
         meals = []
-        for meal_name in meal_names:
-            meal_sections = []
-            for (order, category), rows in sorted(
-                grouped_by_meal.get(meal_name, {}).items(), key=lambda x: (x[0][0], x[0][1])
-            ):
-                meal_sections.append({"category": category, "items": rows})
-            meals.append({"name": meal_name, "sections": meal_sections, "show_extras": False})
+        for meal in meal_sections:
+            meal_rows = []
+            categories = meal.get("categories", []) + meal.get("kids_categories", [])
+            for cat in categories:
+                rows = []
+                for choice in cat.get("choices", []):
+                    mi = choice.menu_item
+                    rows.append(
+                        {
+                            "item": mi.name if mi else "",
+                            "notes": choice.notes,
+                        }
+                    )
+                meal_rows.append({"category": cat.get("name") or "Chef's Selection", "items": rows})
+            meals.append({"name": meal.get("name"), "sections": meal_rows, "show_extras": False})
 
         extras = list(
             estimate.extra_lines.select_related("extra_item").order_by("extra_item__category", "extra_item__name")
