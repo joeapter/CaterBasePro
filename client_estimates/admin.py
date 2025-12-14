@@ -1158,31 +1158,52 @@ class EstimateAdmin(admin.ModelAdmin):
         return render(request, "admin/estimate_print.html", context)
 
     def _workflow_payload(self, request, estimate):
-        default_meal = estimate.default_meal_name()
+        plan = estimate.get_meal_plan()
+        default_meal = plan[0]
         choices = (
             estimate.food_choices.select_related("menu_item", "menu_item__category")
             .order_by("menu_item__category__sort_order", "menu_item__category__name", "menu_item__name")
         )
-        grouped = defaultdict(list)
+
+        # Group items by meal and category to keep each meal's workflow separate.
+        grouped_by_meal = defaultdict(lambda: defaultdict(list))
+        seen_meals = set()
         for choice in choices:
             meal_name = choice.meal_name or default_meal
+            seen_meals.add(meal_name)
             category = "Chef's Selection"
             order = 999
             if choice.menu_item and choice.menu_item.category:
                 category = choice.menu_item.category.name
                 order = choice.menu_item.category.sort_order or order
-            grouped[(order, category)].append(
+            grouped_by_meal[meal_name][(order, category)].append(
                 {
                     "item": choice.menu_item.name if choice.menu_item else "",
                     "meal": meal_name,
                     "notes": choice.notes,
                 }
             )
-        sections = []
-        for (order, category), rows in sorted(grouped.items(), key=lambda x: (x[0][0], x[0][1])):
-            sections.append({"category": category, "items": rows})
 
-        extras = estimate.extra_lines.select_related("extra_item").order_by("extra_item__category", "extra_item__name")
+        # Preserve the caterer's planned meal order, then append any ad-hoc meal names.
+        meal_names = list(plan)
+        for meal_name in sorted(seen_meals):
+            if meal_name not in meal_names:
+                meal_names.append(meal_name)
+
+        meals = []
+        for meal_name in meal_names:
+            meal_sections = []
+            for (order, category), rows in sorted(
+                grouped_by_meal.get(meal_name, {}).items(), key=lambda x: (x[0][0], x[0][1])
+            ):
+                meal_sections.append({"category": category, "items": rows})
+            meals.append({"name": meal_name, "sections": meal_sections, "show_extras": False})
+
+        extras = list(
+            estimate.extra_lines.select_related("extra_item").order_by("extra_item__category", "extra_item__name")
+        )
+        if meals and extras:
+            meals[-1]["show_extras"] = True
 
         logo_url = None
         if estimate.caterer.brand_logo:
@@ -1190,7 +1211,7 @@ class EstimateAdmin(admin.ModelAdmin):
 
         return {
             "estimate": estimate,
-            "sections": sections,
+            "meals": meals,
             "extras": extras,
             "logo_url": logo_url,
             "primary_color": estimate.caterer.brand_primary_color or "#0f172a",
