@@ -1169,7 +1169,7 @@ class EstimateAdmin(admin.ModelAdmin):
 
         plan = estimate.get_meal_plan()
         default_meal = plan[0] if plan else estimate.default_meal_name()
-        choices = (
+        choices = list(
             estimate.food_choices.select_related("menu_item", "menu_item__category")
             .order_by("menu_item__category__sort_order", "menu_item__category__name", "menu_item__name")
         )
@@ -1182,14 +1182,14 @@ class EstimateAdmin(admin.ModelAdmin):
                 meal_order_keys.append(key)
             meal_display[key] = name
 
-        grouped_by_meal = {}
+        choices_by_meal = {}
         seen_choice_keys = set()
         for choice in choices:
             meal_name = choice.meal_name or default_meal
             meal_key = normalize(meal_name, default_meal)
             seen_choice_keys.add(meal_key)
             meal_display.setdefault(meal_key, meal_name)
-            meal_entry = grouped_by_meal.setdefault(meal_key, {})
+            meal_bucket = choices_by_meal.setdefault(meal_key, [])
 
             category = "Chef's Selection"
             order = 999
@@ -1197,10 +1197,12 @@ class EstimateAdmin(admin.ModelAdmin):
                 category = choice.menu_item.category.name
                 order = choice.menu_item.category.sort_order or order
 
-            meal_entry.setdefault((order, category), []).append(
+            meal_bucket.append(
                 {
                     "item": choice.menu_item.name if choice.menu_item else "",
                     "notes": choice.notes,
+                    "category": category,
+                    "category_order": order,
                 }
             )
 
@@ -1216,7 +1218,14 @@ class EstimateAdmin(admin.ModelAdmin):
         pages = []
         for key in meal_order_keys or [normalize(default_meal, default_meal)]:
             display_name = meal_display.get(key, default_meal)
-            section_map = grouped_by_meal.get(key, {})
+            meal_rows = choices_by_meal.get(key, [])
+
+            # Group rows by category for this meal only.
+            section_map = {}
+            for row in meal_rows:
+                cat_key = (row["category_order"], row["category"])
+                section_map.setdefault(cat_key, []).append(row)
+
             meal_sections = []
             for (order, category), rows in sorted(section_map.items(), key=lambda x: (x[0][0], x[0][1])):
                 meal_sections.append({"category": category, "items": rows})
