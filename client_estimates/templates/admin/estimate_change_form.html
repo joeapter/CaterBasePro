@@ -332,14 +332,22 @@
 
             const summaryBar = document.querySelector(".meal-summary-bar");
             const overridesField = document.getElementById("id_manual_meal_totals_json");
-            if (summaryBar && overridesField) {
+            const guestOverridesField = document.getElementById("id_meal_guest_overrides_json");
+            if (summaryBar && overridesField && guestOverridesField) {
                 let overrides = {};
+                let guestOverrides = {};
                 try {
                     overrides = JSON.parse(overridesField.value || "{}");
                 } catch (err) {
                     overrides = {};
                 }
+                try {
+                    guestOverrides = JSON.parse(guestOverridesField.value || "{}");
+                } catch (err) {
+                    guestOverrides = {};
+                }
                 const guestField = document.getElementById("id_guest_count");
+                const guestKidsField = document.getElementById("id_guest_count_kids");
                 const mealCells = wizard.querySelectorAll(".meal-cell");
                 const mealPills = summaryBar.querySelectorAll(".meal-summary-pill");
 
@@ -361,13 +369,17 @@
                             totals[meal].base += price * servings;
                         }
                     });
-                    const guests = parseFloat(guestField ? guestField.value : "0") || 0;
+                    const defaultAdults = parseFloat(guestField ? guestField.value : "0") || 0;
+                    const defaultKids = parseFloat(guestKidsField ? guestKidsField.value : "0") || 0;
                     mealPills.forEach(pill => {
                         const meal = pill.dataset.meal;
                         const info = totals[meal] || { base: 0 };
                         const overrideValue = overrides[meal];
                         const perGuest = typeof overrideValue === "number" ? overrideValue : info.base;
-                        const totalAmount = perGuest * guests;
+                        const guestOverride = guestOverrides[meal] || {};
+                        const adults = typeof guestOverride.adults === "number" ? guestOverride.adults : defaultAdults;
+                        const kids = typeof guestOverride.kids === "number" ? guestOverride.kids : defaultKids;
+                        const totalAmount = perGuest * adults;
                         const valueEl = pill.querySelector(".meal-summary-value");
                         if (valueEl) {
                             valueEl.textContent = `${perGuest.toFixed(2)} / guest • ${totalAmount.toFixed(2)}`;
@@ -376,8 +388,13 @@
                         if (inputEl && typeof overrideValue === "number") {
                             inputEl.value = overrideValue;
                         }
+                        const displayEl = pill.querySelector(".meal-guest-display");
+                        if (displayEl) {
+                            displayEl.textContent = `${adults} adults${kids ? " / " + kids + " kids" : ""}`;
+                        }
                     });
                     overridesField.value = JSON.stringify(overrides);
+                    guestOverridesField.value = JSON.stringify(guestOverrides);
                 };
 
                 const checkboxes = wizard.querySelectorAll(".meal-cell input[type='checkbox']");
@@ -385,6 +402,10 @@
                 if (guestField) {
                     guestField.addEventListener("input", recalcTotals);
                     guestField.addEventListener("change", recalcTotals);
+                }
+                if (guestKidsField) {
+                    guestKidsField.addEventListener("input", recalcTotals);
+                    guestKidsField.addEventListener("change", recalcTotals);
                 }
 
                 summaryBar.querySelectorAll(".meal-override-btn").forEach(btn => {
@@ -402,6 +423,49 @@
                         }
                         recalcTotals();
                     });
+                });
+
+                summaryBar.querySelectorAll(".meal-guest-apply").forEach(btn => {
+                    btn.addEventListener("click", () => {
+                        const meal = btn.dataset.meal;
+                        const adultsInput = summaryBar.querySelector(`.meal-guest-input[data-meal='${meal}'][data-type='adults']`);
+                        const kidsInput = summaryBar.querySelector(`.meal-guest-input[data-meal='${meal}'][data-type='kids']`);
+                        const adultsVal = adultsInput ? adultsInput.value.trim() : "";
+                        const kidsVal = kidsInput ? kidsInput.value.trim() : "";
+                        if (!guestOverrides[meal]) guestOverrides[meal] = {};
+                        if (adultsVal === "") {
+                            delete guestOverrides[meal].adults;
+                        } else {
+                            const parsed = parseFloat(adultsVal);
+                            if (!isNaN(parsed)) guestOverrides[meal].adults = parsed;
+                        }
+                        if (kidsVal === "") {
+                            delete guestOverrides[meal].kids;
+                        } else {
+                            const parsedKids = parseFloat(kidsVal);
+                            if (!isNaN(parsedKids)) guestOverrides[meal].kids = parsedKids;
+                        }
+                        const hasAdults = Object.prototype.hasOwnProperty.call(guestOverrides[meal], "adults");
+                        const hasKids = Object.prototype.hasOwnProperty.call(guestOverrides[meal], "kids");
+                        if (!hasAdults && !hasKids) {
+                            delete guestOverrides[meal];
+                        }
+                        recalcTotals();
+                    });
+                });
+
+                // Populate any existing overrides into inputs
+                mealPills.forEach(pill => {
+                    const meal = pill.dataset.meal;
+                    const guestOverride = guestOverrides[meal] || {};
+                    const adultsInput = pill.querySelector(`.meal-guest-input[data-meal='${meal}'][data-type='adults']`);
+                    const kidsInput = pill.querySelector(`.meal-guest-input[data-meal='${meal}'][data-type='kids']`);
+                    if (adultsInput && typeof guestOverride.adults === "number") {
+                        adultsInput.value = guestOverride.adults;
+                    }
+                    if (kidsInput && typeof guestOverride.kids === "number") {
+                        kidsInput.value = guestOverride.kids;
+                    }
                 });
 
                 recalcTotals();

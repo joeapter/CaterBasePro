@@ -513,6 +513,10 @@ class EstimateAdminForm(forms.ModelForm):
         required=False,
         widget=forms.HiddenInput(),
     )
+    meal_guest_overrides_json = forms.CharField(
+        required=False,
+        widget=forms.HiddenInput(),
+    )
 
     class Meta:
         model = Estimate
@@ -569,6 +573,9 @@ class EstimateAdminForm(forms.ModelForm):
         if not self.data:
             self.fields["manual_meal_totals_json"].initial = json.dumps(
                 self.instance.manual_meal_totals or {}
+            )
+            self.fields["meal_guest_overrides_json"].initial = json.dumps(
+                self.instance.meal_guest_overrides or {}
             )
 
         # Build dynamic item checklist
@@ -876,6 +883,11 @@ class EstimateAdmin(admin.ModelAdmin):
             obj.manual_meal_totals = json.loads(overrides_raw) if overrides_raw else {}
         except json.JSONDecodeError:
             obj.manual_meal_totals = {}
+        guest_overrides_raw = form.cleaned_data.get("meal_guest_overrides_json")
+        try:
+            obj.meal_guest_overrides = json.loads(guest_overrides_raw) if guest_overrides_raw else {}
+        except json.JSONDecodeError:
+            obj.meal_guest_overrides = {}
 
         super().save_model(request, obj, form, change)
 

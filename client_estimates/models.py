@@ -377,6 +377,11 @@ class Estimate(models.Model):
         blank=True,
         help_text="List of meal names (e.g. Friday Dinner, Shabbos Lunch) used to organize menu selections.",
     )
+    meal_guest_overrides = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Optional override per meal for adult/kid counts.",
+    )
     estimate_number = models.PositiveIntegerField(
         null=True,
         blank=True,
@@ -647,6 +652,7 @@ class Estimate(models.Model):
         )
         sections = []
         overrides = self.manual_meal_totals or {}
+        guest_overrides = self.meal_guest_overrides or {}
         guest_count = Decimal(self.guest_count or 0)
         guest_count_kids = Decimal(self.guest_count_kids or 0)
         rate = self.exchange_rate or Decimal("1.00")
@@ -688,6 +694,20 @@ class Estimate(models.Model):
                 except Exception:
                     pass
 
+            counts_override = guest_overrides.get(meal_name) or {}
+
+            def _override_decimal(val, default_value):
+                try:
+                    num = Decimal(str(val))
+                except Exception:
+                    return default_value
+                if num < 0:
+                    return default_value
+                return num
+
+            meal_guest_count = _override_decimal(counts_override.get("adults"), guest_count)
+            meal_guest_kids = _override_decimal(counts_override.get("kids"), guest_count_kids)
+
             sections.append(
                 {
                     "name": meal_name,
@@ -701,8 +721,8 @@ class Estimate(models.Model):
                     ],
                     "price_per_guest": (price_pp * rate).quantize(Decimal("0.01")),
                     "price_per_child": (price_pp_kids * rate).quantize(Decimal("0.01")),
-                    "total": (price_pp * guest_count * rate).quantize(Decimal("0.01")),
-                    "kids_total": (price_pp_kids * guest_count_kids * rate).quantize(Decimal("0.01")),
+                    "total": (price_pp * meal_guest_count * rate).quantize(Decimal("0.01")),
+                    "kids_total": (price_pp_kids * meal_guest_kids * rate).quantize(Decimal("0.01")),
                 }
             )
         return sections

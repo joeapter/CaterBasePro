@@ -92,6 +92,14 @@
                     <input type="number" step="0.01" placeholder="Override per guest" class="meal-override-input" data-meal="{{ meal }}">
                     <button type="button" class="button meal-override-btn" data-meal="{{ meal }}">Apply</button>
                 </div>
+                <div class="meal-guest-override">
+                    <label>Adults</label>
+                    <input type="number" min="0" step="1" class="meal-guest-input" data-meal="{{ meal }}" data-type="adults" placeholder="Adults">
+                    <label>Kids</label>
+                    <input type="number" min="0" step="1" class="meal-guest-input" data-meal="{{ meal }}" data-type="kids" placeholder="Kids">
+                    <button type="button" class="button meal-guest-apply" data-meal="{{ meal }}">Set guests</button>
+                    <span class="meal-guest-display" data-meal="{{ meal }}"></span>
+                </div>
             </div>
         {% endfor %}
     </div>
@@ -100,4 +108,5 @@
 {% endif %}
 <div style="display:none;">
     {{ form.manual_meal_totals_json }}
+    {{ form.meal_guest_overrides_json }}
 </div>
