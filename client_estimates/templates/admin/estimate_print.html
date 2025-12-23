@@ -74,7 +74,7 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
-            padding: 12px 40px 8px;
+            padding: 12px 40px 8px 40px;
             border-bottom: 2px solid rgba(15,23,42,0.12);
             gap: 16px;
         }
@@ -93,6 +93,7 @@
             text-align: right;
             font-weight: 600;
             margin-left: 20px;
+            padding-right: 30px;
             white-space: nowrap;
         }
         .sheet-header-right table {
@@ -263,9 +264,6 @@
             color: #94a3b8;
             font-style: italic;
         }
-        .page-number {
-            display: none;
-        }
         @media print {
             body { padding: 0; }
             .estimate-sheet { 
@@ -275,18 +273,6 @@
             }
             .estimate-sheet:last-of-type { page-break-after: auto; }
             section, .meal-card { page-break-inside: avoid; }
-            .page-number {
-                display: block;
-                position: fixed;
-                bottom: 8mm;
-                right: 12mm;
-                font-family: "Georgia", serif;
-                font-size: 12px;
-                color: rgba(71,85,105,0.85);
-            }
-            .page-number::before {
-                content: "Page " counter(page) " of " counter(pages);
-            }
         }
     </style>
 </head>
@@ -547,6 +533,40 @@
         </section>
     {% endif %}
 
+</div>
+
+<div class="estimate-sheet {{ sheet_surface_class|default:'' }} {{ sheet_background_class|default:'' }}">
+    <header class="sheet-header">
+        <div class="sheet-header-left">
+            <h1>{{ estimate.caterer.name }}</h1>
+            {% if contact_lines %}
+                <p class="muted" style="margin:4px 0 0;">
+                    {% for line in contact_lines %}
+                        {{ line }}{% if not forloop.last %}<br>{% endif %}
+                    {% endfor %}
+                </p>
+            {% endif %}
+        </div>
+        <div class="sheet-logo">
+            {% if brand_logo %}
+                <img src="{{ brand_logo }}" alt="Company logo">
+            {% endif %}
+        </div>
+        <div class="sheet-header-right">
+            <p class="estimate-number">
+                <strong>{% translate 'Estimate' %} #{{ estimate.estimate_number|default:"—" }}</strong>
+            </p>
+            <table class="meta-table">
+                <tbody>
+                    <tr><th>{% translate 'Event date' %}</th><td>{{ estimate.event_date|date:"M j, Y" }}</td></tr>
+                    <tr><th>{% translate 'Event type' %}</th><td>{{ estimate.event_type|default:"—" }}</td></tr>
+                    <tr><th>{% translate 'Event location' %}</th><td>{{ estimate.event_location|default:"—" }}</td></tr>
+                    <tr><th>{% translate 'Guests' %}</th><td>{{ estimate.guest_count }}</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </header>
+
     <section>
         <h2>{% translate 'Totals' %}</h2>
         <table class="summary-table summary-table--totals">
@@ -645,7 +665,6 @@
         </div>
     </section>
 </div>
-<div class="page-number"></div>
 {% if auto_print %}
 <script>
     window.addEventListener("load", function() {
