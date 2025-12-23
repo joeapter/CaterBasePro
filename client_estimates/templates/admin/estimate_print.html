@@ -12,7 +12,7 @@
         }
         @page { 
             size: A4;
-            margin: 0;
+            margin: 12mm;
         }
         body {
             margin: 0;
@@ -35,6 +35,7 @@
             background: rgba(255,255,255,0.92);
             box-shadow: 0 30px 60px rgba(15, 23, 42, 0.12);
             position: relative;
+            overflow: hidden;
         }
         .estimate-sheet.sheet-bg--clean {
             background: rgba(255,255,255,0.92);
@@ -267,13 +268,28 @@
             display: none;
         }
         @media print {
-            body { padding: 0; }
-            .estimate-sheet { box-shadow: none; border-radius: 0; }
+            body { padding: 0; background: #f5f6fb; }
+            .estimate-sheet {
+                box-shadow: none;
+                border-radius: 24px;
+                padding: 18mm 16mm 20mm;
+                background-clip: padding-box;
+            }
+            .estimate-sheet::before {
+                content: "";
+                position: fixed;
+                inset: 8mm;
+                border-radius: 24px;
+                background: inherit;
+                box-shadow: 0 8px 24px rgba(15,23,42,0.12);
+                z-index: -1;
+                pointer-events: none;
+            }
             .page-number {
                 display: block;
                 position: fixed;
-                bottom: 8mm;
-                right: 12mm;
+                bottom: 14mm;
+                right: 16mm;
                 font-family: "Georgia", serif;
                 font-size: 12px;
                 color: rgba(71,85,105,0.85);
@@ -427,11 +443,79 @@
                 <tbody>
                     <tr><th>{% translate 'Wait staff' %}</th><td>{{ staff_context.waiters }}</td></tr>
                     <tr><th>{% translate 'Estimated hours' %}</th><td>{{ staff_context.hours }}</td></tr>
-                    <tr><th>{% translate 'Hourly rate' %}</th><td>{{ staff_context.hourly_rate }}</td></tr>
-                    <tr><th>{% translate 'Labor total' %}</th><td>{{ staff_context.labor_total }}</td></tr>
-                    <tr><th>{% translate 'Suggested tip' %}</th><td>{{ staff_context.tip_total }} ({{ staff_context.tip_per_waiter }} {% translate 'per waiter' %})</td></tr>
+                    <tr><th>{% translate 'Hourly rate' %}</th><td>{{ staff_context.hourly_rate }} {{ estimate.currency }}</td></tr>
+                    <tr><th>{% translate 'Labor total' %}</th><td>{{ staff_context.labor_total }} {{ estimate.currency }}</td></tr>
+                    <tr>
+                        <th>{% translate 'Suggested tip' %}</th>
+                        <td>
+                            {% if staff_context.tip_varies %}
+                                {{ staff_context.tip_total }} {{ estimate.currency }} ({% translate 'varies by meal' %})
+                            {% else %}
+                                {{ staff_context.tip_total }} {{ estimate.currency }} ({{ staff_context.tip_per_waiter }} {{ estimate.currency }} {% translate 'per waiter' %})
+                            {% endif %}
+                        </td>
+                    </tr>
                 </tbody>
             </table>
+            {% if staff_context.per_meal %}
+                <h4 style="margin:12px 0 6px;">{% translate 'Per-meal staffing' %}</h4>
+                <table class="summary-table">
+                    <thead>
+                        <tr>
+                            <th style="text-align:left;">{% translate 'Meal' %}</th>
+                            <th style="text-align:right;">{% translate 'Hours' %}</th>
+                            <th style="text-align:right;">{% translate 'Labor' %}</th>
+                            <th style="text-align:right;">{% translate 'Tip' %}</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in staff_context.per_meal %}
+                            <tr>
+                                <td style="text-align:left;">{{ row.meal }}</td>
+                                <td style="text-align:right;">{{ row.staff_hours }}</td>
+                                <td style="text-align:right;">{{ row.staff_pay_total }} {{ estimate.currency }}</td>
+                                <td style="text-align:right;">{{ row.staff_tip_total }} {{ estimate.currency }}</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            {% endif %}
+        </section>
+    {% endif %}
+
+    {% if per_meal_service_rows and not flat_mode %}
+        <section>
+            <h2>{% translate 'Per-Meal Logistics' %}</h2>
+            <table class="summary-table">
+                <thead>
+                    <tr>
+                        <th style="text-align:left; width:30%;">{% translate 'Meal' %}</th>
+                        <th style="text-align:center; width:10%;">{% translate 'Real dishes' %}</th>
+                        <th style="text-align:right; width:15%;">{% translate 'Dishes / guest' %}</th>
+                        <th style="text-align:right; width:15%;">{% translate 'Staff hours' %}</th>
+                        <th style="text-align:right; width:15%;">{% translate 'Tip / waiter' %}</th>
+                        <th style="text-align:right; width:15%;">{% translate 'Totals' %}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in per_meal_service_rows %}
+                        <tr>
+                            <td style="text-align:left;">{{ row.meal }}</td>
+                            <td style="text-align:center;">{{ row.wants_real_dishes|yesno:"Yes,No" }}</td>
+                            <td style="text-align:right;">{{ row.real_dishes_price_per_person }} {{ estimate.currency }}</td>
+                            <td style="text-align:right;">{{ row.staff_hours }}</td>
+                            <td style="text-align:right;">{{ row.staff_tip_per_waiter }} {{ estimate.currency }}</td>
+                            <td style="text-align:right;">
+                                <div>{% translate 'Staff' %}: {{ row.staff_pay_total|add:row.staff_tip_total }} {{ estimate.currency }}</div>
+                                <div>{% translate 'Dishes' %}: {{ row.dishes_total }} {{ estimate.currency }}</div>
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% if delivery_fee %}
+                <p class="muted" style="margin:6px 0 0;">{% translate 'Delivery fee (once)' %}: {{ delivery_fee }} {{ estimate.currency }}</p>
+            {% endif %}
         </section>
     {% endif %}
 
@@ -506,7 +590,7 @@
                             <td>{{ estimate.staff_total }} {{ estimate.currency }}</td>
                         </tr>
                         <tr>
-                            <th>{% translate 'Dishes / rentals' %}</th>
+                            <th>{% translate 'Delivery & dishes' %}</th>
                             <td>{{ estimate.dishes_total }} {{ estimate.currency }}</td>
                         </tr>
                     {% endif %}

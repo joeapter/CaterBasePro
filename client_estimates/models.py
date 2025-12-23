@@ -95,7 +95,11 @@ class CatererAccount(models.Model):
         max_digits=8, decimal_places=2, default=Decimal("16.00")
     )
     real_dishes_flat_fee = models.DecimalField(
-        max_digits=8, decimal_places=2, default=Decimal("400.00")
+        "Delivery fee",
+        max_digits=8,
+        decimal_places=2,
+        default=Decimal("400.00"),
+        help_text="Flat delivery / dishes fee applied once when real dishes are requested.",
     )
 
     primary_contact_name = models.CharField(
@@ -357,7 +361,12 @@ class Estimate(models.Model):
         max_digits=8, decimal_places=2, null=True, blank=True
     )
     real_dishes_flat_fee = models.DecimalField(
-        max_digits=8, decimal_places=2, null=True, blank=True
+        "Delivery fee",
+        max_digits=8,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="Flat delivery / dishes fee applied once when real dishes are requested.",
     )
 
     # Staff
@@ -376,6 +385,11 @@ class Estimate(models.Model):
         default=list,
         blank=True,
         help_text="List of meal names (e.g. Friday Dinner, Shabbos Lunch) used to organize menu selections.",
+    )
+    meal_service_details = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Optional per-meal overrides for staffing and dish rentals.",
     )
     meal_guest_overrides = models.JSONField(
         default=dict,
@@ -522,6 +536,21 @@ class Estimate(models.Model):
     def total_waiter_count(self) -> int:
         return self.base_waiter_count() + (self.extra_waiters or 0)
 
+    @staticmethod
+    def _clean_decimal(value, default=None):
+        """
+        Safely coerce incoming JSON/POST values into a Decimal, falling back when invalid.
+        """
+        if value in (None, ""):
+            return default
+        try:
+            num = Decimal(str(value))
+        except Exception:
+            return default
+        if num < 0:
+            return default
+        return num.quantize(Decimal("0.01"))
+
     def _normalize_meal_plan(self):
         plan = [name.strip() for name in (self.meal_plan or []) if name and name.strip()]
         if not plan:
@@ -533,6 +562,102 @@ class Estimate(models.Model):
 
     def get_meal_plan(self):
         return self._normalize_meal_plan()
+
+    def meal_guest_counts(self):
+        """
+        Returns a mapping of meal name -> {"adults": Decimal, "kids": Decimal}
+        respecting any per-meal guest overrides.
+        """
+        plan = self.get_meal_plan()
+        overrides = self.meal_guest_overrides or {}
+        default_adults = Decimal(self.guest_count or 0)
+        default_kids = Decimal(self.guest_count_kids or 0)
+
+        def _override_decimal(val, default_value):
+            try:
+                num = Decimal(str(val))
+            except Exception:
+                return default_value
+            if num < 0:
+                return default_value
+            return num
+
+        counts = {}
+        for meal_name in plan:
+            counts_override = overrides.get(meal_name) or {}
+            counts[meal_name] = {
+                "adults": _override_decimal(counts_override.get("adults"), default_adults),
+                "kids": _override_decimal(counts_override.get("kids"), default_kids),
+            }
+        return counts
+
+    def per_meal_service_summary(self, apply_exchange: bool = True):
+        """
+        Build per-meal staffing/dishes breakdown for templates and calculations.
+        Only returns rows for meals that have explicit overrides saved.
+        """
+        if not self.meal_service_details:
+            return []
+        plan = self.get_meal_plan()
+        detail_map = self.meal_service_details or {}
+        guest_counts = self.meal_guest_counts()
+        waiters = self.total_waiter_count()
+        hourly_rate = self._get_staff_hourly_rate()
+        base_tip = self._get_staff_tip_per_waiter()
+        fx_rate = (self.exchange_rate or Decimal("1.00")) if apply_exchange else Decimal("1.00")
+        base_dish_price = (
+            self.real_dishes_price_per_person
+            or (self.caterer.real_dishes_price_per_person if self.caterer_id else None)
+            or Decimal("0.00")
+        )
+
+        rows = []
+        for meal_name in plan:
+            raw = detail_map.get(meal_name)
+            if not raw:
+                continue
+            wants_dishes = bool(raw.get("wants_real_dishes"))
+            dish_price = self._clean_decimal(raw.get("real_dishes_price_per_person"), base_dish_price)
+            if not wants_dishes:
+                dish_price = Decimal("0.00")
+            staff_hours = self._clean_decimal(raw.get("staff_hours"), Decimal("0.00"))
+            tip_per_waiter = self._clean_decimal(raw.get("staff_tip_per_waiter"), base_tip)
+            guests = guest_counts.get(meal_name, {}).get("adults", Decimal("0.00"))
+
+            dish_total = Decimal("0.00")
+            if wants_dishes:
+                dish_total = (dish_price or Decimal("0.00")) * guests
+
+            labor_total = Decimal("0.00")
+            tip_total = Decimal("0.00")
+            if waiters:
+                labor_total = (hourly_rate * (staff_hours or Decimal("0.00")) * waiters)
+                tip_total = (tip_per_waiter or Decimal("0.00")) * waiters
+
+            if fx_rate != Decimal("1.00"):
+                if wants_dishes:
+                    dish_price = (dish_price or Decimal("0.00")) * fx_rate
+                    dish_total = dish_total * fx_rate
+                labor_total = labor_total * fx_rate
+                tip_total = tip_total * fx_rate
+                if tip_per_waiter is not None:
+                    tip_per_waiter = tip_per_waiter * fx_rate
+
+            rows.append(
+                {
+                    "meal": meal_name,
+                    "wants_real_dishes": wants_dishes,
+                    "real_dishes_price_per_person": (dish_price or Decimal("0.00")).quantize(Decimal("0.01")),
+                    "dishes_total": dish_total.quantize(Decimal("0.01")),
+                    "staff_hours": (staff_hours or Decimal("0.00")).quantize(Decimal("0.01")),
+                    "staff_tip_per_waiter": (tip_per_waiter or Decimal("0.00")).quantize(Decimal("0.01")),
+                    "staff_pay_total": labor_total.quantize(Decimal("0.01")),
+                    "staff_tip_total": tip_total.quantize(Decimal("0.01")),
+                    "guest_count": guests,
+                }
+            )
+
+        return rows
 
     def calc_food_price_per_person(self) -> Decimal:
         total = Decimal("0.00")
@@ -557,6 +682,13 @@ class Estimate(models.Model):
     def calc_staff_total(self) -> Decimal:
         if self.is_ala_carte:
             return Decimal("0.00")
+        if self.meal_service_details:
+            rows = self.per_meal_service_summary(apply_exchange=False)
+            if rows:
+                total = sum(
+                    (row["staff_pay_total"] + row["staff_tip_total"]) for row in rows
+                )
+                return total.quantize(Decimal("0.01"))
         waiters = self.total_waiter_count()
         if waiters == 0:
             return Decimal("0.00")
@@ -570,13 +702,26 @@ class Estimate(models.Model):
     def calc_dishes_total(self) -> Decimal:
         if self.is_ala_carte:
             return Decimal("0.00")
+        if self.meal_service_details:
+            rows = self.per_meal_service_summary(apply_exchange=False)
+            wants_any = any(row.get("wants_real_dishes") for row in rows)
+            if wants_any:
+                total = sum((row["dishes_total"] for row in rows), Decimal("0.00"))
+                delivery_fee = (
+                    self.real_dishes_flat_fee
+                    or (self.caterer.real_dishes_flat_fee if self.caterer_id else Decimal("0.00"))
+                    or Decimal("0.00")
+                )
+                total += delivery_fee
+                return total.quantize(Decimal("0.01"))
         if not self.wants_real_dishes:
             return Decimal("0.00")
-        per_person = (
-            self.real_dishes_price_per_person
-            or self.caterer.real_dishes_price_per_person
+        per_person = self.real_dishes_price_per_person or (
+            self.caterer.real_dishes_price_per_person if self.caterer_id else Decimal("0.00")
         )
-        flat = self.real_dishes_flat_fee or self.caterer.real_dishes_flat_fee
+        flat = self.real_dishes_flat_fee or (
+            self.caterer.real_dishes_flat_fee if self.caterer_id else Decimal("0.00")
+        )
         guests = Decimal(self.guest_count or 0)
         total = per_person * guests + flat
         return total.quantize(Decimal("0.01"))
@@ -652,9 +797,7 @@ class Estimate(models.Model):
         )
         sections = []
         overrides = self.manual_meal_totals or {}
-        guest_overrides = self.meal_guest_overrides or {}
-        guest_count = Decimal(self.guest_count or 0)
-        guest_count_kids = Decimal(self.guest_count_kids or 0)
+        guest_counts = self.meal_guest_counts()
         rate = self.exchange_rate or Decimal("1.00")
         for meal_name in plan:
             meal_choices = [
@@ -694,19 +837,9 @@ class Estimate(models.Model):
                 except Exception:
                     pass
 
-            counts_override = guest_overrides.get(meal_name) or {}
-
-            def _override_decimal(val, default_value):
-                try:
-                    num = Decimal(str(val))
-                except Exception:
-                    return default_value
-                if num < 0:
-                    return default_value
-                return num
-
-            meal_guest_count = _override_decimal(counts_override.get("adults"), guest_count)
-            meal_guest_kids = _override_decimal(counts_override.get("kids"), guest_count_kids)
+            counts_override = guest_counts.get(meal_name) or {}
+            meal_guest_count = counts_override.get("adults", Decimal(self.guest_count or 0))
+            meal_guest_kids = counts_override.get("kids", Decimal(self.guest_count_kids or 0))
 
             sections.append(
                 {

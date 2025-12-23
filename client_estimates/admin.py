@@ -517,6 +517,10 @@ class EstimateAdminForm(forms.ModelForm):
         required=False,
         widget=forms.HiddenInput(),
     )
+    meal_service_json = forms.CharField(
+        required=False,
+        widget=forms.HiddenInput(),
+    )
 
     class Meta:
         model = Estimate
@@ -576,6 +580,9 @@ class EstimateAdminForm(forms.ModelForm):
             )
             self.fields["meal_guest_overrides_json"].initial = json.dumps(
                 self.instance.meal_guest_overrides or {}
+            )
+            self.fields["meal_service_json"].initial = json.dumps(
+                self.instance.meal_service_details or {}
             )
 
         # Build dynamic item checklist
@@ -888,6 +895,11 @@ class EstimateAdmin(admin.ModelAdmin):
             obj.meal_guest_overrides = json.loads(guest_overrides_raw) if guest_overrides_raw else {}
         except json.JSONDecodeError:
             obj.meal_guest_overrides = {}
+        service_raw = form.cleaned_data.get("meal_service_json")
+        try:
+            obj.meal_service_details = json.loads(service_raw) if service_raw else {}
+        except json.JSONDecodeError:
+            obj.meal_service_details = {}
 
         super().save_model(request, obj, form, change)
 
@@ -1022,24 +1034,54 @@ class EstimateAdmin(admin.ModelAdmin):
             .order_by("extra_item__category", "extra_item__name")
         )
 
+        per_meal_service_rows = estimate.per_meal_service_summary()
+        delivery_fee = (
+            estimate.real_dishes_flat_fee
+            or (estimate.caterer.real_dishes_flat_fee if estimate.caterer_id else Decimal("0.00"))
+            or Decimal("0.00")
+        )
+        if estimate.exchange_rate and estimate.exchange_rate != Decimal("1.00"):
+            delivery_fee = (delivery_fee * estimate.exchange_rate).quantize(Decimal("0.01"))
+        if estimate.exchange_rate and estimate.exchange_rate != Decimal("1.00"):
+            delivery_fee = (delivery_fee * estimate.exchange_rate).quantize(Decimal("0.01"))
         caterer = estimate.caterer
         staff_context = None
         if not estimate.is_ala_carte:
             waiters = estimate.total_waiter_count()
-            staff_hours = estimate.staff_hours or Decimal("0.00")
             rate = estimate._get_staff_hourly_rate()
-            tip = estimate._get_staff_tip_per_waiter()
-            staff_pay = (rate * staff_hours * waiters).quantize(Decimal("0.01"))
-            staff_tip = (tip * waiters).quantize(Decimal("0.01"))
-            staff_context = {
-                "waiters": waiters,
-                "hours": staff_hours,
-                "hourly_rate": rate,
-                "labor_total": staff_pay,
-                "tip_per_waiter": tip,
-                "tip_total": staff_tip,
-                "grand": staff_pay + staff_tip,
-            }
+            if per_meal_service_rows:
+                staff_hours = sum((row["staff_hours"] for row in per_meal_service_rows), Decimal("0.00")).quantize(Decimal("0.01"))
+                staff_pay = sum((row["staff_pay_total"] for row in per_meal_service_rows), Decimal("0.00")).quantize(Decimal("0.01"))
+                staff_tip = sum((row["staff_tip_total"] for row in per_meal_service_rows), Decimal("0.00")).quantize(Decimal("0.01"))
+                tip_set = {row["staff_tip_per_waiter"] for row in per_meal_service_rows}
+                tip_value = tip_set.pop() if len(tip_set) == 1 else None
+                staff_context = {
+                    "waiters": waiters,
+                    "hours": staff_hours,
+                    "hourly_rate": rate,
+                    "labor_total": staff_pay,
+                    "tip_per_waiter": tip_value,
+                    "tip_total": staff_tip,
+                    "grand": staff_pay + staff_tip,
+                    "tip_varies": tip_value is None,
+                    "per_meal": per_meal_service_rows,
+                }
+            else:
+                staff_hours = estimate.staff_hours or Decimal("0.00")
+                tip = estimate._get_staff_tip_per_waiter()
+                staff_pay = (rate * staff_hours * waiters).quantize(Decimal("0.01"))
+                staff_tip = (tip * waiters).quantize(Decimal("0.01"))
+                staff_context = {
+                    "waiters": waiters,
+                    "hours": staff_hours,
+                    "hourly_rate": rate,
+                    "labor_total": staff_pay,
+                    "tip_per_waiter": tip,
+                    "tip_total": staff_tip,
+                    "grand": staff_pay + staff_tip,
+                    "tip_varies": False,
+                    "per_meal": [],
+                }
 
         meal_sections = estimate.meal_sections()
         meal_total_amount = (
@@ -1081,6 +1123,8 @@ class EstimateAdmin(admin.ModelAdmin):
             ],
             "bank_details": caterer.bank_details,
             "flat_mode": False,
+            "per_meal_service_rows": per_meal_service_rows,
+            "delivery_fee": delivery_fee,
         }
         return render(request, "admin/estimate_print.html", context)
 
@@ -1092,6 +1136,12 @@ class EstimateAdmin(admin.ModelAdmin):
         extra_lines = (
             estimate.extra_lines.select_related("extra_item")
             .order_by("extra_item__category", "extra_item__name")
+        )
+        per_meal_service_rows = estimate.per_meal_service_summary()
+        delivery_fee = (
+            estimate.real_dishes_flat_fee
+            or (estimate.caterer.real_dishes_flat_fee if estimate.caterer_id else Decimal("0.00"))
+            or Decimal("0.00")
         )
         caterer = estimate.caterer
         staff_context = None
@@ -1165,6 +1215,8 @@ class EstimateAdmin(admin.ModelAdmin):
             "flat_deposit_amount": flat_deposit_amount,
             "flat_balance": flat_balance,
             "staff_context": None,  # hide staff section in flat mode
+            "per_meal_service_rows": per_meal_service_rows,
+            "delivery_fee": delivery_fee,
         }
         return render(request, "admin/estimate_print.html", context)
 

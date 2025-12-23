@@ -201,6 +201,53 @@
                 width: 100%;
             }
         }
+        .meal-service-card {
+            border: 1px solid #e4e4e7;
+            border-radius: 12px;
+            padding: 12px 14px 4px;
+            margin: 12px 0;
+            background: #f8fafc;
+        }
+        .meal-service-card__header {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+        .meal-service-actions {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+        .meal-service-actions .button {
+            padding: 6px 12px;
+            font-size: 13px;
+        }
+        .meal-service-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+            margin-top: 10px;
+        }
+        .meal-service-table th,
+        .meal-service-table td {
+            border-bottom: 1px solid #e2e8f0;
+            padding: 8px;
+            text-align: left;
+        }
+        .meal-service-table th {
+            background: #eef2ff;
+            text-transform: uppercase;
+            letter-spacing: .06em;
+            font-size: 12px;
+        }
+        .meal-service-table .text-center {
+            text-align: center;
+        }
+        .meal-service-table input[type="number"] {
+            width: 100%;
+        }
     </style>
 {% endblock %}
 
@@ -222,6 +269,7 @@
                 {% if step == "2" %}
                     {% include "admin/partials/estimate_menu_checklist.html" with form=adminform.form only %}
                 {% elif step == "5" %}
+                    {% include "admin/partials/estimate_service_split.html" with form=adminform.form only %}
                     {% include "admin/partials/estimate_summary_helpers.html" with form=adminform.form original=original only %}
                 {% endif %}
             </section>
@@ -469,6 +517,126 @@
                 });
 
                 recalcTotals();
+            }
+
+            const serviceWrapper = document.querySelector(".meal-service-wrapper");
+            const serviceField = document.getElementById("id_meal_service_json");
+            if (serviceWrapper && serviceField) {
+                let serviceState = {};
+                try {
+                    serviceState = JSON.parse(serviceField.value || "{}") || {};
+                } catch (err) {
+                    serviceState = {};
+                }
+                const defaults = {
+                    wants: serviceWrapper.dataset.defaultWants === "true",
+                    dish: serviceWrapper.dataset.defaultDish || "",
+                    hours: serviceWrapper.dataset.defaultHours || "",
+                    tip: serviceWrapper.dataset.defaultTip || "",
+                };
+                const parseNumber = (val) => {
+                    const num = parseFloat(val);
+                    return isNaN(num) ? null : num;
+                };
+                const persist = () => {
+                    serviceField.value = JSON.stringify(serviceState);
+                };
+
+                const rows = Array.from(serviceWrapper.querySelectorAll("[data-meal-row]"));
+                rows.forEach(row => {
+                    const meal = row.dataset.meal;
+                    const wantsInput = row.querySelector(".meal-service-toggle");
+                    const priceInput = row.querySelector('input[data-field="real_dishes_price_per_person"]');
+                    const hoursInput = row.querySelector('input[data-field="staff_hours"]');
+                    const tipInput = row.querySelector('input[data-field="staff_tip_per_waiter"]');
+
+                    const syncFromState = () => {
+                        const data = serviceState[meal] || {};
+                        wantsInput.checked = !!data.wants_real_dishes;
+                        if (data.real_dishes_price_per_person !== undefined) {
+                            priceInput.value = data.real_dishes_price_per_person;
+                        }
+                        if (data.staff_hours !== undefined) {
+                            hoursInput.value = data.staff_hours;
+                        }
+                        if (data.staff_tip_per_waiter !== undefined) {
+                            tipInput.value = data.staff_tip_per_waiter;
+                        }
+                    };
+
+                    const updateRow = () => {
+                        const next = {};
+                        const hasWants = wantsInput.checked;
+                        const dishVal = parseNumber(priceInput.value.trim());
+                        const hoursVal = parseNumber(hoursInput.value.trim());
+                        const tipVal = parseNumber(tipInput.value.trim());
+                        if (hasWants) next.wants_real_dishes = true;
+                        if (dishVal !== null) next.real_dishes_price_per_person = dishVal;
+                        if (hoursVal !== null) next.staff_hours = hoursVal;
+                        if (tipVal !== null) next.staff_tip_per_waiter = tipVal;
+
+                        if (Object.keys(next).length) {
+                            serviceState[meal] = next;
+                        } else {
+                            delete serviceState[meal];
+                        }
+                        persist();
+                    };
+
+                    wantsInput.addEventListener("change", updateRow);
+                    [priceInput, hoursInput, tipInput].forEach(input => {
+                        input.addEventListener("input", updateRow);
+                    });
+
+                    syncFromState();
+                });
+
+                const copyBtn = serviceWrapper.querySelector("[data-copy-defaults]");
+                copyBtn?.addEventListener("click", (event) => {
+                    event.preventDefault();
+                    rows.forEach(row => {
+                        const meal = row.dataset.meal;
+                        const wantsInput = row.querySelector(".meal-service-toggle");
+                        const priceInput = row.querySelector('input[data-field="real_dishes_price_per_person"]');
+                        const hoursInput = row.querySelector('input[data-field="staff_hours"]');
+                        const tipInput = row.querySelector('input[data-field="staff_tip_per_waiter"]');
+
+                        wantsInput.checked = defaults.wants;
+                        priceInput.value = defaults.dish;
+                        hoursInput.value = defaults.hours;
+                        tipInput.value = defaults.tip;
+
+                        const next = {};
+                        if (defaults.wants) next.wants_real_dishes = true;
+                        const dishVal = parseNumber(defaults.dish);
+                        const hoursVal = parseNumber(defaults.hours);
+                        const tipVal = parseNumber(defaults.tip);
+                        if (dishVal !== null) next.real_dishes_price_per_person = dishVal;
+                        if (hoursVal !== null) next.staff_hours = hoursVal;
+                        if (tipVal !== null) next.staff_tip_per_waiter = tipVal;
+                        if (Object.keys(next).length) {
+                            serviceState[meal] = next;
+                        } else {
+                            delete serviceState[meal];
+                        }
+                    });
+                    persist();
+                });
+
+                const clearBtn = serviceWrapper.querySelector("[data-clear-service]");
+                clearBtn?.addEventListener("click", (event) => {
+                    event.preventDefault();
+                    serviceState = {};
+                    rows.forEach(row => {
+                        row.querySelector(".meal-service-toggle").checked = false;
+                        row.querySelector('input[data-field="real_dishes_price_per_person"]').value = "";
+                        row.querySelector('input[data-field="staff_hours"]').value = "";
+                        row.querySelector('input[data-field="staff_tip_per_waiter"]').value = "";
+                    });
+                    persist();
+                });
+
+                persist();
             }
         })();
     </script>

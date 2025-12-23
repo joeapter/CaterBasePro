@@ -34,7 +34,7 @@
                 </td>
             </tr>
             <tr>
-                <td style="padding:8px;">Dishes / rentals</td>
+                <td style="padding:8px;">Delivery &amp; dishes</td>
                 <td style="padding:8px; text-align:right;">
                     {% if form.instance.is_ala_carte %}—{% else %}{{ form.instance.dishes_total }}{% endif %}
                 </td>
@@ -77,6 +77,43 @@
                     {% endfor %}
                 </tbody>
             </table>
+        </div>
+    {% endif %}
+{% endwith %}
+
+{% with service_rows=form.instance.per_meal_service_summary %}
+    {% if service_rows %}
+        <div class="estimate-summary-card" style="background:#fff; border:1px solid #e4e4e7; color:#0f172a;">
+            <h4>Per-Meal Logistics</h4>
+            <table style="width:100%; border-collapse:collapse;">
+                <thead>
+                    <tr>
+                        <th style="text-align:left; padding:6px;">Meal</th>
+                        <th style="text-align:center; padding:6px;">Real dishes</th>
+                        <th style="text-align:right; padding:6px;">Dishes / guest</th>
+                        <th style="text-align:right; padding:6px;">Staff hrs</th>
+                        <th style="text-align:right; padding:6px;">Tip / waiter</th>
+                        <th style="text-align:right; padding:6px;">Staff total</th>
+                        <th style="text-align:right; padding:6px;">Dishes total</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in service_rows %}
+                        <tr>
+                            <td style="padding:6px;">{{ row.meal }}</td>
+                            <td style="padding:6px; text-align:center;">{{ row.wants_real_dishes|yesno:"Yes,No" }}</td>
+                            <td style="padding:6px; text-align:right;">{{ row.real_dishes_price_per_person }} {{ form.instance.currency }}</td>
+                            <td style="padding:6px; text-align:right;">{{ row.staff_hours }}</td>
+                            <td style="padding:6px; text-align:right;">{{ row.staff_tip_per_waiter }} {{ form.instance.currency }}</td>
+                            <td style="padding:6px; text-align:right;">{{ row.staff_pay_total|add:row.staff_tip_total }} {{ form.instance.currency }}</td>
+                            <td style="padding:6px; text-align:right;">{{ row.dishes_total }} {{ form.instance.currency }}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% with fx=form.instance.exchange_rate|default_if_none:"1" %}
+                <p class="help" style="margin:8px 0 0;">Delivery fee (once): {{ form.instance.real_dishes_flat_fee|default:form.instance.caterer.real_dishes_flat_fee|mul:fx|floatformat:"2" }} {{ form.instance.currency }}</p>
+            {% endwith %}
         </div>
     {% endif %}
 {% endwith %}

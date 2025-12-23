@@ -1,0 +1,55 @@
+{% if form.meal_names|length > 1 %}
+    {% with default_dish_price=form.instance.real_dishes_price_per_person|default:form.instance.caterer.real_dishes_price_per_person %}
+    {% with default_hours=form.instance.staff_hours default_tip=form.instance.staff_tip_per_waiter|default:form.instance.caterer.staff_tip_per_waiter %}
+    <div class="meal-service-card meal-service-wrapper"
+         data-default-wants="{{ form.instance.wants_real_dishes|yesno:'true,false' }}"
+         data-default-dish="{{ default_dish_price|default_if_none:'' }}"
+         data-default-hours="{{ default_hours|default_if_none:'' }}"
+         data-default-tip="{{ default_tip|default_if_none:'' }}">
+        <div class="meal-service-card__header">
+            <div>
+                <h3 style="margin:0;">Per-meal logistics</h3>
+                <p class="help" style="margin:4px 0 0;">Use this when multi-meal events need different dish rentals or staffing. Leaving everything empty keeps the single values above; only rows with entries are counted. Delivery fee is applied once.</p>
+            </div>
+            <div class="meal-service-actions">
+                <button type="button" class="button button-secondary" data-copy-defaults>Copy defaults to all</button>
+                <button type="button" class="button" data-clear-service>Clear overrides</button>
+            </div>
+        </div>
+        <table class="meal-service-table">
+            <thead>
+                <tr>
+                    <th>Meal</th>
+                    <th>Real dishes?</th>
+                    <th>Price per guest</th>
+                    <th>Staff hours</th>
+                    <th>Tip per waiter</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for meal in form.meal_names %}
+                    <tr data-meal-row data-meal="{{ meal }}">
+                        <td>{{ meal }}</td>
+                        <td class="text-center">
+                            <input type="checkbox" class="meal-service-toggle">
+                        </td>
+                        <td>
+                            <input type="number" step="0.01" class="meal-service-input" data-field="real_dishes_price_per_person" placeholder="{{ default_dish_price|default_if_none:'0.00' }}">
+                        </td>
+                        <td>
+                            <input type="number" step="0.25" class="meal-service-input" data-field="staff_hours" placeholder="{{ default_hours|default_if_none:'0.00' }}">
+                        </td>
+                        <td>
+                            <input type="number" step="0.01" class="meal-service-input" data-field="staff_tip_per_waiter" placeholder="{{ default_tip|default_if_none:'0.00' }}">
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endwith %}
+    {% endwith %}
+{% endif %}
+<div style="display:none;">
+    {{ form.meal_service_json }}
+</div>
