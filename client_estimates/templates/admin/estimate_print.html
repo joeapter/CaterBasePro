@@ -525,15 +525,22 @@
             <table class="summary-table">
                 <thead>
                     <tr>
-                        <th style="text-align:left; width:50%;">{% translate 'Meal' %}</th>
-                        <th style="text-align:right; width:25%;">{% translate 'Per guest' %}</th>
-                        <th style="text-align:right; width:25%;">{% translate 'Total' %}</th>
+                        <th style="text-align:left; width:40%;">{% translate 'Meal' %}</th>
+                        <th style="text-align:right; width:20%;">{% translate 'Guests' %}</th>
+                        <th style="text-align:right; width:20%;">{% translate 'Per guest' %}</th>
+                        <th style="text-align:right; width:20%;">{% translate 'Total' %}</th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for meal in meal_sections %}
                         <tr>
                             <td style="text-align:left;">{{ meal.name }}</td>
+                            <td style="text-align:right;">
+                                {{ meal.guest_count|default_if_none:0 }}
+                                {% if meal.guest_count_kids %}
+                                    ({{ meal.guest_count_kids }} {% translate 'kids' %})
+                                {% endif %}
+                            </td>
                             <td style="text-align:right;">{{ meal.price_per_guest }} {{ estimate.currency }}</td>
                             <td style="text-align:right;">{{ meal.total }} {{ estimate.currency }}</td>
                         </tr>

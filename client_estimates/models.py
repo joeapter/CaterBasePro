@@ -856,6 +856,8 @@ class Estimate(models.Model):
                     "price_per_child": (price_pp_kids * rate).quantize(Decimal("0.01")),
                     "total": (price_pp * meal_guest_count * rate).quantize(Decimal("0.01")),
                     "kids_total": (price_pp_kids * meal_guest_kids * rate).quantize(Decimal("0.01")),
+                    "guest_count": meal_guest_count,
+                    "guest_count_kids": meal_guest_kids,
                 }
             )
         return sections

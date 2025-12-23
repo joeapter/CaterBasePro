@@ -63,6 +63,7 @@
                 <thead>
                     <tr>
                         <th style="text-align:left; padding:6px;">Meal</th>
+                        <th style="text-align:right; padding:6px;">Guests</th>
                         <th style="text-align:right; padding:6px;">Per guest</th>
                         <th style="text-align:right; padding:6px;">Total</th>
                     </tr>
@@ -71,6 +72,12 @@
                     {% for section in sections %}
                         <tr>
                             <td style="padding:6px;">{{ section.name }}</td>
+                            <td style="padding:6px; text-align:right;">
+                                {{ section.guest_count|default_if_none:0 }}
+                                {% if section.guest_count_kids %}
+                                    ({{ section.guest_count_kids }} kids)
+                                {% endif %}
+                            </td>
                             <td style="padding:6px; text-align:right;">{{ section.price_per_guest }}</td>
                             <td style="padding:6px; text-align:right;">{{ section.total }}</td>
                         </tr>
