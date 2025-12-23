@@ -12,7 +12,7 @@
         }
         @page { 
             size: A4;
-            margin: 0;
+            margin: 10mm;
         }
         body {
             margin: 0;
@@ -267,11 +267,14 @@
         @media print {
             body { padding: 0; }
             .estimate-sheet { 
-                box-shadow: none; 
-                border-radius: 0; 
-                page-break-inside: avoid;
+                box-shadow: none;
+                border-radius: 0;
+                page-break-inside: auto;
+                page-break-after: always;
+                padding: 18mm 16mm 20mm;
             }
-            section { page-break-inside: avoid; }
+            .estimate-sheet:last-of-type { page-break-after: auto; }
+            section { page-break-inside: auto; }
             .meal-card { 
                 page-break-inside: auto;
                 -webkit-box-decoration-break: clone;
