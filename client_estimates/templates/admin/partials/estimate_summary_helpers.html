@@ -1,4 +1,4 @@
-{% load i18n %}
+{% load i18n form_extras %}
 {% if original %}
     {% url 'admin:client_estimates_estimate_print' original.pk as preview_url %}
 {% endif %}
