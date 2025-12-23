@@ -527,6 +527,9 @@
                             <td style="text-align:left;">{{ meal.name }}</td>
                             <td style="text-align:right;">
                                 {{ meal.guest_count|default_if_none:0 }}
+                                {% if meal.guest_count_kids %}
+                                    ({{ meal.guest_count_kids }} {% translate 'kids' %})
+                                {% endif %}
                             </td>
                             <td style="text-align:right;">{{ meal.price_per_guest }} {{ estimate.currency }}</td>
                             <td style="text-align:right;">{{ meal.total }} {{ estimate.currency }}</td>
