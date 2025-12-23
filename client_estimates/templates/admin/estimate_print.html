@@ -269,10 +269,14 @@
             .estimate-sheet { 
                 box-shadow: none; 
                 border-radius: 0; 
-                page-break-after: always;
+                page-break-inside: avoid;
             }
-            .estimate-sheet:last-of-type { page-break-after: auto; }
-            section, .meal-card { page-break-inside: avoid; }
+            section { page-break-inside: avoid; }
+            .meal-card { 
+                page-break-inside: auto;
+                -webkit-box-decoration-break: clone;
+                box-decoration-break: clone;
+            }
         }
     </style>
 </head>
