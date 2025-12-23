@@ -1042,8 +1042,11 @@ class EstimateAdmin(admin.ModelAdmin):
         )
         if estimate.exchange_rate and estimate.exchange_rate != Decimal("1.00"):
             delivery_fee = (delivery_fee * estimate.exchange_rate).quantize(Decimal("0.01"))
-        if estimate.exchange_rate and estimate.exchange_rate != Decimal("1.00"):
-            delivery_fee = (delivery_fee * estimate.exchange_rate).quantize(Decimal("0.01"))
+        dishes_delivery_fee = Decimal("0.00")
+        dishes_subtotal = estimate.dishes_total
+        if estimate.dishes_total and not estimate.is_ala_carte:
+            dishes_delivery_fee = min(delivery_fee, estimate.dishes_total)
+            dishes_subtotal = (estimate.dishes_total - dishes_delivery_fee).quantize(Decimal("0.01"))
         caterer = estimate.caterer
         staff_context = None
         if not estimate.is_ala_carte:
@@ -1125,6 +1128,8 @@ class EstimateAdmin(admin.ModelAdmin):
             "flat_mode": False,
             "per_meal_service_rows": per_meal_service_rows,
             "delivery_fee": delivery_fee,
+            "dishes_delivery_fee": dishes_delivery_fee,
+            "dishes_subtotal": dishes_subtotal,
         }
         return render(request, "admin/estimate_print.html", context)
 
@@ -1161,6 +1166,11 @@ class EstimateAdmin(admin.ModelAdmin):
                 "tip_total": staff_tip,
                 "grand": staff_pay + staff_tip,
             }
+        dishes_delivery_fee = Decimal("0.00")
+        dishes_subtotal = estimate.dishes_total
+        if estimate.dishes_total and not estimate.is_ala_carte:
+            dishes_delivery_fee = min(delivery_fee, estimate.dishes_total)
+            dishes_subtotal = (estimate.dishes_total - dishes_delivery_fee).quantize(Decimal("0.01"))
 
         meal_sections = estimate.meal_sections()
         meal_total_amount = (
@@ -1217,6 +1227,8 @@ class EstimateAdmin(admin.ModelAdmin):
             "staff_context": None,  # hide staff section in flat mode
             "per_meal_service_rows": per_meal_service_rows,
             "delivery_fee": delivery_fee,
+            "dishes_delivery_fee": dishes_delivery_fee,
+            "dishes_subtotal": dishes_subtotal,
         }
         return render(request, "admin/estimate_print.html", context)
 

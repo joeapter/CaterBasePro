@@ -587,8 +587,12 @@
                             <td>{{ estimate.staff_total }} {{ estimate.currency }}</td>
                         </tr>
                         <tr>
-                            <th>{% translate 'Delivery & dishes' %}</th>
-                            <td>{{ estimate.dishes_total }} {{ estimate.currency }}</td>
+                            <th>{% translate 'Dishes' %}</th>
+                            <td>{{ dishes_subtotal }} {{ estimate.currency }}</td>
+                        </tr>
+                        <tr>
+                            <th>{% translate 'Dishes Delivery & Pickup' %}</th>
+                            <td>{{ dishes_delivery_fee }} {{ estimate.currency }}</td>
                         </tr>
                     {% endif %}
                     <tr>
