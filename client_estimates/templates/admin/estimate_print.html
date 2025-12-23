@@ -12,7 +12,7 @@
         }
         @page { 
             size: A4;
-            margin: 12mm;
+            margin: 0;
         }
         body {
             margin: 0;
@@ -35,7 +35,6 @@
             background: rgba(255,255,255,0.92);
             box-shadow: 0 30px 60px rgba(15, 23, 42, 0.12);
             position: relative;
-            overflow: hidden;
         }
         .estimate-sheet.sheet-bg--clean {
             background: rgba(255,255,255,0.92);
@@ -268,28 +267,19 @@
             display: none;
         }
         @media print {
-            body { padding: 0; background: #f5f6fb; }
-            .estimate-sheet {
-                box-shadow: none;
-                border-radius: 24px;
-                padding: 18mm 16mm 20mm;
-                background-clip: padding-box;
+            body { padding: 0; }
+            .estimate-sheet { 
+                box-shadow: none; 
+                border-radius: 0; 
+                page-break-after: always;
             }
-            .estimate-sheet::before {
-                content: "";
-                position: fixed;
-                inset: 8mm;
-                border-radius: 24px;
-                background: inherit;
-                box-shadow: 0 8px 24px rgba(15,23,42,0.12);
-                z-index: -1;
-                pointer-events: none;
-            }
+            .estimate-sheet:last-of-type { page-break-after: auto; }
+            section, .meal-card { page-break-inside: avoid; }
             .page-number {
                 display: block;
                 position: fixed;
-                bottom: 14mm;
-                right: 16mm;
+                bottom: 8mm;
+                right: 12mm;
                 font-family: "Georgia", serif;
                 font-size: 12px;
                 color: rgba(71,85,105,0.85);

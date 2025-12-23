@@ -638,6 +638,46 @@
 
                 persist();
             }
+
+            // Hide kids guest field unless explicitly enabled
+            const kidsRow = document.querySelector(".form-row.field-guest_count_kids");
+            const kidsInput = document.getElementById("id_guest_count_kids");
+            const guestRow = document.querySelector(".form-row.field-guest_count");
+            if (kidsRow && kidsInput) {
+                const toggle = document.createElement("button");
+                toggle.type = "button";
+                toggle.textContent = "Add kids count";
+                toggle.className = "button button-secondary";
+                toggle.style.margin = "6px 0";
+                const toggleWrap = document.createElement("div");
+                toggleWrap.appendChild(toggle);
+
+                const showKids = () => {
+                    kidsRow.style.display = "";
+                    if (toggleWrap.parentElement) toggleWrap.parentElement.removeChild(toggleWrap);
+                    kidsInput.focus();
+                };
+                const hideKids = () => {
+                    kidsRow.style.display = "none";
+                    if (!toggleWrap.parentElement) {
+                        if (guestRow && guestRow.parentElement) {
+                            guestRow.insertAdjacentElement("afterend", toggleWrap);
+                        } else {
+                            kidsRow.parentElement.insertBefore(toggleWrap, kidsRow);
+                        }
+                    }
+                };
+
+                const initialVal = kidsInput.value && kidsInput.value !== "0";
+                if (!initialVal) {
+                    hideKids();
+                }
+
+                toggle.addEventListener("click", (e) => {
+                    e.preventDefault();
+                    showKids();
+                });
+            }
         })();
     </script>
 {% endblock %}
