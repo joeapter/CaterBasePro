@@ -613,6 +613,12 @@
                             <th>{% translate 'Staff total' %}</th>
                             <td>{{ estimate.staff_total }} {{ estimate.currency }}</td>
                         </tr>
+                        {% if kids_total_amount %}
+                        <tr>
+                            <th>{% translate 'Total kids cost' %}</th>
+                            <td>{{ kids_total_amount }} {{ estimate.currency }}</td>
+                        </tr>
+                        {% endif %}
                         <tr>
                             <th>{% translate 'Dishes' %}</th>
                             <td>{{ dishes_subtotal }} {{ estimate.currency }}</td>

@@ -1092,6 +1092,11 @@ class EstimateAdmin(admin.ModelAdmin):
             if meal_sections
             else Decimal("0.00")
         )
+        kids_total_amount = (
+            sum((section.get("kids_total", Decimal("0.00")) for section in meal_sections), Decimal("0.00"))
+            if meal_sections
+            else Decimal("0.00")
+        )
         sheet_surface_class = "sheet-surface-transparent" if caterer.document_surface_style == "TRANSPARENT" else ""
         sheet_background_class = f"sheet-bg--{caterer.document_background.lower()}"
         body_theme_class = "theme-bg-clean"
@@ -1116,6 +1121,7 @@ class EstimateAdmin(admin.ModelAdmin):
             "sheet_background_class": sheet_background_class,
             "body_theme_class": body_theme_class,
             "meal_total_amount": meal_total_amount,
+            "kids_total_amount": kids_total_amount,
             "service_style": service_style,
             "contact_lines": [
                 line for line in [
@@ -1178,6 +1184,11 @@ class EstimateAdmin(admin.ModelAdmin):
             if meal_sections
             else Decimal("0.00")
         )
+        kids_total_amount = (
+            sum((section.get("kids_total", Decimal("0.00")) for section in meal_sections), Decimal("0.00"))
+            if meal_sections
+            else Decimal("0.00")
+        )
         sheet_surface_class = "sheet-surface-transparent" if caterer.document_surface_style == "TRANSPARENT" else ""
         sheet_background_class = f"sheet-bg--{caterer.document_background.lower()}"
         body_theme_class = "theme-bg-clean"
@@ -1209,6 +1220,7 @@ class EstimateAdmin(admin.ModelAdmin):
             "sheet_background_class": sheet_background_class,
             "body_theme_class": body_theme_class,
             "meal_total_amount": meal_total_amount,
+            "kids_total_amount": kids_total_amount,
             "service_style": service_style,
             "contact_lines": [
                 line for line in [
