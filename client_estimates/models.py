@@ -346,6 +346,12 @@ class Estimate(models.Model):
         default=0,
         help_text="Kids count for separate pricing when using kids menu category.",
     )
+    kids_discount_percentage = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=Decimal("25.00"),
+        help_text="Discount applied to kids when no kids menu is used (e.g., kids eat adult menu at a reduced rate).",
+    )
 
     currency = models.CharField(
         max_length=3, choices=CURRENCY_CHOICES, default="ILS"
@@ -840,6 +846,16 @@ class Estimate(models.Model):
             counts_override = guest_counts.get(meal_name) or {}
             meal_guest_count = counts_override.get("adults", Decimal(self.guest_count or 0))
             meal_guest_kids = counts_override.get("kids", Decimal(self.guest_count_kids or 0))
+
+            # If no kids menu items are present, apply discounted adult price for kids.
+            if meal_guest_kids and not kids_items:
+                try:
+                    pct = Decimal(str(self.kids_discount_percentage or "0")).quantize(Decimal("0.01"))
+                except Exception:
+                    pct = Decimal("0.00")
+                pct = min(max(pct, Decimal("0.00")), Decimal("100.00"))
+                discount_factor = (Decimal("100.00") - pct) / Decimal("100.00")
+                price_pp_kids = (price_pp * discount_factor).quantize(Decimal("0.01"))
 
             sections.append(
                 {

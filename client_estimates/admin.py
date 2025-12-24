@@ -730,6 +730,7 @@ class EstimateAdmin(admin.ModelAdmin):
                     "event_location",
                     "guest_count",
                     "guest_count_kids",
+                    "kids_discount_percentage",
                     "exchange_rate",
                     "include_premium_plastic",
                     "include_premium_tablecloths",
