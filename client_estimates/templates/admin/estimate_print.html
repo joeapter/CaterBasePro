@@ -395,7 +395,34 @@
 
     <section>
         <h2>{% translate 'Decor & Extras' %}</h2>
-        {% if extra_lines %}
+        {% if extras_rows %}
+            <table class="info-table">
+                <thead>
+                <tr>
+                    <th>{% translate 'Description' %}</th>
+                    <th>{% translate 'Quantity' %}</th>
+                    <th>{% translate 'Cost' %}</th>
+                    <th>{% translate 'Notes' %}</th>
+                </tr>
+                </thead>
+                <tbody>
+                {% for row in extras_rows %}
+                    <tr>
+                        <td>{{ row.name }}</td>
+                        <td>{{ row.quantity }}</td>
+                        <td>
+                            {% if row.is_included %}
+                                {% translate 'Included' %}
+                            {% else %}
+                                {{ row.price }} {{ estimate.currency }}{% if row.charge_type %} / {{ row.charge_type|lower }}{% endif %}
+                            {% endif %}
+                        </td>
+                        <td>{{ row.notes }}</td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        {% elif extra_lines %}
             <table class="info-table">
                 <thead>
                 <tr>

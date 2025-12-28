@@ -1130,6 +1130,23 @@ class EstimateAdmin(admin.ModelAdmin):
             estimate.extra_lines.select_related("extra_item")
             .order_by("extra_item__category", "extra_item__name")
         )
+        fx_rate = (estimate.exchange_rate or Decimal("1.00"))
+        extras_rows = []
+        for line in extra_lines:
+            base_price = line.override_price if line.override_price is not None else line.extra_item.price
+            display_price = None
+            if base_price is not None:
+                display_price = (base_price * fx_rate).quantize(Decimal("0.01"))
+            extras_rows.append(
+                {
+                    "name": line.extra_item.name,
+                    "quantity": line.quantity,
+                    "notes": line.notes,
+                    "charge_type": line.extra_item.get_charge_type_display(),
+                    "price": display_price,
+                    "is_included": display_price in (None, Decimal("0.00")),
+                }
+            )
 
         per_meal_service_rows = estimate.per_meal_service_summary()
         delivery_fee = (
@@ -1210,6 +1227,7 @@ class EstimateAdmin(admin.ModelAdmin):
             "estimate": estimate,
             "meal_sections": meal_sections,
             "extra_lines": extra_lines,
+            "extras_rows": extras_rows,
             "title": f"{'Invoice' if estimate.is_invoice else 'Estimate'} for {estimate.customer_name}",
             "auto_print": request.GET.get("print") == "1",
             "staff_context": staff_context,
@@ -1250,6 +1268,23 @@ class EstimateAdmin(admin.ModelAdmin):
             estimate.extra_lines.select_related("extra_item")
             .order_by("extra_item__category", "extra_item__name")
         )
+        fx_rate = (estimate.exchange_rate or Decimal("1.00"))
+        extras_rows = []
+        for line in extra_lines:
+            base_price = line.override_price if line.override_price is not None else line.extra_item.price
+            display_price = None
+            if base_price is not None:
+                display_price = (base_price * fx_rate).quantize(Decimal("0.01"))
+            extras_rows.append(
+                {
+                    "name": line.extra_item.name,
+                    "quantity": line.quantity,
+                    "notes": line.notes,
+                    "charge_type": line.extra_item.get_charge_type_display(),
+                    "price": display_price,
+                    "is_included": display_price in (None, Decimal("0.00")),
+                }
+            )
         per_meal_service_rows = estimate.per_meal_service_summary()
         delivery_fee = (
             estimate.real_dishes_flat_fee
@@ -1313,6 +1348,7 @@ class EstimateAdmin(admin.ModelAdmin):
             "estimate": estimate,
             "meal_sections": meal_sections,
             "extra_lines": extra_lines,
+            "extras_rows": extras_rows,
             "title": f"PP Flat Estimate for {estimate.customer_name}",
             "auto_print": request.GET.get("print") == "1",
             "staff_context": staff_context,
