@@ -28,6 +28,8 @@ from .models import (
     ClientInquiry,
     ClientProfile,
     CatererTask,
+    TableclothOption,
+    PlasticwareOption,
     TastingAppointment,
     TrialRequest,
 )
@@ -584,6 +586,13 @@ class EstimateAdminForm(forms.ModelForm):
             self.fields["meal_service_json"].initial = json.dumps(
                 self.instance.meal_service_details or {}
             )
+            if "tablecloth_details" in self.fields:
+                self.fields["tablecloth_details"].initial = json.dumps(
+                    self.instance.tablecloth_details or {}
+                )
+        if "tablecloth_details" in self.fields:
+            self.fields["tablecloth_details"].required = False
+            self.fields["tablecloth_details"].widget = forms.HiddenInput()
 
         # Build dynamic item checklist
         self.menu_items = []
@@ -690,6 +699,28 @@ class EstimateAdminForm(forms.ModelForm):
                 else:
                     self.addon_items.append(extra)
 
+        # Suggestions for remembered options
+        self.tablecloth_options = []
+        self.plasticware_options = []
+        if caterer:
+            self.tablecloth_options = list(
+                TableclothOption.objects.filter(caterer=caterer)
+                .order_by("name")
+                .values_list("name", flat=True)
+            )
+            self.plasticware_options = list(
+                PlasticwareOption.objects.filter(caterer=caterer)
+                .order_by("name")
+                .values_list("name", flat=True)
+            )
+        if "plasticware_color" in self.fields:
+            self.fields["plasticware_color"].required = False
+            self.fields["plasticware_color"].widget.attrs["list"] = "plasticware-options"
+            self.fields["plasticware_color"].widget.attrs.setdefault(
+                "placeholder",
+                "e.g. Gold / Silver / Clear",
+            )
+
 
 @admin.register(Estimate)
 class EstimateAdmin(admin.ModelAdmin):
@@ -734,6 +765,7 @@ class EstimateAdmin(admin.ModelAdmin):
                     "exchange_rate",
                     "include_premium_plastic",
                     "include_premium_tablecloths",
+                    "plasticware_color",
                 ),
             },
         ),
@@ -869,6 +901,61 @@ class EstimateAdmin(admin.ModelAdmin):
             return True
         return obj and obj.caterer.owner == request.user
 
+    def _parse_tablecloths(self, raw_value, meal_names):
+        if isinstance(raw_value, str):
+            try:
+                raw_value = json.loads(raw_value) if raw_value else {}
+            except json.JSONDecodeError:
+                raw_value = {}
+        if not isinstance(raw_value, dict):
+            return {}
+
+        ordered_meals = list(meal_names)
+        for key in raw_value.keys():
+            if key not in ordered_meals:
+                ordered_meals.append(key)
+
+        parsed = {}
+        for meal in ordered_meals:
+            entry = raw_value.get(meal) or {}
+            name = (entry.get("name") or entry.get("choice") or "").strip()
+            qty = Estimate._clean_decimal(entry.get("quantity"), Decimal("0.00")) or Decimal("0.00")
+            extra = Estimate._clean_decimal(entry.get("extra_charge"), None)
+            has_price = extra not in (None, Decimal("0.00"))
+
+            if not name and (qty in (None, Decimal("0.00"))) and not has_price:
+                continue
+
+            parsed[meal] = {
+                "name": name,
+                "quantity": str(qty.quantize(Decimal("0.01"))),
+                "extra_charge": None if not has_price else str(extra.quantize(Decimal("0.01"))),
+            }
+        return parsed
+
+    def _remember_material_choices(self, caterer, tablecloth_data, plasticware_value):
+        if not caterer:
+            return
+        for entry in (tablecloth_data or {}).values():
+            name = (entry.get("name") or "").strip()
+            if not name:
+                continue
+            cloth, created = TableclothOption.objects.get_or_create(
+                caterer=caterer,
+                name=name,
+            )
+            if not created:
+                cloth.save(update_fields=["last_used_at"])
+
+        plastic = (plasticware_value or "").strip()
+        if plastic:
+            option, created = PlasticwareOption.objects.get_or_create(
+                caterer=caterer,
+                name=plastic,
+            )
+            if not created:
+                option.save(update_fields=["last_used_at"])
+
     def save_model(self, request, obj, form, change):
         """
         Save the Estimate, then build EstimateFoodChoice rows based on
@@ -901,6 +988,10 @@ class EstimateAdmin(admin.ModelAdmin):
             obj.meal_service_details = json.loads(service_raw) if service_raw else {}
         except json.JSONDecodeError:
             obj.meal_service_details = {}
+        obj.tablecloth_details = self._parse_tablecloths(
+            form.cleaned_data.get("tablecloth_details"),
+            meal_names,
+        )
 
         super().save_model(request, obj, form, change)
 
@@ -968,6 +1059,11 @@ class EstimateAdmin(admin.ModelAdmin):
                     quantity=quantity,
                     override_price=override_price,
                 )
+        self._remember_material_choices(
+            obj.caterer,
+            obj.tablecloth_details,
+            form.cleaned_data.get("plasticware_color"),
+        )
         # After rebuilding related rows, recalc totals now that selections exist
         obj.save()
 
@@ -1107,6 +1203,9 @@ class EstimateAdmin(admin.ModelAdmin):
         if caterer.brand_logo:
             logo_url = request.build_absolute_uri(caterer.brand_logo.url)
 
+        tablecloth_rows = estimate.tablecloth_rows()
+        show_plasticware = bool(estimate.plasticware_color and not estimate.uses_real_dishes_anywhere())
+
         context = {
             "estimate": estimate,
             "meal_sections": meal_sections,
@@ -1137,6 +1236,8 @@ class EstimateAdmin(admin.ModelAdmin):
             "delivery_fee": delivery_fee,
             "dishes_delivery_fee": dishes_delivery_fee,
             "dishes_subtotal": dishes_subtotal,
+            "tablecloth_rows": tablecloth_rows,
+            "show_plasticware": show_plasticware,
         }
         return render(request, "admin/estimate_print.html", context)
 
@@ -1197,6 +1298,8 @@ class EstimateAdmin(admin.ModelAdmin):
         logo_url = None
         if caterer.brand_logo:
             logo_url = request.build_absolute_uri(caterer.brand_logo.url)
+        tablecloth_rows = estimate.tablecloth_rows()
+        show_plasticware = bool(estimate.plasticware_color and not estimate.uses_real_dishes_anywhere())
 
         total_guests = (estimate.guest_count or 0) + (estimate.guest_count_kids or 0)
         per_person = Decimal("0.00")
@@ -1242,6 +1345,8 @@ class EstimateAdmin(admin.ModelAdmin):
             "delivery_fee": delivery_fee,
             "dishes_delivery_fee": dishes_delivery_fee,
             "dishes_subtotal": dishes_subtotal,
+            "tablecloth_rows": tablecloth_rows,
+            "show_plasticware": show_plasticware,
         }
         return render(request, "admin/estimate_print.html", context)
 
@@ -1258,6 +1363,8 @@ class EstimateAdmin(admin.ModelAdmin):
 
         plan = estimate.get_meal_plan()
         default_meal = plan[0] if plan else estimate.default_meal_name()
+        tablecloth_rows = estimate.tablecloth_rows()
+        plasticware_value = estimate.plasticware_color if not estimate.uses_real_dishes_anywhere() else ""
         choices = list(
             estimate.food_choices.select_related("menu_item", "menu_item__category")
             .order_by("menu_item__category__sort_order", "menu_item__category__name", "menu_item__name")
@@ -1318,6 +1425,7 @@ class EstimateAdmin(admin.ModelAdmin):
             meal_sections = []
             for (order, category), rows in sorted(section_map.items(), key=lambda x: (x[0][0], x[0][1])):
                 meal_sections.append({"category": category, "items": rows})
+            page_tablecloths = [row for row in tablecloth_rows if row.get("meal") == display_name]
             pages.append(
                 {
                     "estimate": estimate,
@@ -1327,6 +1435,8 @@ class EstimateAdmin(admin.ModelAdmin):
                     "logo_url": logo_url,
                     "primary_color": estimate.caterer.brand_primary_color or "#0f172a",
                     "accent_color": estimate.caterer.brand_accent_color or "#b08c6d",
+                    "tablecloths": page_tablecloths,
+                    "plasticware_color": plasticware_value,
                 }
             )
 

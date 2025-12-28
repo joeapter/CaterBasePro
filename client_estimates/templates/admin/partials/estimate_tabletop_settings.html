@@ -1,0 +1,74 @@
+{% load i18n %}
+<div class="meal-service-card">
+    <div class="meal-service-card__header">
+        <div>
+            <h3 style="margin:0;">{% translate "Tablecloths & Plasticware" %}</h3>
+            <p class="help" style="margin:4px 0 0;">Only rows with a choice, quantity, or charge are saved. Charges are per cloth and roll into Extras.</p>
+        </div>
+    </div>
+    <table class="meal-service-table">
+        <thead>
+            <tr>
+                <th style="width:28%;">{% translate "Meal" %}</th>
+                <th style="width:36%;">{% translate "Tablecloth choice" %}</th>
+                <th style="width:18%;">{% translate "Qty" %}</th>
+                <th style="width:18%;">{% translate "Charge / cloth" %}</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for meal in form.meal_names %}
+                <tr data-tablecloth-row data-meal="{{ meal }}">
+                    <td>{{ meal }}</td>
+                    <td>
+                        <input type="text"
+                               data-tablecloth-name
+                               list="tablecloth-options"
+                               placeholder="{% translate 'e.g. Black satin' %}"
+                               style="width:100%;">
+                    </td>
+                    <td>
+                        <input type="number"
+                               min="0"
+                               step="1"
+                               data-tablecloth-qty
+                               placeholder="{% translate 'Qty' %}"
+                               style="width:100%;">
+                    </td>
+                    <td>
+                        <input type="number"
+                               min="0"
+                               step="0.01"
+                               data-tablecloth-charge
+                               placeholder="{% translate 'Optional' %}"
+                               style="width:100%;">
+                    </td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    <p class="help" style="margin:8px 0 0;">Leave the charge blank to mark it as included on PDFs. Prices entered here are multiplied by the quantity and added to Extras.</p>
+
+    <div class="estimate-checklist-row" style="border:none; padding:10px 0 0;">
+        <div style="flex:1;">
+            <label for="{{ form.plasticware_color.id_for_label }}">
+                {% translate "Chad Paami plasticware color" %}
+                <small style="display:block; color:#6b7280;">Shown on PDFs/workflows when not using real dishes.</small>
+            </label>
+            {{ form.plasticware_color }}
+        </div>
+    </div>
+
+    <div style="display:none;">
+        {{ form.tablecloth_details }}
+    </div>
+    <datalist id="tablecloth-options">
+        {% for option in form.tablecloth_options %}
+            <option value="{{ option }}"></option>
+        {% endfor %}
+    </datalist>
+    <datalist id="plasticware-options">
+        {% for option in form.plasticware_options %}
+            <option value="{{ option }}"></option>
+        {% endfor %}
+    </datalist>
+</div>

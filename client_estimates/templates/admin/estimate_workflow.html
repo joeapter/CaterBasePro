@@ -147,6 +147,40 @@
                 <p class="empty-note">No menu items assigned for this meal.</p>
             {% endif %}
 
+            {% if sheet.tablecloths %}
+                <h3 class="section-title">Tablecloths</h3>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Choice</th>
+                            <th>Qty</th>
+                            <th>Price</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in sheet.tablecloths %}
+                            <tr>
+                                <td>{{ row.name }}</td>
+                                <td>{{ row.quantity }}</td>
+                                <td>
+                                    {% if row.extra_charge %}
+                                        {{ row.extra_charge }} {{ sheet.estimate.currency }} / cloth
+                                        <br><small>Total {{ row.total }} {{ sheet.estimate.currency }}</small>
+                                    {% else %}
+                                        Included
+                                    {% endif %}
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            {% endif %}
+
+            {% if sheet.plasticware_color %}
+                <h3 class="section-title">Chad Paami Plasticware</h3>
+                <p style="margin-top:0.25rem;">Color: {{ sheet.plasticware_color }}</p>
+            {% endif %}
+
             {% if sheet.extras %}
                 <h3 class="section-title">Extras & Rentals</h3>
                 <table>

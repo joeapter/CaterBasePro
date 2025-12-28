@@ -323,6 +323,36 @@ class ExtraItem(models.Model):
         return f"{self.name} ({self.caterer.name})"
 
 
+class TableclothOption(models.Model):
+    caterer = models.ForeignKey(
+        CatererAccount, on_delete=models.CASCADE, related_name="tablecloth_options"
+    )
+    name = models.CharField(max_length=200)
+    last_used_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ("caterer", "name")
+        ordering = ["name"]
+
+    def __str__(self):
+        return f"{self.name} ({self.caterer.name})"
+
+
+class PlasticwareOption(models.Model):
+    caterer = models.ForeignKey(
+        CatererAccount, on_delete=models.CASCADE, related_name="plasticware_options"
+    )
+    name = models.CharField(max_length=200)
+    last_used_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ("caterer", "name")
+        ordering = ["name"]
+
+    def __str__(self):
+        return f"{self.name} ({self.caterer.name})"
+
+
 class Estimate(models.Model):
     """
     One estimate / quote for a customer event.
@@ -360,6 +390,16 @@ class Estimate(models.Model):
     # Included disposables
     include_premium_plastic = models.BooleanField(default=True)
     include_premium_tablecloths = models.BooleanField(default=True)
+    tablecloth_details = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Optional per-meal tablecloth notes and charges.",
+    )
+    plasticware_color = models.CharField(
+        max_length=200,
+        blank=True,
+        help_text="Chad Paami color choice when using disposables.",
+    )
 
     # Real dishes option
     wants_real_dishes = models.BooleanField(default=False)
@@ -683,6 +723,7 @@ class Estimate(models.Model):
                     total += item.price * Decimal(self.guest_count or 0) * qty
                 else:
                     total += item.price * qty
+        total += self.calc_tablecloth_total()
         return total.quantize(Decimal("0.01"))
 
     def calc_staff_total(self) -> Decimal:
@@ -883,6 +924,63 @@ class Estimate(models.Model):
         for section in self.meal_sections():
             total += section["total"] + section.get("kids_total", Decimal("0.00"))
         return total.quantize(Decimal("0.01")) if total else Decimal("0.00")
+
+    def calc_tablecloth_total(self) -> Decimal:
+        total = Decimal("0.00")
+        for row in self.tablecloth_rows():
+            if row.get("extra_charge") is None:
+                continue
+            total += row.get("total") or Decimal("0.00")
+        return total.quantize(Decimal("0.01"))
+
+    def tablecloth_rows(self):
+        """
+        Returns normalized per-meal tablecloth rows for display and math.
+        """
+        data = self.tablecloth_details or {}
+        plan = list(self.get_meal_plan())
+        extra_keys = [k for k in data.keys() if k not in plan]
+        ordered_meals = plan + extra_keys
+
+        rows = []
+        for meal in ordered_meals:
+            entry = data.get(meal) or {}
+            name = (entry.get("name") or entry.get("choice") or "").strip()
+            qty = self._clean_decimal(entry.get("quantity"), Decimal("0.00")) or Decimal("0.00")
+            price = self._clean_decimal(entry.get("extra_charge"), None)
+
+            has_price = price not in (None, Decimal("0.00"))
+            if not name and (qty in (None, Decimal("0.00"))) and not has_price:
+                continue
+
+            price_val = price if has_price else None
+            total = Decimal("0.00")
+            if price_val is not None:
+                total = (price_val * qty).quantize(Decimal("0.01"))
+
+            rows.append(
+                {
+                    "meal": meal,
+                    "name": name,
+                    "quantity": qty.quantize(Decimal("0.01")),
+                    "extra_charge": price_val.quantize(Decimal("0.01")) if price_val is not None else None,
+                    "total": total,
+                }
+            )
+
+        return rows
+
+    def uses_real_dishes_anywhere(self) -> bool:
+        if self.wants_real_dishes:
+            return True
+        details = self.meal_service_details or {}
+        for raw in details.values():
+            wants = raw.get("wants_real_dishes")
+            if isinstance(wants, str):
+                wants = wants.lower() in {"1", "true", "yes", "on"}
+            if wants:
+                return True
+        return False
 
 
 class EstimateFoodChoice(models.Model):

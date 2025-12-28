@@ -270,6 +270,7 @@
                     {% include "admin/partials/estimate_menu_checklist.html" with form=adminform.form only %}
                 {% elif step == "5" %}
                     {% include "admin/partials/estimate_service_split.html" with form=adminform.form only %}
+                    {% include "admin/partials/estimate_tabletop_settings.html" with form=adminform.form only %}
                     {% include "admin/partials/estimate_summary_helpers.html" with form=adminform.form original=original only %}
                 {% endif %}
             </section>
@@ -637,6 +638,58 @@
                 });
 
                 persist();
+            }
+
+            const tableclothField = document.getElementById("id_tablecloth_details");
+            const tableclothRows = wizard.querySelectorAll("[data-tablecloth-row]");
+            if (tableclothField && tableclothRows.length) {
+                let initialTablecloths = {};
+                try {
+                    initialTablecloths = JSON.parse(tableclothField.value || "{}") || {};
+                } catch (err) {
+                    initialTablecloths = {};
+                }
+
+                const persistTablecloths = () => {
+                    const payload = {};
+                    tableclothRows.forEach(row => {
+                        const meal = row.dataset.meal;
+                        const nameInput = row.querySelector("[data-tablecloth-name]");
+                        const qtyInput = row.querySelector("[data-tablecloth-qty]");
+                        const chargeInput = row.querySelector("[data-tablecloth-charge]");
+                        const name = nameInput ? nameInput.value.trim() : "";
+                        const qtyVal = qtyInput ? qtyInput.value.trim() : "";
+                        const chargeVal = chargeInput ? chargeInput.value.trim() : "";
+                        if (!name && !qtyVal && !chargeVal) {
+                            return;
+                        }
+                        const entry = {};
+                        if (name) entry.name = name;
+                        if (qtyVal !== "") entry.quantity = qtyVal;
+                        if (chargeVal !== "") entry.extra_charge = chargeVal;
+                        payload[meal] = entry;
+                    });
+                    tableclothField.value = JSON.stringify(payload);
+                };
+
+                tableclothRows.forEach(row => {
+                    const meal = row.dataset.meal;
+                    const nameInput = row.querySelector("[data-tablecloth-name]");
+                    const qtyInput = row.querySelector("[data-tablecloth-qty]");
+                    const chargeInput = row.querySelector("[data-tablecloth-charge]");
+                    const entry = initialTablecloths[meal] || {};
+                    if (nameInput && entry.name) nameInput.value = entry.name;
+                    if (qtyInput && entry.quantity !== undefined && entry.quantity !== null) qtyInput.value = entry.quantity;
+                    if (chargeInput && entry.extra_charge !== undefined && entry.extra_charge !== null) chargeInput.value = entry.extra_charge;
+                    [nameInput, qtyInput, chargeInput].forEach(input => {
+                        if (input) {
+                            input.addEventListener("input", persistTablecloths);
+                            input.addEventListener("change", persistTablecloths);
+                        }
+                    });
+                });
+
+                persistTablecloths();
             }
 
             // Hide kids guest field unless explicitly enabled

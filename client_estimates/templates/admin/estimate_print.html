@@ -419,6 +419,45 @@
         {% endif %}
     </section>
 
+    {% if tablecloth_rows or show_plasticware %}
+        <section>
+            <h2>{% translate 'Table Settings' %}</h2>
+            {% if tablecloth_rows %}
+                <table class="info-table">
+                    <thead>
+                        <tr>
+                            <th>{% translate 'Meal' %}</th>
+                            <th>{% translate 'Tablecloth' %}</th>
+                            <th>{% translate 'Qty' %}</th>
+                            <th>{% translate 'Price' %}</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in tablecloth_rows %}
+                            <tr>
+                                <td>{{ row.meal }}</td>
+                                <td>{{ row.name|default:"—" }}</td>
+                                <td>{{ row.quantity }}</td>
+                                <td>
+                                    {% if row.extra_charge %}
+                                        {{ row.extra_charge }} {{ estimate.currency }} / {% translate 'cloth' %}
+                                        <br><small>{% translate 'Total' %}: {{ row.total }} {{ estimate.currency }}</small>
+                                    {% else %}
+                                        {% translate 'Included' %}
+                                    {% endif %}
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                <p class="muted" style="margin:6px 0 0;">{% translate 'Any charges listed here are included in Extras.' %}</p>
+            {% endif %}
+            {% if show_plasticware %}
+                <p style="margin:8px 0 0;"><strong>{% translate 'Chad Paami color' %}:</strong> {{ estimate.plasticware_color }}</p>
+            {% endif %}
+        </section>
+    {% endif %}
+
     {% if staff_context and not flat_mode %}
         <section>
             <h2>{% translate 'Staffing Details' %}</h2>
