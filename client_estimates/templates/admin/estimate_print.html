@@ -658,11 +658,15 @@
                         <td>{{ estimate.grand_total }} {{ estimate.currency }}</td>
                     </tr>
                     <tr>
-                        <th>{% translate 'Deposit' %} (30%)</th>
+                        <th>{% translate 'Deposit' %} ({{ flat_deposit_pct }}%)</th>
                         <td>{{ flat_deposit_amount }} {{ estimate.currency }}</td>
                     </tr>
                     <tr>
-                        <th>{% translate 'Balance due on event day' %}</th>
+                        <th>{% translate 'Deposit received' %}</th>
+                        <td>{{ estimate.deposit_received|default_if_none:"0.00" }} {{ estimate.currency }}</td>
+                    </tr>
+                    <tr>
+                        <th>{% translate 'Balance due' %}</th>
                         <td>{{ flat_balance }} {{ estimate.currency }}</td>
                     </tr>
                 {% else %}
@@ -707,6 +711,10 @@
                     <tr>
                         <th>{% translate 'Deposit' %} ({{ estimate.deposit_percentage }}%)</th>
                         <td>{{ estimate.deposit_amount }} {{ estimate.currency }}</td>
+                    </tr>
+                    <tr>
+                        <th>{% translate 'Deposit received' %}</th>
+                        <td>{{ estimate.deposit_received|default_if_none:"0.00" }} {{ estimate.currency }}</td>
                     </tr>
                     <tr>
                         <th>{% translate 'Balance due' %}</th>

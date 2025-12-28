@@ -476,6 +476,12 @@ class Estimate(models.Model):
         decimal_places=2,
         default=Decimal("0.00"),
     )
+    deposit_received = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=Decimal("0.00"),
+        help_text="Amount actually received toward this estimate/invoice.",
+    )
     balance_due = models.DecimalField(
         max_digits=12, decimal_places=2, default=Decimal("0.00")
     )
@@ -794,7 +800,9 @@ class Estimate(models.Model):
         grand = food_total + extras + staff + dishes
         deposit_rate = (self.deposit_percentage or Decimal("0.00")) / Decimal("100.0")
         deposit = (grand * deposit_rate).quantize(Decimal("0.01"))
-        balance = grand - deposit
+        received = self.deposit_received or Decimal("0.00")
+        deposit_applied = received if received > Decimal("0.00") else deposit
+        balance = grand - deposit_applied
 
         rate = self.exchange_rate or Decimal("1.00")
         if rate != Decimal("1.00"):
@@ -804,6 +812,7 @@ class Estimate(models.Model):
             dishes = (dishes * rate).quantize(Decimal("0.01"))
             grand = (grand * rate).quantize(Decimal("0.01"))
             deposit = (deposit * rate).quantize(Decimal("0.01"))
+            deposit_applied = (deposit_applied * rate).quantize(Decimal("0.01"))
             balance = (balance * rate).quantize(Decimal("0.01"))
 
         self.food_price_per_person = food_pp

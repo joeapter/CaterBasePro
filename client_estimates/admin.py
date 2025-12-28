@@ -796,6 +796,7 @@ class EstimateAdmin(admin.ModelAdmin):
                     "notes_internal",
                     "notes_for_customer",
                     "deposit_percentage",
+                    "deposit_received",
                     "payment_terms",
                     "payment_method",
                     "payment_instructions",
@@ -1341,8 +1342,9 @@ class EstimateAdmin(admin.ModelAdmin):
         if total_guests:
             per_person = (estimate.grand_total / Decimal(total_guests)).quantize(Decimal("0.01"))
         flat_deposit_pct = Decimal("30.00")
-        flat_deposit_amount = (estimate.grand_total * Decimal("0.30")).quantize(Decimal("0.01"))
-        flat_balance = (estimate.grand_total - flat_deposit_amount).quantize(Decimal("0.01"))
+        flat_deposit_amount = estimate.deposit_amount
+        flat_deposit_pct = estimate.deposit_percentage or Decimal("30.00")
+        flat_balance = estimate.balance_due
 
         context = {
             "estimate": estimate,
