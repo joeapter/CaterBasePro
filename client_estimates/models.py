@@ -233,6 +233,11 @@ class MenuItem(models.Model):
 
     name = models.CharField(max_length=200)
     description = models.TextField(blank=True)
+    sort_order_override = models.PositiveIntegerField(
+        blank=True,
+        null=True,
+        help_text="Optional. Lower numbers appear before alphabetized items.",
+    )
 
     # Internal cost per serving (one person)
     cost_per_serving = models.DecimalField(max_digits=8, decimal_places=2)
@@ -849,7 +854,14 @@ class Estimate(models.Model):
                 for name in plan
             ]
         choices = list(
-            self.food_choices.filter(included=True).select_related("menu_item", "menu_item__category")
+            self.food_choices.filter(included=True)
+            .select_related("menu_item", "menu_item__category")
+            .order_by(
+                models.F("menu_item__category__sort_order").asc(nulls_last=True),
+                models.F("menu_item__category__name").asc(nulls_last=True),
+                models.F("menu_item__sort_order_override").asc(nulls_last=True),
+                "menu_item__name",
+            )
         )
         sections = []
         overrides = self.manual_meal_totals or {}

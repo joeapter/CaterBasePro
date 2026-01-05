@@ -9,6 +9,7 @@ from django.contrib.admin.options import IS_POPUP_VAR, TO_FIELD_VAR
 from django.contrib.admin.utils import flatten_fieldsets, unquote
 from django.core.exceptions import PermissionDenied
 from django.contrib.admin.exceptions import DisallowedModelAdminToField
+from django.db.models import F
 from django.forms.formsets import all_valid
 from django.http import HttpResponse, HttpResponseRedirect
 from django.shortcuts import redirect, render
@@ -242,10 +243,20 @@ class MenuUploadForm(forms.Form):
 
 @admin.register(MenuItem)
 class MenuItemAdmin(admin.ModelAdmin):
-    list_display = ("name", "caterer", "category", "cost_per_serving", "markup", "is_active")
+    list_display = (
+        "name",
+        "sort_order_override",
+        "caterer",
+        "category",
+        "cost_per_serving",
+        "markup",
+        "is_active",
+    )
+    list_editable = ("sort_order_override",)
     list_filter = ("caterer", "category", "is_active")
     search_fields = ("name",)
     change_list_template = "admin/menu_upload.html"
+    ordering = ("category__sort_order", "category__name", "sort_order_override", "name")
 
     def get_queryset(self, request):
         return limit_to_user_caterer(super().get_queryset(request), request)
@@ -382,12 +393,22 @@ class TrialRequestAdmin(admin.ModelAdmin):
                         except (InvalidOperation, AttributeError):
                             return Decimal(default)
 
+                    def parse_int(value):
+                        try:
+                            raw = str(value).strip() if value is not None else ""
+                            if not raw:
+                                return None
+                            return int(Decimal(raw))
+                        except (InvalidOperation, ValueError):
+                            return None
+
                     cost = parse_decimal(row.get("cost_per_serving"), "0.0")
                     markup = parse_decimal(row.get("markup"), str(caterer.default_food_markup))
                     if markup == Decimal("0.0"):
                         markup = caterer.default_food_markup
                     servings = parse_decimal(row.get("default_servings_per_person"), "1.0")
                     is_active = str(row.get("is_active", "true")).lower() == "true"
+                    sort_override = parse_int(row.get("sort_order_override"))
 
                     if item_type == "food":
                         MenuItem.objects.create(
@@ -395,6 +416,7 @@ class TrialRequestAdmin(admin.ModelAdmin):
                             category=category,
                             name=name,
                             description=row.get("description", ""),
+                            sort_order_override=sort_override,
                             cost_per_serving=cost,
                             markup=markup,
                             default_servings_per_person=servings,
@@ -434,15 +456,16 @@ class TrialRequestAdmin(admin.ModelAdmin):
             "category",
             "name",
             "description",
+            "sort_order_override",
             "cost_per_serving",
             "markup",
             "default_servings_per_person",
             "is_active",
         ]
         sample_rows = [
-            ["Food", "Starters", "Smoked Salmon Bites", "Mini bagels with lox", "12.50", "3.0", "1.0", "True"],
-            ["Food", "Mains", "Steak Strip", "Grilled steak strips", "28.00", "", "1.0", "True"],
-            ["Extra", "Rental", "Projector", "", "400", "3.0", "1.0", "True"],
+            ["Food", "Starters", "Smoked Salmon Bites", "Mini bagels with lox", "1", "12.50", "3.0", "1.0", "True"],
+            ["Food", "Mains", "Steak Strip", "Grilled steak strips", "", "28.00", "", "1.0", "True"],
+            ["Extra", "Rental", "Projector", "", "", "400", "3.0", "1.0", "True"],
         ]
 
         response = HttpResponse(content_type="text/csv")
@@ -603,7 +626,12 @@ class EstimateAdminForm(forms.ModelForm):
                     is_active=True,
                 )
                 .select_related("category")
-                .order_by("category__sort_order", "category__name", "name")
+                .order_by(
+                    F("category__sort_order").asc(nulls_last=True),
+                    F("category__name").asc(nulls_last=True),
+                    F("sort_order_override").asc(nulls_last=True),
+                    "name",
+                )
             )
             existing_choices = {}
             if self.instance and self.instance.pk:
@@ -1405,7 +1433,12 @@ class EstimateAdmin(admin.ModelAdmin):
         plasticware_value = estimate.plasticware_color if not estimate.uses_real_dishes_anywhere() else ""
         choices = list(
             estimate.food_choices.select_related("menu_item", "menu_item__category")
-            .order_by("menu_item__category__sort_order", "menu_item__category__name", "menu_item__name")
+            .order_by(
+                F("menu_item__category__sort_order").asc(nulls_last=True),
+                F("menu_item__category__name").asc(nulls_last=True),
+                F("menu_item__sort_order_override").asc(nulls_last=True),
+                "menu_item__name",
+            )
         )
 
         meal_display = {}
