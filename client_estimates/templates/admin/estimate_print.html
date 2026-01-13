@@ -35,6 +35,7 @@
             background: rgba(255,255,255,0.92);
             box-shadow: 0 30px 60px rgba(15, 23, 42, 0.12);
             position: relative;
+            box-sizing: border-box;
         }
         .estimate-sheet.sheet-bg--clean {
             background: rgba(255,255,255,0.92);
@@ -279,11 +280,15 @@
                 page-break-inside: auto;
                 page-break-after: always;
                 padding: 12mm 14mm 14mm;
+                width: 100%;
+                max-width: none;
+                margin: 0;
+                min-height: 297mm;
             }
             .estimate-sheet:last-of-type { page-break-after: auto; }
             section { page-break-inside: auto; }
             .meal-card { 
-                page-break-inside: auto;
+                page-break-inside: avoid;
                 -webkit-box-decoration-break: clone;
                 box-decoration-break: clone;
             }
@@ -291,62 +296,64 @@
     </style>
 </head>
 <body class="{{ body_theme_class|default:'theme-bg-clean' }}">
-<div class="estimate-sheet {{ sheet_surface_class|default:'' }} {{ sheet_background_class|default:'' }}">
-    <header class="sheet-header">
-        <div class="sheet-header-left">
-            <h1>{{ estimate.caterer.name }}</h1>
-            {% if contact_lines %}
-                <p class="muted" style="margin:4px 0 0;">
-                    {% for line in contact_lines %}
-                        {{ line }}{% if not forloop.last %}<br>{% endif %}
-                    {% endfor %}
-                </p>
-            {% endif %}
-        </div>
-        <div class="sheet-logo">
-            {% if brand_logo %}
-                <img src="{{ brand_logo }}" alt="Company logo">
-            {% endif %}
-        </div>
-        <div class="sheet-header-right">
-            <p class="estimate-number">
-                <strong>{% translate 'Estimate' %} #{{ estimate.estimate_number|default:"—" }}</strong>
-            </p>
-            <table class="meta-table">
-                <tbody>
-                    <tr><th>{% translate 'Event date' %}</th><td>{{ estimate.event_date|date:"M j, Y" }}</td></tr>
-                    <tr><th>{% translate 'Event type' %}</th><td>{{ estimate.event_type|default:"—" }}</td></tr>
-                    <tr><th>{% translate 'Event location' %}</th><td>{{ estimate.event_location|default:"—" }}</td></tr>
-                    <tr><th>{% translate 'Guests' %}</th><td>{{ estimate.guest_count }}</td></tr>
-                </tbody>
-            </table>
-        </div>
-    </header>
+{% if meal_sections %}
+    {% for meal in meal_sections %}
+        <div class="estimate-sheet {{ sheet_surface_class|default:'' }} {{ sheet_background_class|default:'' }}">
+            <header class="sheet-header">
+                <div class="sheet-header-left">
+                    <h1>{{ estimate.caterer.name }}</h1>
+                    {% if contact_lines %}
+                        <p class="muted" style="margin:4px 0 0;">
+                            {% for line in contact_lines %}
+                                {{ line }}{% if not forloop.last %}<br>{% endif %}
+                            {% endfor %}
+                        </p>
+                    {% endif %}
+                </div>
+                <div class="sheet-logo">
+                    {% if brand_logo %}
+                        <img src="{{ brand_logo }}" alt="Company logo">
+                    {% endif %}
+                </div>
+                <div class="sheet-header-right">
+                    <p class="estimate-number">
+                        <strong>{% translate 'Estimate' %} #{{ estimate.estimate_number|default:"—" }}</strong>
+                    </p>
+                    <table class="meta-table">
+                        <tbody>
+                            <tr><th>{% translate 'Event date' %}</th><td>{{ estimate.event_date|date:"M j, Y" }}</td></tr>
+                            <tr><th>{% translate 'Event type' %}</th><td>{{ estimate.event_type|default:"—" }}</td></tr>
+                            <tr><th>{% translate 'Event location' %}</th><td>{{ estimate.event_location|default:"—" }}</td></tr>
+                            <tr><th>{% translate 'Guests' %}</th><td>{{ estimate.guest_count }}</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </header>
 
-    <div class="info-row">
-        <div class="info-card">
-            <h4>{% translate 'Client details' %}</h4>
-            <p style="margin:0;">
-                <strong>{{ estimate.customer_name }}</strong><br>
-                {% if estimate.customer_phone %}{{ estimate.customer_phone }}<br>{% endif %}
-                {% if estimate.customer_email %}{{ estimate.customer_email }}{% endif %}
-            </p>
-        </div>
-        <div class="info-card info-card--right">
-            <p style="margin:0 0 4px;">
-                <strong>{% translate 'Payment method' %}:</strong>
-                {{ estimate.get_payment_method_display|default:"—" }}
-            </p>
-            <p style="margin:4px 0 0;">
-                <strong>{% translate 'Service style' %}:</strong> {{ service_style }}
-            </p>
-        </div>
-    </div>
+            {% if forloop.first %}
+                <div class="info-row">
+                    <div class="info-card">
+                        <h4>{% translate 'Client details' %}</h4>
+                        <p style="margin:0;">
+                            <strong>{{ estimate.customer_name }}</strong><br>
+                            {% if estimate.customer_phone %}{{ estimate.customer_phone }}<br>{% endif %}
+                            {% if estimate.customer_email %}{{ estimate.customer_email }}{% endif %}
+                        </p>
+                    </div>
+                    <div class="info-card info-card--right">
+                        <p style="margin:0 0 4px;">
+                            <strong>{% translate 'Payment method' %}:</strong>
+                            {{ estimate.get_payment_method_display|default:"—" }}
+                        </p>
+                        <p style="margin:4px 0 0;">
+                            <strong>{% translate 'Service style' %}:</strong> {{ service_style }}
+                        </p>
+                    </div>
+                </div>
+            {% endif %}
 
-    <section>
-        <h2>{% translate 'Menu Selection' %}</h2>
-        {% if meal_sections %}
-            {% for meal in meal_sections %}
+            <section>
+                <h2>{% translate 'Menu Selection' %}</h2>
                 <article class="meal-card">
                     <header>
                         <h3>{{ meal.name }}</h3>
@@ -408,226 +415,316 @@
                         </div>
                     {% endif %}
                 </article>
-            {% endfor %}
-        {% else %}
-            <p class="no-items">{% translate 'No menu items selected yet.' %}</p>
-        {% endif %}
-    </section>
-
-    <section>
-        <h2>{% translate 'Decor & Extras' %}</h2>
-        {% if extras_rows %}
-            <table class="info-table">
-                <thead>
-                <tr>
-                    <th>{% translate 'Description' %}</th>
-                    <th>{% translate 'Quantity' %}</th>
-                    <th>{% translate 'Cost' %}</th>
-                    <th>{% translate 'Notes' %}</th>
-                </tr>
-                </thead>
-                <tbody>
-                {% for row in extras_rows %}
-                    <tr>
-                        <td>{{ row.name }}</td>
-                        <td>{{ row.quantity }}</td>
-                        <td>
-                            {% if row.is_included %}
-                                {% translate 'Included' %}
-                            {% else %}
-                                {{ row.price }} {{ estimate.currency }}{% if row.charge_type %} / {{ row.charge_type|lower }}{% endif %}
-                            {% endif %}
-                        </td>
-                        <td>{{ row.notes }}</td>
-                    </tr>
-                {% endfor %}
-                </tbody>
-            </table>
-        {% elif extra_lines %}
-            <table class="info-table">
-                <thead>
-                <tr>
-                    <th>{% translate 'Description' %}</th>
-                    <th>{% translate 'Quantity' %}</th>
-                    <th>{% translate 'Notes' %}</th>
-                </tr>
-                </thead>
-                <tbody>
-                {% for line in extra_lines %}
-                    <tr>
-                        <td>{{ line.extra_item.name }}</td>
-                        <td>{{ line.quantity }}</td>
-                        <td>{{ line.notes }}</td>
-                    </tr>
-                {% endfor %}
-                </tbody>
-            </table>
-        {% else %}
-            <p class="no-items">{% translate 'No extras selected.' %}</p>
-        {% endif %}
-    </section>
-
-    {% if tablecloth_rows or show_plasticware %}
-        <section>
-            <h2>{% translate 'Table Settings' %}</h2>
-            {% if tablecloth_rows %}
-                <table class="info-table">
-                    <thead>
-                        <tr>
-                            <th>{% translate 'Meal' %}</th>
-                            <th>{% translate 'Tablecloth' %}</th>
-                            <th>{% translate 'Qty' %}</th>
-                            <th>{% translate 'Price' %}</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for row in tablecloth_rows %}
-                            <tr>
-                                <td>{{ row.meal }}</td>
-                                <td>{{ row.name|default:"—" }}</td>
-                                <td>{{ row.quantity }}</td>
-                                <td>
-                                    {% if row.extra_charge %}
-                                        {{ row.extra_charge }} {{ estimate.currency }} / {% translate 'cloth' %}
-                                        <br><small>{% translate 'Total' %}: {{ row.total }} {{ estimate.currency }}</small>
-                                    {% else %}
-                                        {% translate 'Included' %}
-                                    {% endif %}
-                                </td>
-                            </tr>
+            </section>
+        </div>
+    {% endfor %}
+{% else %}
+    <div class="estimate-sheet {{ sheet_surface_class|default:'' }} {{ sheet_background_class|default:'' }}">
+        <header class="sheet-header">
+            <div class="sheet-header-left">
+                <h1>{{ estimate.caterer.name }}</h1>
+                {% if contact_lines %}
+                    <p class="muted" style="margin:4px 0 0;">
+                        {% for line in contact_lines %}
+                            {{ line }}{% if not forloop.last %}<br>{% endif %}
                         {% endfor %}
+                    </p>
+                {% endif %}
+            </div>
+            <div class="sheet-logo">
+                {% if brand_logo %}
+                    <img src="{{ brand_logo }}" alt="Company logo">
+                {% endif %}
+            </div>
+            <div class="sheet-header-right">
+                <p class="estimate-number">
+                    <strong>{% translate 'Estimate' %} #{{ estimate.estimate_number|default:"—" }}</strong>
+                </p>
+                <table class="meta-table">
+                    <tbody>
+                        <tr><th>{% translate 'Event date' %}</th><td>{{ estimate.event_date|date:"M j, Y" }}</td></tr>
+                        <tr><th>{% translate 'Event type' %}</th><td>{{ estimate.event_type|default:"—" }}</td></tr>
+                        <tr><th>{% translate 'Event location' %}</th><td>{{ estimate.event_location|default:"—" }}</td></tr>
+                        <tr><th>{% translate 'Guests' %}</th><td>{{ estimate.guest_count }}</td></tr>
                     </tbody>
                 </table>
-                <p class="muted" style="margin:6px 0 0;">{% translate 'Any charges listed here are included in Extras.' %}</p>
-            {% endif %}
-            {% if show_plasticware %}
-                <p style="margin:8px 0 0;"><strong>{% translate 'Chad Paami color' %}:</strong> {{ estimate.plasticware_color }}</p>
+            </div>
+        </header>
+
+        <div class="info-row">
+            <div class="info-card">
+                <h4>{% translate 'Client details' %}</h4>
+                <p style="margin:0;">
+                    <strong>{{ estimate.customer_name }}</strong><br>
+                    {% if estimate.customer_phone %}{{ estimate.customer_phone }}<br>{% endif %}
+                    {% if estimate.customer_email %}{{ estimate.customer_email }}{% endif %}
+                </p>
+            </div>
+            <div class="info-card info-card--right">
+                <p style="margin:0 0 4px;">
+                    <strong>{% translate 'Payment method' %}:</strong>
+                    {{ estimate.get_payment_method_display|default:"—" }}
+                </p>
+                <p style="margin:4px 0 0;">
+                    <strong>{% translate 'Service style' %}:</strong> {{ service_style }}
+                </p>
+            </div>
+        </div>
+
+        <section>
+            <h2>{% translate 'Menu Selection' %}</h2>
+            <p class="no-items">{% translate 'No menu items selected yet.' %}</p>
+        </section>
+    </div>
+{% endif %}
+
+{% if extras_rows or extra_lines or tablecloth_rows or show_plasticware or staff_context or per_meal_service_rows or meal_sections %}
+    <div class="estimate-sheet {{ sheet_surface_class|default:'' }} {{ sheet_background_class|default:'' }}">
+        <header class="sheet-header">
+            <div class="sheet-header-left">
+                <h1>{{ estimate.caterer.name }}</h1>
+                {% if contact_lines %}
+                    <p class="muted" style="margin:4px 0 0;">
+                        {% for line in contact_lines %}
+                            {{ line }}{% if not forloop.last %}<br>{% endif %}
+                        {% endfor %}
+                    </p>
+                {% endif %}
+            </div>
+            <div class="sheet-logo">
+                {% if brand_logo %}
+                    <img src="{{ brand_logo }}" alt="Company logo">
+                {% endif %}
+            </div>
+            <div class="sheet-header-right">
+                <p class="estimate-number">
+                    <strong>{% translate 'Estimate' %} #{{ estimate.estimate_number|default:"—" }}</strong>
+                </p>
+                <table class="meta-table">
+                    <tbody>
+                        <tr><th>{% translate 'Event date' %}</th><td>{{ estimate.event_date|date:"M j, Y" }}</td></tr>
+                        <tr><th>{% translate 'Event type' %}</th><td>{{ estimate.event_type|default:"—" }}</td></tr>
+                        <tr><th>{% translate 'Event location' %}</th><td>{{ estimate.event_location|default:"—" }}</td></tr>
+                        <tr><th>{% translate 'Guests' %}</th><td>{{ estimate.guest_count }}</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </header>
+
+        <section>
+            <h2>{% translate 'Decor & Extras' %}</h2>
+            {% if extras_rows %}
+                <table class="info-table">
+                    <thead>
+                    <tr>
+                        <th>{% translate 'Description' %}</th>
+                        <th>{% translate 'Quantity' %}</th>
+                        <th>{% translate 'Cost' %}</th>
+                        <th>{% translate 'Notes' %}</th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                    {% for row in extras_rows %}
+                        <tr>
+                            <td>{{ row.name }}</td>
+                            <td>{{ row.quantity }}</td>
+                            <td>
+                                {% if row.is_included %}
+                                    {% translate 'Included' %}
+                                {% else %}
+                                    {{ row.price }} {{ estimate.currency }}{% if row.charge_type %} / {{ row.charge_type|lower }}{% endif %}
+                                {% endif %}
+                            </td>
+                            <td>{{ row.notes }}</td>
+                        </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            {% elif extra_lines %}
+                <table class="info-table">
+                    <thead>
+                    <tr>
+                        <th>{% translate 'Description' %}</th>
+                        <th>{% translate 'Quantity' %}</th>
+                        <th>{% translate 'Notes' %}</th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                    {% for line in extra_lines %}
+                        <tr>
+                            <td>{{ line.extra_item.name }}</td>
+                            <td>{{ line.quantity }}</td>
+                            <td>{{ line.notes }}</td>
+                        </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            {% else %}
+                <p class="no-items">{% translate 'No extras selected.' %}</p>
             {% endif %}
         </section>
-    {% endif %}
 
-    {% if staff_context and not flat_mode %}
-        <section>
-            <h2>{% translate 'Staffing Details' %}</h2>
-            <table class="info-table">
-                <tbody>
-                    <tr><th>{% translate 'Wait staff' %}</th><td>{{ staff_context.waiters }}</td></tr>
-                    <tr><th>{% translate 'Estimated hours' %}</th><td>{{ staff_context.hours }}</td></tr>
-                    <tr><th>{% translate 'Hourly rate' %}</th><td>{{ staff_context.hourly_rate }} {{ estimate.currency }}</td></tr>
-                    <tr><th>{% translate 'Labor total' %}</th><td>{{ staff_context.labor_total }} {{ estimate.currency }}</td></tr>
-                    <tr>
-                        <th>{% translate 'Suggested tip' %}</th>
-                        <td>
-                            {% if staff_context.tip_varies %}
-                                {{ staff_context.tip_total }} {{ estimate.currency }} ({% translate 'varies by meal' %})
-                            {% else %}
-                                {{ staff_context.tip_total }} {{ estimate.currency }} ({{ staff_context.tip_per_waiter }} {{ estimate.currency }} {% translate 'per waiter' %})
-                            {% endif %}
-                        </td>
-                    </tr>
-                </tbody>
-            </table>
-            {% if staff_context.per_meal %}
-                <h4 style="margin:12px 0 6px;">{% translate 'Per-meal staffing' %}</h4>
+        {% if tablecloth_rows or show_plasticware %}
+            <section>
+                <h2>{% translate 'Table Settings' %}</h2>
+                {% if tablecloth_rows %}
+                    <table class="info-table">
+                        <thead>
+                            <tr>
+                                <th>{% translate 'Meal' %}</th>
+                                <th>{% translate 'Tablecloth' %}</th>
+                                <th>{% translate 'Qty' %}</th>
+                                <th>{% translate 'Price' %}</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for row in tablecloth_rows %}
+                                <tr>
+                                    <td>{{ row.meal }}</td>
+                                    <td>{{ row.name|default:"—" }}</td>
+                                    <td>{{ row.quantity }}</td>
+                                    <td>
+                                        {% if row.extra_charge %}
+                                            {{ row.extra_charge }} {{ estimate.currency }} / {% translate 'cloth' %}
+                                            <br><small>{% translate 'Total' %}: {{ row.total }} {{ estimate.currency }}</small>
+                                        {% else %}
+                                            {% translate 'Included' %}
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                    <p class="muted" style="margin:6px 0 0;">{% translate 'Any charges listed here are included in Extras.' %}</p>
+                {% endif %}
+                {% if show_plasticware %}
+                    <p style="margin:8px 0 0;"><strong>{% translate 'Chad Paami color' %}:</strong> {{ estimate.plasticware_color }}</p>
+                {% endif %}
+            </section>
+        {% endif %}
+
+        {% if staff_context and not flat_mode %}
+            <section>
+                <h2>{% translate 'Staffing Details' %}</h2>
+                <table class="info-table">
+                    <tbody>
+                        <tr><th>{% translate 'Wait staff' %}</th><td>{{ staff_context.waiters }}</td></tr>
+                        <tr><th>{% translate 'Estimated hours' %}</th><td>{{ staff_context.hours }}</td></tr>
+                        <tr><th>{% translate 'Hourly rate' %}</th><td>{{ staff_context.hourly_rate }} {{ estimate.currency }}</td></tr>
+                        <tr><th>{% translate 'Labor total' %}</th><td>{{ staff_context.labor_total }} {{ estimate.currency }}</td></tr>
+                        <tr>
+                            <th>{% translate 'Suggested tip' %}</th>
+                            <td>
+                                {% if staff_context.tip_varies %}
+                                    {{ staff_context.tip_total }} {{ estimate.currency }} ({% translate 'varies by meal' %})
+                                {% else %}
+                                    {{ staff_context.tip_total }} {{ estimate.currency }} ({{ staff_context.tip_per_waiter }} {{ estimate.currency }} {% translate 'per waiter' %})
+                                {% endif %}
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+                {% if staff_context.per_meal %}
+                    <h4 style="margin:12px 0 6px;">{% translate 'Per-meal staffing' %}</h4>
+                    <table class="summary-table">
+                        <thead>
+                            <tr>
+                                <th style="text-align:left;">{% translate 'Meal' %}</th>
+                                <th style="text-align:right;">{% translate 'Hours' %}</th>
+                                <th style="text-align:right;">{% translate 'Labor' %}</th>
+                                <th style="text-align:right;">{% translate 'Tip' %}</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for row in staff_context.per_meal %}
+                                <tr>
+                                    <td style="text-align:left;">{{ row.meal }}</td>
+                                    <td style="text-align:right;">{{ row.staff_hours }}</td>
+                                    <td style="text-align:right;">{{ row.staff_pay_total }} {{ estimate.currency }}</td>
+                                    <td style="text-align:right;">{{ row.staff_tip_total }} {{ estimate.currency }}</td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                {% endif %}
+            </section>
+        {% endif %}
+
+        {% if per_meal_service_rows and not flat_mode %}
+            <section>
+                <h2>{% translate 'Per-Meal Logistics' %}</h2>
                 <table class="summary-table">
                     <thead>
                         <tr>
-                            <th style="text-align:left;">{% translate 'Meal' %}</th>
-                            <th style="text-align:right;">{% translate 'Hours' %}</th>
-                            <th style="text-align:right;">{% translate 'Labor' %}</th>
-                            <th style="text-align:right;">{% translate 'Tip' %}</th>
+                            <th style="text-align:left; width:30%;">{% translate 'Meal' %}</th>
+                            <th style="text-align:center; width:10%;">{% translate 'Real dishes' %}</th>
+                            <th style="text-align:right; width:15%;">{% translate 'Dishes / guest' %}</th>
+                            <th style="text-align:right; width:15%;">{% translate 'Staff hours' %}</th>
+                            <th style="text-align:right; width:15%;">{% translate 'Tip / waiter' %}</th>
+                            <th style="text-align:right; width:15%;">{% translate 'Totals' %}</th>
                         </tr>
                     </thead>
                     <tbody>
-                        {% for row in staff_context.per_meal %}
+                        {% for row in per_meal_service_rows %}
                             <tr>
                                 <td style="text-align:left;">{{ row.meal }}</td>
+                                <td style="text-align:center;">{{ row.wants_real_dishes|yesno:"Yes,No" }}</td>
+                                <td style="text-align:right;">{{ row.real_dishes_price_per_person }} {{ estimate.currency }}</td>
                                 <td style="text-align:right;">{{ row.staff_hours }}</td>
-                                <td style="text-align:right;">{{ row.staff_pay_total }} {{ estimate.currency }}</td>
-                                <td style="text-align:right;">{{ row.staff_tip_total }} {{ estimate.currency }}</td>
+                                <td style="text-align:right;">{{ row.staff_tip_per_waiter }} {{ estimate.currency }}</td>
+                                <td style="text-align:right;">
+                                    <div>{% translate 'Staff' %}: {{ row.staff_pay_total|add:row.staff_tip_total }} {{ estimate.currency }}</div>
+                                    <div>{% translate 'Dishes' %}: {{ row.dishes_total }} {{ estimate.currency }}</div>
+                                </td>
                             </tr>
                         {% endfor %}
                     </tbody>
                 </table>
-            {% endif %}
-        </section>
-    {% endif %}
+                {% if delivery_fee %}
+                    <p class="muted" style="margin:6px 0 0;">{% translate 'Delivery fee (once)' %}: {{ delivery_fee }} {{ estimate.currency }}</p>
+                {% endif %}
+            </section>
+        {% endif %}
 
-    {% if per_meal_service_rows and not flat_mode %}
-        <section>
-            <h2>{% translate 'Per-Meal Logistics' %}</h2>
-            <table class="summary-table">
-                <thead>
-                    <tr>
-                        <th style="text-align:left; width:30%;">{% translate 'Meal' %}</th>
-                        <th style="text-align:center; width:10%;">{% translate 'Real dishes' %}</th>
-                        <th style="text-align:right; width:15%;">{% translate 'Dishes / guest' %}</th>
-                        <th style="text-align:right; width:15%;">{% translate 'Staff hours' %}</th>
-                        <th style="text-align:right; width:15%;">{% translate 'Tip / waiter' %}</th>
-                        <th style="text-align:right; width:15%;">{% translate 'Totals' %}</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for row in per_meal_service_rows %}
+        {% if meal_sections and not flat_mode %}
+            <section>
+                <h2>{% translate 'Per-Meal Reference' %}</h2>
+                <table class="summary-table">
+                    <thead>
                         <tr>
-                            <td style="text-align:left;">{{ row.meal }}</td>
-                            <td style="text-align:center;">{{ row.wants_real_dishes|yesno:"Yes,No" }}</td>
-                            <td style="text-align:right;">{{ row.real_dishes_price_per_person }} {{ estimate.currency }}</td>
-                            <td style="text-align:right;">{{ row.staff_hours }}</td>
-                            <td style="text-align:right;">{{ row.staff_tip_per_waiter }} {{ estimate.currency }}</td>
-                            <td style="text-align:right;">
-                                <div>{% translate 'Staff' %}: {{ row.staff_pay_total|add:row.staff_tip_total }} {{ estimate.currency }}</div>
-                                <div>{% translate 'Dishes' %}: {{ row.dishes_total }} {{ estimate.currency }}</div>
-                            </td>
+                            <th style="text-align:left; width:40%;">{% translate 'Meal' %}</th>
+                            <th style="text-align:right; width:20%;">{% translate 'Guests' %}</th>
+                            <th style="text-align:right; width:20%;">{% translate 'Per guest' %}</th>
+                            <th style="text-align:right; width:20%;">{% translate 'Total' %}</th>
                         </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-            {% if delivery_fee %}
-                <p class="muted" style="margin:6px 0 0;">{% translate 'Delivery fee (once)' %}: {{ delivery_fee }} {{ estimate.currency }}</p>
-            {% endif %}
-        </section>
-    {% endif %}
-
-    {% if meal_sections and not flat_mode %}
-        <section>
-            <h2>{% translate 'Per-Meal Reference' %}</h2>
-            <table class="summary-table">
-                <thead>
-                    <tr>
-                        <th style="text-align:left; width:40%;">{% translate 'Meal' %}</th>
-                        <th style="text-align:right; width:20%;">{% translate 'Guests' %}</th>
-                        <th style="text-align:right; width:20%;">{% translate 'Per guest' %}</th>
-                        <th style="text-align:right; width:20%;">{% translate 'Total' %}</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for meal in meal_sections %}
-                        <tr>
-                            <td style="text-align:left;">{{ meal.name }}</td>
-                            <td style="text-align:right;">
-                                {{ meal.guest_count|default_if_none:0 }}
-                            </td>
-                            <td style="text-align:right;">{{ meal.price_per_guest }} {{ estimate.currency }}</td>
-                            <td style="text-align:right;">{{ meal.total }} {{ estimate.currency }}</td>
-                        </tr>
-                        {% if meal.kids_total %}
+                    </thead>
+                    <tbody>
+                        {% for meal in meal_sections %}
                             <tr>
-                                <td style="text-align:left;">{{ meal.name }} – {% translate 'Kids' %}</td>
+                                <td style="text-align:left;">{{ meal.name }}</td>
                                 <td style="text-align:right;">
-                                    {{ meal.guest_count_kids|default_if_none:0 }}
+                                    {{ meal.guest_count|default_if_none:0 }}
                                 </td>
-                                <td style="text-align:right;">{{ meal.price_per_child }} {{ estimate.currency }}</td>
-                                <td style="text-align:right;">{{ meal.kids_total }} {{ estimate.currency }}</td>
+                                <td style="text-align:right;">{{ meal.price_per_guest }} {{ estimate.currency }}</td>
+                                <td style="text-align:right;">{{ meal.total }} {{ estimate.currency }}</td>
                             </tr>
-                        {% endif %}
-                    {% endfor %}
-                </tbody>
-            </table>
-        </section>
-    {% endif %}
-
-</div>
+                            {% if meal.kids_total %}
+                                <tr>
+                                    <td style="text-align:left;">{{ meal.name }} – {% translate 'Kids' %}</td>
+                                    <td style="text-align:right;">
+                                        {{ meal.guest_count_kids|default_if_none:0 }}
+                                    </td>
+                                    <td style="text-align:right;">{{ meal.price_per_child }} {{ estimate.currency }}</td>
+                                    <td style="text-align:right;">{{ meal.kids_total }} {{ estimate.currency }}</td>
+                                </tr>
+                            {% endif %}
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </section>
+        {% endif %}
+    </div>
+{% endif %}
 
 <div class="estimate-sheet {{ sheet_surface_class|default:'' }} {{ sheet_background_class|default:'' }}">
     <header class="sheet-header">

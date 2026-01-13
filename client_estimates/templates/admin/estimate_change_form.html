@@ -447,7 +447,20 @@
                 };
 
                 const checkboxes = wizard.querySelectorAll(".meal-cell input[type='checkbox']");
-                checkboxes.forEach(cb => cb.addEventListener("change", recalcTotals));
+                checkboxes.forEach(cb => {
+                    cb.addEventListener("change", () => {
+                        const cell = cb.closest(".meal-cell");
+                        const meal = cell ? cell.dataset.meal : "";
+                        if (meal) {
+                            try {
+                                window.localStorage.setItem("estimate_last_meal", meal);
+                            } catch (err) {
+                                // localStorage may be unavailable; ignore.
+                            }
+                        }
+                        recalcTotals();
+                    });
+                });
                 if (guestField) {
                     guestField.addEventListener("input", recalcTotals);
                     guestField.addEventListener("change", recalcTotals);
@@ -518,6 +531,42 @@
                 });
 
                 recalcTotals();
+
+                const newMenuItems = document.getElementById("new-menu-items");
+                if (newMenuItems) {
+                    const rawIds = newMenuItems.dataset.itemIds || "";
+                    const ids = rawIds.split(",").map(val => val.trim()).filter(Boolean);
+                    const mealNames = Array.from(document.querySelectorAll(".meal-column-heads span"))
+                        .map(node => node.textContent.trim())
+                        .filter(Boolean);
+                    let targetMeal = "";
+                    try {
+                        targetMeal = window.localStorage.getItem("estimate_last_meal") || "";
+                    } catch (err) {
+                        targetMeal = "";
+                    }
+                    if (!targetMeal || !mealNames.includes(targetMeal)) {
+                        targetMeal = mealNames[0] || "";
+                    }
+                    ids.forEach(id => {
+                        const cells = Array.from(wizard.querySelectorAll(`.meal-cell[data-item-id="${id}"]`));
+                        let targetCell = null;
+                        if (targetMeal) {
+                            targetCell = cells.find(cell => cell.dataset.meal === targetMeal) || null;
+                        }
+                        if (!targetCell && cells.length) {
+                            targetCell = cells[0];
+                        }
+                        if (!targetCell) {
+                            return;
+                        }
+                        const checkbox = targetCell.querySelector('input[type="checkbox"]');
+                        if (checkbox && !checkbox.checked) {
+                            checkbox.checked = true;
+                            checkbox.dispatchEvent(new Event("change", { bubbles: true }));
+                        }
+                    });
+                }
             }
 
             const serviceWrapper = document.querySelector(".meal-service-wrapper");

@@ -1556,16 +1556,17 @@ class EstimateAdmin(admin.ModelAdmin):
 
     def _create_inline_menu_items(self, request):
         if request.method != "POST":
-            return
+            return []
         caterer_id = request.POST.get("caterer")
         if not caterer_id:
-            return
+            return []
         try:
             caterer = CatererAccount.objects.get(pk=caterer_id)
         except CatererAccount.DoesNotExist:
-            return
+            return []
 
         created = 0
+        created_item_ids = []
         for key, value in request.POST.items():
             if not key.startswith("new_item_name_"):
                 continue
@@ -1595,7 +1596,7 @@ class EstimateAdmin(admin.ModelAdmin):
             if raw_cat_id and raw_cat_id.lower() not in {"none", "null"}:
                 category = MenuCategory.objects.filter(pk=raw_cat_id, caterer=caterer).first()
 
-            MenuItem.objects.create(
+            menu_item = MenuItem.objects.create(
                 caterer=caterer,
                 category=category,
                 name=name,
@@ -1606,6 +1607,7 @@ class EstimateAdmin(admin.ModelAdmin):
                 is_active=True,
             )
             created += 1
+            created_item_ids.append(menu_item.id)
 
         if created:
             self.message_user(
@@ -1613,6 +1615,7 @@ class EstimateAdmin(admin.ModelAdmin):
                 f"Added {created} new menu item(s) to the catalog for this caterer.",
                 level=messages.SUCCESS,
             )
+        return created_item_ids
 
     # Override changeform to allow preview actions (apply meal plan) without saving.
     def _changeform_view(self, request, object_id, form_url, extra_context):
@@ -1657,8 +1660,11 @@ class EstimateAdmin(admin.ModelAdmin):
         fieldsets = self.get_fieldsets(request, obj)
 
         # Inline "add new menu item" handler before binding the form so new items appear immediately
+        new_menu_item_ids = []
         if request.method == "POST":
-            self._create_inline_menu_items(request)
+            created_item_ids = self._create_inline_menu_items(request)
+            if "_save_new_menu_item" in request.POST:
+                new_menu_item_ids = created_item_ids
 
         ModelForm = self.get_form(
             request, obj, change=not add, fields=flatten_fieldsets(fieldsets)
@@ -1671,7 +1677,7 @@ class EstimateAdmin(admin.ModelAdmin):
                 change=not add,
             )
             form_validated = form.is_valid()
-            if "_apply_meal_plan" in request.POST:
+            if "_apply_meal_plan" in request.POST or "_save_new_menu_item" in request.POST:
                 form_validated = False
             if form_validated:
                 new_object = self.save_form(request, form, change=not add)
@@ -1744,6 +1750,7 @@ class EstimateAdmin(admin.ModelAdmin):
             "inline_admin_formsets": inline_formsets,
             "errors": helpers.AdminErrorList(form, formsets),
             "preserved_filters": self.get_preserved_filters(request),
+            "new_menu_item_ids": new_menu_item_ids,
         }
 
         if (
