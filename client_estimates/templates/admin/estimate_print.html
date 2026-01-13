@@ -161,7 +161,10 @@
             padding-top: 12px;
         }
         .info-card p {
-            line-height: 1.7;
+            line-height: 1.6;
+        }
+        .service-style {
+            white-space: nowrap;
         }
         .info-card h4 {
             margin: 0 0 6px;
@@ -406,7 +409,8 @@
                             {{ estimate.get_payment_method_display|default:"—" }}
                         </p>
                         <p style="margin:4px 0 0;">
-                            <strong>{% translate 'Service style' %}:</strong> {{ service_style }}
+                            <strong>{% translate 'Service style' %}:</strong>
+                            <span class="service-style">{{ service_style }}</span>
                         </p>
                     </div>
                 </div>
@@ -526,7 +530,8 @@
                     {{ estimate.get_payment_method_display|default:"—" }}
                 </p>
                 <p style="margin:4px 0 0;">
-                    <strong>{% translate 'Service style' %}:</strong> {{ service_style }}
+                    <strong>{% translate 'Service style' %}:</strong>
+                    <span class="service-style">{{ service_style }}</span>
                 </p>
             </div>
         </div>
