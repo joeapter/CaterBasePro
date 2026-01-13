@@ -163,6 +163,9 @@
         .info-card p {
             line-height: 1.6;
         }
+        .service-style-line {
+            white-space: nowrap;
+        }
         .service-style {
             white-space: nowrap;
         }
@@ -409,8 +412,10 @@
                             {{ estimate.get_payment_method_display|default:"—" }}
                         </p>
                         <p style="margin:4px 0 0;">
-                            <strong>{% translate 'Service style' %}:</strong>
-                            <span class="service-style">{{ service_style }}</span>
+                            <span class="service-style-line">
+                                <strong>{% translate 'Service style' %}:</strong>
+                                <span class="service-style">{{ service_style }}</span>
+                            </span>
                         </p>
                     </div>
                 </div>
@@ -530,8 +535,10 @@
                     {{ estimate.get_payment_method_display|default:"—" }}
                 </p>
                 <p style="margin:4px 0 0;">
-                    <strong>{% translate 'Service style' %}:</strong>
-                    <span class="service-style">{{ service_style }}</span>
+                    <span class="service-style-line">
+                        <strong>{% translate 'Service style' %}:</strong>
+                        <span class="service-style">{{ service_style }}</span>
+                    </span>
                 </p>
             </div>
         </div>
