@@ -1179,6 +1179,7 @@ class EstimateAdmin(admin.ModelAdmin):
             )
 
         per_meal_service_rows = estimate.per_meal_service_summary()
+        show_delivery_fee = any(row.get("wants_real_dishes") for row in per_meal_service_rows)
         delivery_fee = (
             estimate.real_dishes_flat_fee
             or (estimate.caterer.real_dishes_flat_fee if estimate.caterer_id else Decimal("0.00"))
@@ -1282,6 +1283,7 @@ class EstimateAdmin(admin.ModelAdmin):
             "flat_mode": False,
             "per_meal_service_rows": per_meal_service_rows,
             "delivery_fee": delivery_fee,
+            "show_delivery_fee": show_delivery_fee,
             "dishes_delivery_fee": dishes_delivery_fee,
             "dishes_subtotal": dishes_subtotal,
             "tablecloth_rows": tablecloth_rows,
@@ -1316,6 +1318,7 @@ class EstimateAdmin(admin.ModelAdmin):
                 }
             )
         per_meal_service_rows = estimate.per_meal_service_summary()
+        show_delivery_fee = any(row.get("wants_real_dishes") for row in per_meal_service_rows)
         delivery_fee = (
             estimate.real_dishes_flat_fee
             or (estimate.caterer.real_dishes_flat_fee if estimate.caterer_id else Decimal("0.00"))
@@ -1410,6 +1413,7 @@ class EstimateAdmin(admin.ModelAdmin):
             "staff_context": None,  # hide staff section in flat mode
             "per_meal_service_rows": per_meal_service_rows,
             "delivery_fee": delivery_fee,
+            "show_delivery_fee": show_delivery_fee,
             "dishes_delivery_fee": dishes_delivery_fee,
             "dishes_subtotal": dishes_subtotal,
             "tablecloth_rows": tablecloth_rows,

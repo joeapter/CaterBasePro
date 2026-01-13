@@ -77,8 +77,8 @@
             grid-template-columns: minmax(0, 1fr) minmax(140px, 260px) minmax(0, 1fr);
             align-items: center;
             gap: 18px;
-            padding: 20px 26px 12px;
-            margin: 0 auto 12px;
+            padding: 20px 26px 8px;
+            margin: 0 auto 8px;
             border-bottom: none;
             width: 100%;
             box-sizing: border-box;
@@ -134,7 +134,7 @@
             font-size: 18px;
             letter-spacing: .12em;
             color: var(--primary);
-            margin-bottom: 8px;
+            margin-bottom: 6px;
         }
         h3 {
             font-size: 16px;
@@ -142,23 +142,23 @@
             letter-spacing: .05em;
             text-transform: uppercase;
         }
-        section { margin-bottom: 20px; }
+        section { margin-bottom: 16px; }
         .info-row {
             display: flex;
             justify-content: space-between;
             gap: 28px;
-            margin-bottom: 16px;
+            margin-bottom: 12px;
         }
         .info-card {
             width: 50%;
             padding-left: 15%;
-            padding-top: 16px;
+            padding-top: 12px;
         }
         .info-card--right {
             padding-left: 5%;
             padding-right: 15%;
             text-align: right;
-            padding-top: 16px;
+            padding-top: 12px;
         }
         .info-card p {
             line-height: 1.7;
@@ -191,18 +191,18 @@
         .meal-card {
             border: 1px solid rgba(15,23,42,0.08);
             border-radius: 20px;
-            padding: 22px 26px 16px;
+            padding: 18px 22px 12px;
             background: rgba(255,255,255,0.9);
-            margin-bottom: 18px;
+            margin-bottom: 14px;
             box-shadow: inset 0 1px 0 rgba(255,255,255,0.7);
         }
         .meal-card header {
             border-bottom: 1px solid rgba(15,23,42,0.08);
             padding-bottom: 6px;
-            margin-bottom: 10px;
+            margin-bottom: 8px;
         }
         .meal-category h4 {
-            margin: 14px 0 6px;
+            margin: 12px 0 4px;
             font-size: 15px;
             text-transform: uppercase;
             letter-spacing: .1em;
@@ -214,7 +214,7 @@
             padding: 0;
         }
         .meal-category li {
-            padding: 7px 0;
+            padding: 6px 0;
             border-bottom: 1px solid rgba(15,23,42,0.05);
         }
         .meal-category li:last-child { border-bottom: none; }
@@ -232,8 +232,8 @@
             font-size: 15px;
             color: var(--primary);
             border-top: 1px dashed rgba(15,23,42,0.1);
-            padding-top: 6px;
-            margin-top: 12px;
+            padding-top: 4px;
+            margin-top: 8px;
         }
         .estimate-number {
             font-size: 19px;
@@ -271,24 +271,6 @@
         }
         .currency-nowrap {
             white-space: nowrap;
-        }
-        .staffing-table {
-            table-layout: fixed;
-            font-size: 13px;
-        }
-        .staffing-table th,
-        .staffing-table td {
-            padding: 6px 8px;
-        }
-        .staffing-table th {
-            text-align: left;
-            color: rgba(15,23,42,0.65);
-            font-weight: 600;
-            white-space: nowrap;
-        }
-        .staffing-table td {
-            text-align: right;
-            font-weight: 600;
         }
         .payment-box {
             border: 1px solid rgba(15,23,42,0.08);
@@ -365,6 +347,10 @@
                 page-break-inside: avoid;
                 -webkit-box-decoration-break: clone;
                 box-decoration-break: clone;
+            }
+            .estimate-sheet:first-of-type .meal-card {
+                page-break-inside: auto;
+                break-inside: auto;
             }
         }
     </style>
@@ -680,26 +666,19 @@
         {% if staff_context and not flat_mode %}
             <section>
                 <h2>{% translate 'Staffing Details' %}</h2>
-                <table class="info-table staffing-table">
+                <table class="info-table">
                     <tbody>
+                        <tr><th>{% translate 'Wait staff' %}</th><td>{{ staff_context.waiters }}</td></tr>
+                        <tr><th>{% translate 'Estimated hours' %}</th><td>{{ staff_context.hours }}</td></tr>
+                        <tr><th>{% translate 'Hourly rate' %}</th><td>{{ staff_context.hourly_rate }} {{ estimate.currency }}</td></tr>
+                        <tr><th>{% translate 'Labor total' %}</th><td>{{ staff_context.labor_total }} {{ estimate.currency }}</td></tr>
                         <tr>
-                            <th>{% translate 'Wait staff' %}</th>
-                            <td>{{ staff_context.waiters }}</td>
-                            <th>{% translate 'Estimated hours' %}</th>
-                            <td>{{ staff_context.hours }}</td>
-                            <th>{% translate 'Hourly rate' %}</th>
-                            <td><span class="currency-nowrap">{{ staff_context.hourly_rate }} {{ estimate.currency }}</span></td>
-                        </tr>
-                        <tr>
-                            <th>{% translate 'Labor total' %}</th>
-                            <td><span class="currency-nowrap">{{ staff_context.labor_total }} {{ estimate.currency }}</span></td>
                             <th>{% translate 'Suggested tip' %}</th>
-                            <td colspan="3">
-                                <span class="currency-nowrap">{{ staff_context.tip_total }} {{ estimate.currency }}</span>
+                            <td>
                                 {% if staff_context.tip_varies %}
-                                    ({% translate 'varies by meal' %})
+                                    {{ staff_context.tip_total }} {{ estimate.currency }} ({% translate 'varies by meal' %})
                                 {% else %}
-                                    (<span class="currency-nowrap">{{ staff_context.tip_per_waiter }} {{ estimate.currency }}</span> {% translate 'per waiter' %})
+                                    {{ staff_context.tip_total }} {{ estimate.currency }} ({{ staff_context.tip_per_waiter }} {{ estimate.currency }} {% translate 'per waiter' %})
                                 {% endif %}
                             </td>
                         </tr>
@@ -767,7 +746,7 @@
                         {% endfor %}
                     </tbody>
                 </table>
-                {% if delivery_fee %}
+                {% if delivery_fee and show_delivery_fee %}
                     <p class="muted" style="margin:6px 0 0;">{% translate 'Delivery fee (once)' %}: {{ delivery_fee }} {{ estimate.currency }}</p>
                 {% endif %}
             </section>
