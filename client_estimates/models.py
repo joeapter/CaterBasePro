@@ -806,7 +806,7 @@ class Estimate(models.Model):
         deposit_rate = (self.deposit_percentage or Decimal("0.00")) / Decimal("100.0")
         deposit = (grand * deposit_rate).quantize(Decimal("0.01"))
         received = self.deposit_received or Decimal("0.00")
-        deposit_applied = received if received > Decimal("0.00") else deposit
+        deposit_applied = received
         balance = grand - deposit_applied
 
         rate = self.exchange_rate or Decimal("1.00")

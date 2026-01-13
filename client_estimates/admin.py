@@ -1154,6 +1154,7 @@ class EstimateAdmin(admin.ModelAdmin):
         estimate = Estimate.objects.select_related("caterer", "caterer__owner").get(pk=estimate_id)
         if not request.user.is_superuser and estimate.caterer.owner != request.user:
             raise PermissionDenied("You do not have access to this estimate.")
+        estimate.recalc_totals()
 
         extra_lines = (
             estimate.extra_lines.select_related("extra_item")
