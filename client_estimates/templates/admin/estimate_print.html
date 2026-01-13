@@ -286,21 +286,28 @@
                 min-height: 297mm;
             }
             .sheet-header {
-                padding: 6mm 8mm 4mm;
-                gap: 10px;
+                padding: 5mm 6mm 4mm;
+                gap: 8px;
                 flex-wrap: wrap;
+                align-items: flex-start;
             }
             .sheet-header-left,
             .sheet-header-right {
                 white-space: normal;
+                min-width: 0;
+                flex: 1 1 220px;
             }
             .sheet-header-left h1 {
-                font-size: 20px;
-                letter-spacing: .14em;
+                font-size: 18px;
+                letter-spacing: .12em;
             }
             .sheet-header-right {
                 margin-left: 0;
                 padding-right: 0;
+            }
+            .estimate-number {
+                font-size: 16px;
+                letter-spacing: .12em;
             }
             .meta-table {
                 font-size: 12px;
@@ -308,9 +315,15 @@
             .meta-table td {
                 min-width: 0;
             }
+            .sheet-logo {
+                flex: 0 1 200px;
+                max-width: 200px;
+            }
             .sheet-logo img {
-                max-height: 110px;
-                max-width: 260px;
+                max-height: 100px;
+                max-width: 200px;
+                width: 100%;
+                height: auto;
             }
             .estimate-sheet:last-of-type { page-break-after: auto; }
             section { page-break-inside: auto; }
