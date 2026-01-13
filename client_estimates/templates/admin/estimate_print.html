@@ -77,8 +77,8 @@
             grid-template-columns: minmax(0, 1fr) minmax(140px, 260px) minmax(0, 1fr);
             align-items: center;
             gap: 18px;
-            padding: 22px 26px 16px;
-            margin: 0 auto 18px;
+            padding: 20px 26px 12px;
+            margin: 0 auto 12px;
             border-bottom: none;
             width: 100%;
             box-sizing: border-box;
@@ -142,23 +142,23 @@
             letter-spacing: .05em;
             text-transform: uppercase;
         }
-        section { margin-bottom: 26px; }
+        section { margin-bottom: 20px; }
         .info-row {
             display: flex;
             justify-content: space-between;
             gap: 28px;
-            margin-bottom: 24px;
+            margin-bottom: 16px;
         }
         .info-card {
             width: 50%;
             padding-left: 15%;
-            padding-top: 24px;
+            padding-top: 16px;
         }
         .info-card--right {
             padding-left: 5%;
             padding-right: 15%;
             text-align: right;
-            padding-top: 24px;
+            padding-top: 16px;
         }
         .info-card p {
             line-height: 1.7;
@@ -260,6 +260,36 @@
             font-size: 15px;
             font-weight: 600;
         }
+        .summary-table--tight th,
+        .summary-table--tight td {
+            padding: 6px 6px;
+            font-size: 12px;
+            line-height: 1.25;
+        }
+        .totals-line {
+            white-space: nowrap;
+        }
+        .currency-nowrap {
+            white-space: nowrap;
+        }
+        .staffing-table {
+            table-layout: fixed;
+            font-size: 13px;
+        }
+        .staffing-table th,
+        .staffing-table td {
+            padding: 6px 8px;
+        }
+        .staffing-table th {
+            text-align: left;
+            color: rgba(15,23,42,0.65);
+            font-weight: 600;
+            white-space: nowrap;
+        }
+        .staffing-table td {
+            text-align: right;
+            font-weight: 600;
+        }
         .payment-box {
             border: 1px solid rgba(15,23,42,0.08);
             border-radius: 16px;
@@ -299,9 +329,9 @@
             }
             .sheet-header {
                 grid-template-columns: minmax(0, 1fr) minmax(110px, 200px) minmax(0, 1fr);
-                padding: 4mm 6mm;
-                gap: 6mm;
-                margin: 0 auto 6mm;
+                padding: 3.5mm 5mm 3mm;
+                gap: 5mm;
+                margin: 0 auto 4mm;
             }
             .sheet-header-left,
             .sheet-header-right {
@@ -650,19 +680,26 @@
         {% if staff_context and not flat_mode %}
             <section>
                 <h2>{% translate 'Staffing Details' %}</h2>
-                <table class="info-table">
+                <table class="info-table staffing-table">
                     <tbody>
-                        <tr><th>{% translate 'Wait staff' %}</th><td>{{ staff_context.waiters }}</td></tr>
-                        <tr><th>{% translate 'Estimated hours' %}</th><td>{{ staff_context.hours }}</td></tr>
-                        <tr><th>{% translate 'Hourly rate' %}</th><td>{{ staff_context.hourly_rate }} {{ estimate.currency }}</td></tr>
-                        <tr><th>{% translate 'Labor total' %}</th><td>{{ staff_context.labor_total }} {{ estimate.currency }}</td></tr>
                         <tr>
+                            <th>{% translate 'Wait staff' %}</th>
+                            <td>{{ staff_context.waiters }}</td>
+                            <th>{% translate 'Estimated hours' %}</th>
+                            <td>{{ staff_context.hours }}</td>
+                            <th>{% translate 'Hourly rate' %}</th>
+                            <td><span class="currency-nowrap">{{ staff_context.hourly_rate }} {{ estimate.currency }}</span></td>
+                        </tr>
+                        <tr>
+                            <th>{% translate 'Labor total' %}</th>
+                            <td><span class="currency-nowrap">{{ staff_context.labor_total }} {{ estimate.currency }}</span></td>
                             <th>{% translate 'Suggested tip' %}</th>
-                            <td>
+                            <td colspan="3">
+                                <span class="currency-nowrap">{{ staff_context.tip_total }} {{ estimate.currency }}</span>
                                 {% if staff_context.tip_varies %}
-                                    {{ staff_context.tip_total }} {{ estimate.currency }} ({% translate 'varies by meal' %})
+                                    ({% translate 'varies by meal' %})
                                 {% else %}
-                                    {{ staff_context.tip_total }} {{ estimate.currency }} ({{ staff_context.tip_per_waiter }} {{ estimate.currency }} {% translate 'per waiter' %})
+                                    (<span class="currency-nowrap">{{ staff_context.tip_per_waiter }} {{ estimate.currency }}</span> {% translate 'per waiter' %})
                                 {% endif %}
                             </td>
                         </tr>
@@ -697,7 +734,7 @@
         {% if per_meal_service_rows and not flat_mode %}
             <section>
                 <h2>{% translate 'Per-Meal Logistics' %}</h2>
-                <table class="summary-table">
+                <table class="summary-table summary-table--tight">
                     <thead>
                         <tr>
                             <th style="text-align:left; width:30%;">{% translate 'Meal' %}</th>
@@ -717,8 +754,14 @@
                                 <td style="text-align:right;">{{ row.staff_hours }}</td>
                                 <td style="text-align:right;">{{ row.staff_tip_per_waiter }} {{ estimate.currency }}</td>
                                 <td style="text-align:right;">
-                                    <div>{% translate 'Staff' %}: {{ row.staff_pay_total|add:row.staff_tip_total }} {{ estimate.currency }}</div>
-                                    <div>{% translate 'Dishes' %}: {{ row.dishes_total }} {{ estimate.currency }}</div>
+                                    <div class="totals-line">
+                                        {% translate 'Staff' %}:
+                                        <span class="currency-nowrap">{{ row.staff_pay_total|add:row.staff_tip_total }} {{ estimate.currency }}</span>
+                                    </div>
+                                    <div class="totals-line">
+                                        {% translate 'Dishes' %}:
+                                        <span class="currency-nowrap">{{ row.dishes_total }} {{ estimate.currency }}</span>
+                                    </div>
                                 </td>
                             </tr>
                         {% endfor %}
