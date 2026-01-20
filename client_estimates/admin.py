@@ -1276,6 +1276,16 @@ class EstimateAdmin(admin.ModelAdmin):
                 }
 
         meal_sections = estimate.meal_sections()
+        first_menu_item_count = 0
+        if meal_sections:
+            first_meal = meal_sections[0]
+            first_menu_item_count = sum(
+                len(category.get("choices", [])) for category in first_meal.get("categories", [])
+            )
+            first_menu_item_count += sum(
+                len(category.get("choices", [])) for category in first_meal.get("kids_categories", [])
+            )
+        shrink_first_menu = first_menu_item_count > 13
         meal_total_amount = (
             sum((section["total"] for section in meal_sections), Decimal("0.00"))
             if meal_sections
@@ -1316,6 +1326,7 @@ class EstimateAdmin(admin.ModelAdmin):
             "meal_total_amount": meal_total_amount,
             "kids_total_amount": kids_total_amount,
             "service_style": service_style,
+            "shrink_first_menu": shrink_first_menu,
             "contact_lines": [
                 line for line in [
                     caterer.company_phone,
@@ -1393,6 +1404,16 @@ class EstimateAdmin(admin.ModelAdmin):
             dishes_subtotal = (estimate.dishes_total - dishes_delivery_fee).quantize(Decimal("0.01"))
 
         meal_sections = estimate.meal_sections()
+        first_menu_item_count = 0
+        if meal_sections:
+            first_meal = meal_sections[0]
+            first_menu_item_count = sum(
+                len(category.get("choices", [])) for category in first_meal.get("categories", [])
+            )
+            first_menu_item_count += sum(
+                len(category.get("choices", [])) for category in first_meal.get("kids_categories", [])
+            )
+        shrink_first_menu = first_menu_item_count > 13
         meal_total_amount = (
             sum((section["total"] + section.get("kids_total", Decimal("0.00")) for section in meal_sections), Decimal("0.00"))
             if meal_sections
@@ -1440,6 +1461,7 @@ class EstimateAdmin(admin.ModelAdmin):
             "meal_total_amount": meal_total_amount,
             "kids_total_amount": kids_total_amount,
             "service_style": service_style,
+            "shrink_first_menu": shrink_first_menu,
             "contact_lines": [
                 line for line in [
                     caterer.company_phone,
