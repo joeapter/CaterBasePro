@@ -1,6 +1,10 @@
 {% load i18n form_extras %}
 {% if original %}
-    {% url 'admin:client_estimates_estimate_print' original.pk as preview_url %}
+    {% if preview_url_name %}
+        {% url preview_url_name original.pk as preview_url %}
+    {% else %}
+        {% url 'admin:client_estimates_estimate_print' original.pk as preview_url %}
+    {% endif %}
 {% endif %}
 <div class="estimate-summary-cards">
     <table style="width:100%; border-collapse: collapse;">

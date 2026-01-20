@@ -52,6 +52,11 @@ DOCUMENT_SURFACE_CHOICES = [
     ("TRANSPARENT", "Transparent over background"),
 ]
 
+MENU_TYPE_CHOICES = [
+    ("STANDARD", "Standard"),
+    ("KIDDUSH", "Kiddush"),
+]
+
 
 class CatererAccount(models.Model):
     """
@@ -241,6 +246,11 @@ class MenuItem(models.Model):
 
     # Internal cost per serving (one person)
     cost_per_serving = models.DecimalField(max_digits=8, decimal_places=2)
+    menu_type = models.CharField(
+        max_length=20,
+        choices=MENU_TYPE_CHOICES,
+        default="STANDARD",
+    )
 
     # Markup (e.g. 3.00 for cost x3)
     markup = models.DecimalField(
@@ -272,10 +282,15 @@ class MenuTemplate(models.Model):
     )
     name = models.CharField(max_length=200)
     items = models.ManyToManyField(MenuItem, related_name="templates")
+    menu_type = models.CharField(
+        max_length=20,
+        choices=MENU_TYPE_CHOICES,
+        default="STANDARD",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        unique_together = ("caterer", "name")
+        unique_together = ("caterer", "name", "menu_type")
         ordering = ["name"]
 
     def __str__(self):
@@ -390,6 +405,11 @@ class Estimate(models.Model):
 
     currency = models.CharField(
         max_length=3, choices=CURRENCY_CHOICES, default="ILS"
+    )
+    estimate_type = models.CharField(
+        max_length=20,
+        choices=MENU_TYPE_CHOICES,
+        default="STANDARD",
     )
 
     # Included disposables
@@ -1002,6 +1022,13 @@ class Estimate(models.Model):
             if wants:
                 return True
         return False
+
+
+class KiddushEstimate(Estimate):
+    class Meta:
+        proxy = True
+        verbose_name = "Kiddush estimate"
+        verbose_name_plural = "Kiddush estimates"
 
 
 class EstimateFoodChoice(models.Model):

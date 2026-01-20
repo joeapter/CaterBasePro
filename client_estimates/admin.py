@@ -23,6 +23,7 @@ from .models import (
     MenuItem,
     ExtraItem,
     Estimate,
+    KiddushEstimate,
     EstimateFoodChoice,
     EstimateExtraItem,
     MenuTemplate,
@@ -34,6 +35,7 @@ from .models import (
     TastingAppointment,
     TrialRequest,
 )
+from .kiddush_menu import ensure_kiddush_menu, ensure_kiddush_planning_fee_line
 
 # ==========================
 # 🔐 PERMISSIONS & SCOPING
@@ -248,12 +250,13 @@ class MenuItemAdmin(admin.ModelAdmin):
         "sort_order_override",
         "caterer",
         "category",
+        "menu_type",
         "cost_per_serving",
         "markup",
         "is_active",
     )
     list_editable = ("sort_order_override",)
-    list_filter = ("caterer", "category", "is_active")
+    list_filter = ("caterer", "category", "menu_type", "is_active")
     search_fields = ("name",)
     change_list_template = "admin/menu_upload.html"
     ordering = ("category__sort_order", "category__name", "sort_order_override", "name")
@@ -499,7 +502,8 @@ class ExtraItemAdmin(admin.ModelAdmin):
 # ==========================
 @admin.register(MenuTemplate)
 class MenuTemplateAdmin(admin.ModelAdmin):
-    list_display = ("name", "caterer", "created_at")
+    list_display = ("name", "caterer", "menu_type", "created_at")
+    list_filter = ("menu_type", "caterer")
     filter_horizontal = ("items",)
 
     def get_queryset(self, request):
@@ -518,6 +522,7 @@ class MenuTemplateAdmin(admin.ModelAdmin):
 # ESTIMATE ADMIN – CHECKLIST + TEMPLATES
 # ==========================
 class EstimateAdminForm(forms.ModelForm):
+    menu_type = "STANDARD"
     meal_plan_input = forms.CharField(
         required=False,
         label="Meals being quoted",
@@ -555,6 +560,7 @@ class EstimateAdminForm(forms.ModelForm):
         # custom hook to get request
         self.request = kwargs.pop("request", None)
         super().__init__(*args, **kwargs)
+        menu_type = getattr(self, "menu_type", "STANDARD")
 
         # Determine caterer
         caterer = None
@@ -584,7 +590,8 @@ class EstimateAdminForm(forms.ModelForm):
         # Limit use_template queryset
         if caterer:
             self.fields["use_template"].queryset = MenuTemplate.objects.filter(
-                caterer=caterer
+                caterer=caterer,
+                menu_type=menu_type,
             )
         else:
             self.fields["use_template"].queryset = MenuTemplate.objects.none()
@@ -624,6 +631,7 @@ class EstimateAdminForm(forms.ModelForm):
                 MenuItem.objects.filter(
                     caterer=caterer,
                     is_active=True,
+                    menu_type=menu_type,
                 )
                 .select_related("category")
                 .order_by(
@@ -750,10 +758,28 @@ class EstimateAdminForm(forms.ModelForm):
             )
 
 
+class KiddushEstimateAdminForm(EstimateAdminForm):
+    menu_type = "KIDDUSH"
+
+    def __init__(self, *args, **kwargs):
+        request = kwargs.get("request")
+        instance = kwargs.get("instance")
+        caterer = None
+        if instance and instance.pk and instance.caterer_id:
+            caterer = instance.caterer
+        elif request:
+            caterer = CatererAccount.objects.filter(owner=request.user).first()
+        if caterer:
+            ensure_kiddush_menu(caterer)
+        super().__init__(*args, **kwargs)
+
+
 @admin.register(Estimate)
 class EstimateAdmin(admin.ModelAdmin):
     form = EstimateAdminForm
     change_form_template = "admin/estimate_change_form.html"
+    estimate_type = "STANDARD"
+    menu_type = "STANDARD"
 
     list_display = (
         "estimate_number",
@@ -864,14 +890,29 @@ class EstimateAdmin(admin.ModelAdmin):
     actions = ["delete_selected", "workflow_bulk_action"]
 
     def get_queryset(self, request):
-        return limit_to_user_caterer(super().get_queryset(request), request)
+        qs = limit_to_user_caterer(super().get_queryset(request), request)
+        if self.estimate_type:
+            qs = qs.filter(estimate_type=self.estimate_type)
+        return qs
+
+    def _admin_url_name(self, suffix):
+        return f"{self.opts.app_label}_{self.opts.model_name}_{suffix}"
+
+    def _admin_reverse(self, suffix, args=None):
+        return reverse(f"admin:{self._admin_url_name(suffix)}", args=args)
+
+    def _get_estimate(self, estimate_id):
+        qs = Estimate.objects.select_related("caterer", "caterer__owner")
+        if self.estimate_type:
+            qs = qs.filter(estimate_type=self.estimate_type)
+        return qs.get(pk=estimate_id)
 
     def workflow_bulk_action(self, request, queryset):
         ids = list(queryset.values_list("pk", flat=True))
         if not ids:
             self.message_user(request, "Select at least one estimate to print workflows.", level=messages.WARNING)
             return
-        url = reverse("admin:client_estimates_estimate_workflow_bulk")
+        url = self._admin_reverse("workflow_bulk")
         params = ",".join(str(i) for i in ids)
         return HttpResponseRedirect(f"{url}?ids={params}&print=1")
 
@@ -991,6 +1032,8 @@ class EstimateAdmin(admin.ModelAdmin):
         the checkbox selection and template usage. Also optionally save a new template.
         """
         is_new = obj.pk is None
+        if self.estimate_type:
+            obj.estimate_type = self.estimate_type
         if is_new or not obj.estimate_number:
             counter = obj.caterer.estimate_number_counter or 1000
             obj.estimate_number = counter
@@ -1065,6 +1108,7 @@ class EstimateAdmin(admin.ModelAdmin):
             tmpl, created = MenuTemplate.objects.get_or_create(
                 caterer=caterer,
                 name=template_name,
+                menu_type=self.menu_type,
             )
             tmpl.items.set(MenuItem.objects.filter(id__in=[item.id for item, _, _ in selected_entries]))
 
@@ -1102,40 +1146,40 @@ class EstimateAdmin(admin.ModelAdmin):
             path(
                 "<int:estimate_id>/print/",
                 self.admin_site.admin_view(self.print_estimate),
-                name="client_estimates_estimate_print",
+                name=self._admin_url_name("print"),
             ),
             path(
                 "<int:estimate_id>/print-flat/",
                 self.admin_site.admin_view(self.print_estimate_flat),
-                name="client_estimates_estimate_print_flat",
+                name=self._admin_url_name("print_flat"),
             ),
             path(
                 "<int:estimate_id>/workflow/",
                 self.admin_site.admin_view(self.workflow_view),
-                name="client_estimates_estimate_workflow",
+                name=self._admin_url_name("workflow"),
             ),
             path(
                 "workflow/bulk/",
                 self.admin_site.admin_view(self.workflow_bulk_view),
-                name="client_estimates_estimate_workflow_bulk",
+                name=self._admin_url_name("workflow_bulk"),
             ),
         ]
         return custom + urls
 
     def print_estimate_button(self, obj):
-        url = reverse("admin:client_estimates_estimate_print", args=[obj.pk])
+        url = self._admin_reverse("print", args=[obj.pk])
         return format_html('<a class="button" target="_blank" href="{}">Print PDF</a>', url)
 
     print_estimate_button.short_description = "Download"
 
     def workflow_button(self, obj):
-        url = reverse("admin:client_estimates_estimate_workflow", args=[obj.pk])
+        url = self._admin_reverse("workflow", args=[obj.pk])
         return format_html('<a class="button" target="_blank" href="{}">Workflow</a>', f"{url}?print=1")
 
     workflow_button.short_description = "Kitchen"
 
     def flat_print_button(self, obj):
-        url = reverse("admin:client_estimates_estimate_print_flat", args=[obj.pk])
+        url = self._admin_reverse("print_flat", args=[obj.pk])
         return format_html('<a class="button" target="_blank" href="{}">PP Flat Estimate</a>', url)
 
     flat_print_button.short_description = "PP Flat"
@@ -1151,7 +1195,7 @@ class EstimateAdmin(admin.ModelAdmin):
     schedule_button.short_description = "Schedule"
 
     def print_estimate(self, request, estimate_id):
-        estimate = Estimate.objects.select_related("caterer", "caterer__owner").get(pk=estimate_id)
+        estimate = self._get_estimate(estimate_id)
         if not request.user.is_superuser and estimate.caterer.owner != request.user:
             raise PermissionDenied("You do not have access to this estimate.")
         estimate.recalc_totals()
@@ -1292,7 +1336,7 @@ class EstimateAdmin(admin.ModelAdmin):
         return render(request, "admin/estimate_print.html", context)
 
     def print_estimate_flat(self, request, estimate_id):
-        estimate = Estimate.objects.select_related("caterer", "caterer__owner").get(pk=estimate_id)
+        estimate = self._get_estimate(estimate_id)
         if not request.user.is_superuser and estimate.caterer.owner != request.user:
             raise PermissionDenied("You do not have access to this estimate.")
         estimate.recalc_totals()
@@ -1525,7 +1569,7 @@ class EstimateAdmin(admin.ModelAdmin):
         return pages
 
     def workflow_view(self, request, estimate_id):
-        estimate = Estimate.objects.select_related("caterer", "caterer__owner").get(pk=estimate_id)
+        estimate = self._get_estimate(estimate_id)
         if not request.user.is_superuser and estimate.caterer.owner != request.user:
             raise PermissionDenied("You do not have access to this estimate.")
         payload = self._workflow_pages(request, estimate)
@@ -1541,6 +1585,8 @@ class EstimateAdmin(admin.ModelAdmin):
         qs = Estimate.objects.select_related("caterer", "caterer__owner")
         if not request.user.is_superuser:
             qs = qs.filter(caterer__owner=request.user)
+        if self.estimate_type:
+            qs = qs.filter(estimate_type=self.estimate_type)
         estimates = list(qs.filter(pk__in=id_list).order_by("event_date"))
         if not estimates:
             self.message_user(
@@ -1548,7 +1594,7 @@ class EstimateAdmin(admin.ModelAdmin):
                 "No estimates found for workflow printing.",
                 level=messages.WARNING,
             )
-            return redirect("admin:client_estimates_estimate_changelist")
+            return redirect(self._admin_reverse("changelist"))
         payloads = []
         for estimate in estimates:
             payloads.extend(self._workflow_pages(request, estimate))
@@ -1606,6 +1652,7 @@ class EstimateAdmin(admin.ModelAdmin):
                 name=name,
                 description=desc,
                 cost_per_serving=cost,
+                menu_type=self.menu_type,
                 markup=markup,
                 default_servings_per_person=servings,
                 is_active=True,
@@ -1755,6 +1802,7 @@ class EstimateAdmin(admin.ModelAdmin):
             "errors": helpers.AdminErrorList(form, formsets),
             "preserved_filters": self.get_preserved_filters(request),
             "new_menu_item_ids": new_menu_item_ids,
+            "preview_url_name": self._admin_url_name("print"),
         }
 
         if (
@@ -1787,7 +1835,7 @@ class EstimateAdmin(admin.ModelAdmin):
                     level=messages.SUCCESS,
                 )
             return redirect(
-                reverse("admin:client_estimates_estimate_change", args=[obj.pk])
+                self._admin_reverse("change", args=[obj.pk])
             )
         return super().response_change(request, obj)
 
@@ -1805,3 +1853,20 @@ class EstimateAdmin(admin.ModelAdmin):
             details.append(line)
         details.append("Reference the event date on your payment so we can match it quickly.")
         return "\n".join(details)
+
+
+@admin.register(KiddushEstimate)
+class KiddushEstimateAdmin(EstimateAdmin):
+    form = KiddushEstimateAdminForm
+    estimate_type = "KIDDUSH"
+    menu_type = "KIDDUSH"
+
+    def get_changeform_initial_data(self, request):
+        initial = super().get_changeform_initial_data(request)
+        initial.setdefault("event_type", "Kiddush")
+        return initial
+
+    def save_model(self, request, obj, form, change):
+        super().save_model(request, obj, form, change)
+        ensure_kiddush_planning_fee_line(obj)
+        obj.save()
