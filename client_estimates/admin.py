@@ -1285,7 +1285,11 @@ class EstimateAdmin(admin.ModelAdmin):
             first_menu_item_count += sum(
                 len(category.get("choices", [])) for category in first_meal.get("kids_categories", [])
             )
-        shrink_first_menu = first_menu_item_count > 13
+        menu_compact_level = ""
+        if first_menu_item_count >= 16:
+            menu_compact_level = "tight"
+        elif first_menu_item_count >= 13:
+            menu_compact_level = "compact"
         meal_total_amount = (
             sum((section["total"] for section in meal_sections), Decimal("0.00"))
             if meal_sections
@@ -1326,7 +1330,7 @@ class EstimateAdmin(admin.ModelAdmin):
             "meal_total_amount": meal_total_amount,
             "kids_total_amount": kids_total_amount,
             "service_style": service_style,
-            "shrink_first_menu": shrink_first_menu,
+            "menu_compact_level": menu_compact_level,
             "contact_lines": [
                 line for line in [
                     caterer.company_phone,
@@ -1413,7 +1417,11 @@ class EstimateAdmin(admin.ModelAdmin):
             first_menu_item_count += sum(
                 len(category.get("choices", [])) for category in first_meal.get("kids_categories", [])
             )
-        shrink_first_menu = first_menu_item_count > 13
+        menu_compact_level = ""
+        if first_menu_item_count >= 16:
+            menu_compact_level = "tight"
+        elif first_menu_item_count >= 13:
+            menu_compact_level = "compact"
         meal_total_amount = (
             sum((section["total"] + section.get("kids_total", Decimal("0.00")) for section in meal_sections), Decimal("0.00"))
             if meal_sections
@@ -1461,7 +1469,7 @@ class EstimateAdmin(admin.ModelAdmin):
             "meal_total_amount": meal_total_amount,
             "kids_total_amount": kids_total_amount,
             "service_style": service_style,
-            "shrink_first_menu": shrink_first_menu,
+            "menu_compact_level": menu_compact_level,
             "contact_lines": [
                 line for line in [
                     caterer.company_phone,
