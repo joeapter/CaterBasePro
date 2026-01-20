@@ -1861,6 +1861,39 @@ class KiddushEstimateAdmin(EstimateAdmin):
     estimate_type = "KIDDUSH"
     menu_type = "KIDDUSH"
 
+    def _base_perm(self, request, action):
+        return request.user.has_perm(f"{Estimate._meta.app_label}.{action}_estimate")
+
+    def get_model_perms(self, request):
+        if request.user.is_superuser:
+            return super().get_model_perms(request)
+        return {
+            "add": self._base_perm(request, "add"),
+            "change": self._base_perm(request, "change"),
+            "delete": self._base_perm(request, "delete"),
+            "view": self._base_perm(request, "view") or self._base_perm(request, "change"),
+        }
+
+    def has_add_permission(self, request):
+        if request.user.is_superuser:
+            return True
+        return self._base_perm(request, "add")
+
+    def has_change_permission(self, request, obj=None):
+        if request.user.is_superuser:
+            return True
+        return self._base_perm(request, "change")
+
+    def has_view_permission(self, request, obj=None):
+        if request.user.is_superuser:
+            return True
+        return self._base_perm(request, "view") or self._base_perm(request, "change")
+
+    def has_delete_permission(self, request, obj=None):
+        if request.user.is_superuser:
+            return True
+        return self._base_perm(request, "delete")
+
     def get_changeform_initial_data(self, request):
         initial = super().get_changeform_initial_data(request)
         initial.setdefault("event_type", "Kiddush")
