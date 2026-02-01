@@ -40,7 +40,11 @@
             <tr>
                 <td style="padding:8px;">Delivery &amp; dishes</td>
                 <td style="padding:8px; text-align:right;">
-                    {% if form.instance.is_ala_carte %}—{% else %}{{ form.instance.dishes_total }}{% endif %}
+                    {% if form.instance.is_ala_carte and not form.instance.dishes_total %}
+                        —
+                    {% else %}
+                        {{ form.instance.dishes_total }}
+                    {% endif %}
                 </td>
             </tr>
             <tr style="font-weight:600;">

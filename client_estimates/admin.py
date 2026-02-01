@@ -1233,7 +1233,7 @@ class EstimateAdmin(admin.ModelAdmin):
             delivery_fee = (delivery_fee * estimate.exchange_rate).quantize(Decimal("0.01"))
         dishes_delivery_fee = Decimal("0.00")
         dishes_subtotal = estimate.dishes_total
-        if estimate.dishes_total and not estimate.is_ala_carte:
+        if estimate.dishes_total:
             dishes_delivery_fee = min(delivery_fee, estimate.dishes_total)
             dishes_subtotal = (estimate.dishes_total - dishes_delivery_fee).quantize(Decimal("0.01"))
         caterer = estimate.caterer
@@ -1403,7 +1403,7 @@ class EstimateAdmin(admin.ModelAdmin):
             }
         dishes_delivery_fee = Decimal("0.00")
         dishes_subtotal = estimate.dishes_total
-        if estimate.dishes_total and not estimate.is_ala_carte:
+        if estimate.dishes_total:
             dishes_delivery_fee = min(delivery_fee, estimate.dishes_total)
             dishes_subtotal = (estimate.dishes_total - dishes_delivery_fee).quantize(Decimal("0.01"))
 

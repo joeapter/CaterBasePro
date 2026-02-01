@@ -949,6 +949,8 @@
                             <td>{{ kids_total_amount }} {{ estimate.currency }}</td>
                         </tr>
                         {% endif %}
+                    {% endif %}
+                    {% if not estimate.is_ala_carte or estimate.dishes_total %}
                         <tr>
                             <th>{% translate 'Dishes' %}</th>
                             <td>{{ dishes_subtotal }} {{ estimate.currency }}</td>

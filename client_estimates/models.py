@@ -778,8 +778,6 @@ class Estimate(models.Model):
         return (staff_pay + staff_tip).quantize(Decimal("0.01"))
 
     def calc_dishes_total(self) -> Decimal:
-        if self.is_ala_carte:
-            return Decimal("0.00")
         if self.meal_service_details:
             rows = self.per_meal_service_summary(apply_exchange=False)
             wants_any = any(row.get("wants_real_dishes") for row in rows)
