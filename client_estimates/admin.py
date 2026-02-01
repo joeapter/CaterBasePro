@@ -1,7 +1,6 @@
 from decimal import Decimal, InvalidOperation
 import csv
 import json
-import logging
 
 from django import forms
 from django.contrib import admin, messages
@@ -37,9 +36,6 @@ from .models import (
     TrialRequest,
 )
 from .kiddush_menu import ensure_kiddush_menu, ensure_kiddush_planning_fee_line
-from .emails import send_order_admin_email
-
-logger = logging.getLogger(__name__)
 
 # ==========================
 # 🔐 PERMISSIONS & SCOPING
@@ -784,7 +780,6 @@ class EstimateAdmin(admin.ModelAdmin):
     change_form_template = "admin/estimate_change_form.html"
     estimate_type = "STANDARD"
     menu_type = "STANDARD"
-    suppress_order_email = False
 
     list_display = (
         "estimate_number",
@@ -850,6 +845,7 @@ class EstimateAdmin(admin.ModelAdmin):
                     "real_dishes_flat_fee",
                     "staff_hours",
                     "extra_waiters",
+                    "staff_count_override",
                     "staff_hourly_rate",
                     "staff_tip_per_waiter",
                     "notes_internal",
@@ -911,54 +907,6 @@ class EstimateAdmin(admin.ModelAdmin):
         if self.estimate_type:
             qs = qs.filter(estimate_type=self.estimate_type)
         return qs.get(pk=estimate_id)
-
-    def _previous_order_state(self, obj):
-        if not obj.pk:
-            return {"terms_acknowledged": False, "signature_date": None}
-        prev = (
-            Estimate.objects.filter(pk=obj.pk)
-            .values("terms_acknowledged", "signature_date")
-            .first()
-        )
-        return prev or {"terms_acknowledged": False, "signature_date": None}
-
-    def _should_send_order_email(self, obj, previous):
-        prev_terms = bool(previous.get("terms_acknowledged"))
-        prev_signature = previous.get("signature_date")
-        if obj.terms_acknowledged and not prev_terms:
-            return True
-        if obj.signature_date and not prev_signature:
-            return True
-        return False
-
-    def _render_admin_view_html(self, request, view_func, estimate_id):
-        response = view_func(request, estimate_id)
-        if hasattr(response, "render") and callable(response.render):
-            response.render()
-        return response.content.decode("utf-8")
-
-    def _send_order_email(self, request, obj):
-        try:
-            print_html = self._render_admin_view_html(request, self.print_estimate, obj.pk)
-        except Exception:
-            logger.exception("Failed to render order print HTML for email.")
-            print_html = "<html><body>Order print view unavailable.</body></html>"
-        try:
-            workflow_html = self._render_admin_view_html(request, self.workflow_view, obj.pk)
-        except Exception:
-            logger.exception("Failed to render kitchen workflow HTML for email.")
-            workflow_html = "<html><body>Kitchen workflow unavailable.</body></html>"
-
-        print_url = request.build_absolute_uri(self._admin_reverse("print", args=[obj.pk]))
-        workflow_url = request.build_absolute_uri(self._admin_reverse("workflow", args=[obj.pk]))
-        send_order_admin_email(
-            estimate=obj,
-            request=request,
-            print_html=print_html,
-            workflow_html=workflow_html,
-            print_url=print_url,
-            workflow_url=workflow_url,
-        )
 
     def workflow_bulk_action(self, request, queryset):
         ids = list(queryset.values_list("pk", flat=True))
@@ -1084,7 +1032,6 @@ class EstimateAdmin(admin.ModelAdmin):
         Save the Estimate, then build EstimateFoodChoice rows based on
         the checkbox selection and template usage. Also optionally save a new template.
         """
-        prev_state = self._previous_order_state(obj)
         is_new = obj.pk is None
         if self.estimate_type:
             obj.estimate_type = self.estimate_type
@@ -1193,8 +1140,6 @@ class EstimateAdmin(admin.ModelAdmin):
         )
         # After rebuilding related rows, recalc totals now that selections exist
         obj.save()
-        if not self.suppress_order_email and self._should_send_order_email(obj, prev_state):
-            self._send_order_email(request, obj)
 
     def get_urls(self):
         urls = super().get_urls()
@@ -1946,7 +1891,6 @@ class KiddushEstimateAdmin(EstimateAdmin):
     form = KiddushEstimateAdminForm
     estimate_type = "KIDDUSH"
     menu_type = "KIDDUSH"
-    suppress_order_email = True
 
     def _base_perm(self, request, action):
         return request.user.has_perm(f"{Estimate._meta.app_label}.{action}_estimate")
@@ -1987,9 +1931,6 @@ class KiddushEstimateAdmin(EstimateAdmin):
         return initial
 
     def save_model(self, request, obj, form, change):
-        prev_state = self._previous_order_state(obj)
         super().save_model(request, obj, form, change)
         ensure_kiddush_planning_fee_line(obj)
         obj.save()
-        if self._should_send_order_email(obj, prev_state):
-            self._send_order_email(request, obj)

@@ -445,6 +445,11 @@ class Estimate(models.Model):
         max_digits=5, decimal_places=2, default=Decimal("6.00")
     )
     extra_waiters = models.PositiveIntegerField(default=0)
+    staff_count_override = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text="Optional: override the total staff count and ignore automatic calculation.",
+    )
     staff_hourly_rate = models.DecimalField(
         max_digits=8, decimal_places=2, null=True, blank=True
     )
@@ -611,6 +616,8 @@ class Estimate(models.Model):
         return 4 + math.ceil(extra / 25)
 
     def total_waiter_count(self) -> int:
+        if self.staff_count_override is not None:
+            return int(self.staff_count_override)
         return self.base_waiter_count() + (self.extra_waiters or 0)
 
     @staticmethod
