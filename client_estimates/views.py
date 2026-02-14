@@ -7,6 +7,7 @@ from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth import authenticate, get_user_model, login
 from django.db.models import Count
+from django.db.models.functions import Coalesce
 from django.core.mail import send_mail
 from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -359,8 +360,11 @@ def xpenz_estimate_list(request):
 
     estimates = (
         Estimate.objects.select_related("caterer")
-        .annotate(expense_count=Count("expense_entries"))
-        .order_by("-event_date", "-created_at")
+        .annotate(
+            expense_count=Count("expense_entries"),
+            estimate_number_sort=Coalesce("estimate_number", 0),
+        )
+        .order_by("-estimate_number_sort", "-created_at")
     )
     if not user.is_superuser:
         estimates = estimates.filter(caterer__owner=user)
