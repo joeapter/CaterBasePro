@@ -20,7 +20,16 @@ from django.contrib import admin
 from django.urls import path
 from django.views.generic import TemplateView
 
-from client_estimates.views import marketing_home, new_client_inquiry, stripe_webhook, start_trial, trial_expired
+from client_estimates.views import (
+    marketing_home,
+    new_client_inquiry,
+    start_trial,
+    stripe_webhook,
+    trial_expired,
+    xpenz_estimate_expenses,
+    xpenz_estimate_list,
+    xpenz_mobile_login,
+)
 
 urlpatterns = [
     path('', marketing_home, name="marketing_home"),
@@ -29,5 +38,8 @@ urlpatterns = [
     path('new-client-inquiry/', new_client_inquiry, name='public_inquiry_no_slug'),
     path('new-client-inquiry/<slug:caterer_slug>/', new_client_inquiry, name='public_inquiry'),
     path('stripe/webhook/', stripe_webhook, name='stripe_webhook'),
+    path('api/xpenz/login/', xpenz_mobile_login, name='xpenz_mobile_login'),
+    path('api/xpenz/estimates/', xpenz_estimate_list, name='xpenz_estimate_list'),
+    path('api/xpenz/estimates/<int:estimate_id>/expenses/', xpenz_estimate_expenses, name='xpenz_estimate_expenses'),
     path('admin/', admin.site.urls),
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

@@ -1,5 +1,6 @@
 from decimal import Decimal
 import math
+import secrets
 from datetime import timedelta
 
 from django.db import models
@@ -1090,6 +1091,99 @@ class EstimateExtraItem(models.Model):
 
     def __str__(self):
         return f"{self.extra_item.name} for {self.estimate}"
+
+
+class EstimateExpenseEntry(models.Model):
+    estimate = models.ForeignKey(
+        Estimate,
+        on_delete=models.CASCADE,
+        related_name="expense_entries",
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="estimate_expense_entries",
+    )
+    receipt_image = models.FileField(
+        upload_to="estimate_expenses/receipts/%Y/%m/%d/",
+        null=True,
+        blank=True,
+    )
+    voice_note = models.FileField(
+        upload_to="estimate_expenses/voice_notes/%Y/%m/%d/",
+        null=True,
+        blank=True,
+    )
+    voice_note_duration_seconds = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+    )
+    expense_text = models.CharField(
+        max_length=255,
+        blank=True,
+        help_text="Short expense line item (e.g. vegetables, gas, waiter tip).",
+    )
+    expense_amount = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+    )
+    is_manual_only = models.BooleanField(
+        default=False,
+        help_text="True when the entry was added manually without receipt/audio files.",
+    )
+    note_text = models.TextField(
+        blank=True,
+        help_text="Internal note/transcript for the voice recording.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        verbose_name = "Estimate expense entry"
+        verbose_name_plural = "Estimate expense entries"
+
+    def __str__(self):
+        label = self.expense_text or "Expense"
+        return f"{label} for estimate #{self.estimate_id}"
+
+
+class XpenzMobileToken(models.Model):
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="xpenz_mobile_token",
+    )
+    key = models.CharField(max_length=64, unique=True, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    last_used_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = "Xpenz mobile token"
+        verbose_name_plural = "Xpenz mobile tokens"
+
+    def __str__(self):
+        return f"Xpenz token for {self.user}"
+
+    @staticmethod
+    def generate_key():
+        return secrets.token_hex(32)
+
+    def rotate(self, save=True):
+        self.key = self.generate_key()
+        if save:
+            self.save()
+        return self.key
+
+    def save(self, *args, **kwargs):
+        if not self.key:
+            self.key = self.generate_key()
+        super().save(*args, **kwargs)
 
 
 class TastingAppointment(models.Model):

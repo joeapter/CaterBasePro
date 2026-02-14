@@ -1,0 +1,71 @@
+<div class="expense-info-panel">
+    <h2>Internal Expense Attachments</h2>
+    <p class="help">
+        Uploaded from the Xpenz mobile app. These files are internal only and are not included in printed estimates.
+    </p>
+
+    {% if expense_entries %}
+        <div class="expense-entry-list">
+            {% for entry in expense_entries %}
+                <article class="expense-entry">
+                    <h4>Expense #{{ forloop.revcounter }}</h4>
+                    <p class="expense-entry-meta">
+                        {{ entry.created_at|date:"M j, Y g:i A" }}
+                        {% if entry.created_by %}
+                            by {{ entry.created_by.get_username }}
+                        {% endif %}
+                        {% if entry.voice_note_duration_seconds %}
+                            • {{ entry.voice_note_duration_seconds }}s
+                        {% endif %}
+                        {% if entry.is_manual_only %}
+                            • Manual-only entry
+                        {% endif %}
+                    </p>
+                    {% if entry.expense_text or entry.expense_amount %}
+                        <p class="expense-entry-note">
+                            {% if entry.expense_text %}
+                                <strong>{{ entry.expense_text }}</strong>
+                            {% endif %}
+                            {% if entry.expense_amount %}
+                                {% if entry.expense_text %} • {% endif %}
+                                <strong>{{ entry.expense_amount }}</strong>
+                            {% endif %}
+                        </p>
+                    {% endif %}
+                    <div class="expense-entry-grid">
+                        <div>
+                            <strong>Receipt</strong><br>
+                            {% if entry.receipt_image %}
+                                <a href="{{ entry.receipt_image.url }}" target="_blank" rel="noopener">Open full image</a>
+                                <div style="margin-top: 8px;">
+                                    <img src="{{ entry.receipt_image.url }}" alt="Receipt image">
+                                </div>
+                            {% else %}
+                                <span class="muted">No receipt image for this entry.</span>
+                            {% endif %}
+                        </div>
+                        <div>
+                            <strong>Voice Note</strong><br>
+                            {% if entry.voice_note %}
+                                <a href="{{ entry.voice_note.url }}" target="_blank" rel="noopener">Download audio</a>
+                                <div style="margin-top: 8px;">
+                                    <audio controls preload="none" style="width: 100%;">
+                                        <source src="{{ entry.voice_note.url }}">
+                                        Your browser does not support audio playback.
+                                    </audio>
+                                </div>
+                            {% else %}
+                                <span class="muted">No voice note for this entry.</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% if entry.note_text %}
+                        <p class="expense-entry-note">{{ entry.note_text }}</p>
+                    {% endif %}
+                </article>
+            {% endfor %}
+        </div>
+    {% else %}
+        <p>No expense attachments have been uploaded for this estimate yet.</p>
+    {% endif %}
+</div>

@@ -1,0 +1,58 @@
+{
+  "expo": {
+    "name": "Xpenz",
+    "slug": "xpenz",
+    "scheme": "xpenz",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.caterbasepro.xpenz",
+      "buildNumber": "1.0.0",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Capture receipt photos for internal estimate expense tracking.",
+        "NSMicrophoneUsageDescription": "Record voice notes that explain each receipt expense.",
+        "NSPhotoLibraryUsageDescription": "Attach receipt images to internal estimate expenses."
+      }
+    },
+    "android": {
+      "package": "com.caterbasepro.xpenz",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#ffffff"
+      },
+      "edgeToEdgeEnabled": true,
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "CAMERA",
+        "RECORD_AUDIO"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-audio",
+      "expo-secure-store",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow Xpenz to access receipt photos for estimate expenses.",
+          "cameraPermission": "Allow Xpenz to use the camera to capture receipt images."
+        }
+      ],
+      "expo-asset"
+    ],
+    "extra": {
+      "defaultApiBaseUrl": "https://cater-base-pro.herokuapp.com"
+    }
+  }
+}

@@ -34,6 +34,8 @@ from .models import (
     PlasticwareOption,
     TastingAppointment,
     TrialRequest,
+    EstimateExpenseEntry,
+    XpenzMobileToken,
 )
 from .kiddush_menu import ensure_kiddush_menu, ensure_kiddush_planning_fee_line
 
@@ -346,6 +348,65 @@ class TastingAppointmentAdmin(admin.ModelAdmin):
             if not obj.client_phone:
                 obj.client_phone = obj.estimate.customer_phone
         super().save_model(request, obj, form, change)
+
+
+@admin.register(EstimateExpenseEntry)
+class EstimateExpenseEntryAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "estimate",
+        "created_by",
+        "expense_text",
+        "expense_amount",
+        "is_manual_only",
+        "voice_note_duration_seconds",
+        "created_at",
+    )
+    list_filter = ("estimate__caterer", "created_at")
+    search_fields = ("estimate__customer_name", "estimate__event_type", "note_text")
+    readonly_fields = (
+        "estimate",
+        "created_by",
+        "receipt_image",
+        "voice_note",
+        "voice_note_duration_seconds",
+        "expense_text",
+        "expense_amount",
+        "is_manual_only",
+        "note_text",
+        "created_at",
+        "updated_at",
+    )
+
+    def get_queryset(self, request):
+        qs = super().get_queryset(request).select_related("estimate", "estimate__caterer")
+        if request.user.is_superuser:
+            return qs
+        return qs.filter(estimate__caterer__owner=request.user)
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        if request.user.is_superuser:
+            return True
+        return obj and obj.estimate.caterer.owner == request.user
+
+    def has_delete_permission(self, request, obj=None):
+        if request.user.is_superuser:
+            return True
+        return obj and obj.estimate.caterer.owner == request.user
+
+
+@admin.register(XpenzMobileToken)
+class XpenzMobileTokenAdmin(admin.ModelAdmin):
+    list_display = ("user", "last_used_at", "updated_at", "created_at")
+    readonly_fields = ("user", "key", "created_at", "updated_at", "last_used_at")
+    search_fields = ("user__username", "user__email")
+    list_filter = ("created_at", "last_used_at")
+
+    def has_add_permission(self, request):
+        return False
 
 
 @admin.register(TrialRequest)
@@ -1819,6 +1880,11 @@ class EstimateAdmin(admin.ModelAdmin):
             title = _("Change %s")
         else:
             title = _("View %s")
+        expense_entries = []
+        if obj and obj.pk:
+            expense_entries = list(
+                obj.expense_entries.select_related("created_by").order_by("-created_at")
+            )
         context = {
             **self.admin_site.each_context(request),
             "title": title % self.opts.verbose_name,
@@ -1834,6 +1900,7 @@ class EstimateAdmin(admin.ModelAdmin):
             "preserved_filters": self.get_preserved_filters(request),
             "new_menu_item_ids": new_menu_item_ids,
             "preview_url_name": self._admin_url_name("print"),
+            "expense_entries": expense_entries,
         }
 
         if (

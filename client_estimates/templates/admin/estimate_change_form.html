@@ -193,6 +193,52 @@
             border-bottom: 1px solid #111827;
             height: 24px;
         }
+        .expense-info-panel {
+            background: #fff;
+            border: 1px solid #e4e4e7;
+            border-radius: 12px;
+            padding: 14px 16px;
+        }
+        .expense-entry-list {
+            display: grid;
+            gap: 12px;
+            margin-top: 12px;
+        }
+        .expense-entry {
+            border: 1px solid #e4e4e7;
+            border-radius: 10px;
+            padding: 12px;
+            background: #f8fafc;
+        }
+        .expense-entry h4 {
+            margin: 0 0 6px;
+            font-size: 14px;
+            letter-spacing: .03em;
+            text-transform: uppercase;
+            color: #1f2937;
+        }
+        .expense-entry-meta {
+            margin: 0 0 8px;
+            color: #4b5563;
+            font-size: 12px;
+        }
+        .expense-entry-grid {
+            display: grid;
+            gap: 8px;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        }
+        .expense-entry-grid img {
+            max-width: 100%;
+            border-radius: 8px;
+            border: 1px solid #d4d4d8;
+            background: #fff;
+        }
+        .expense-entry-note {
+            margin: 8px 0 0;
+            white-space: pre-wrap;
+            color: #111827;
+            font-size: 13px;
+        }
         @media (max-width: 640px) {
             .estimate-wizard__nav {
                 flex-direction: column;
@@ -259,6 +305,9 @@
         <button type="button" data-step="3">3. Decor & Rentals</button>
         <button type="button" data-step="4">4. Add-ons & Service</button>
         <button type="button" data-step="5">5. Summary & Totals</button>
+        {% if original %}
+            <button type="button" data-step="6">6. Additional Info</button>
+        {% endif %}
     </div>
 
     {% for fieldset in adminform %}
@@ -285,6 +334,12 @@
         {% include "admin/partials/estimate_addon_checklist.html" with form=adminform.form only %}
     </section>
 
+    {% if original %}
+        <section class="estimate-step-section" data-step="6">
+            {% include "admin/partials/estimate_additional_info.html" with expense_entries=expense_entries estimate=original only %}
+        </section>
+    {% endif %}
+
     <div class="estimate-wizard__nav-buttons">
         <button type="button" class="button" data-action="prev-step">Back</button>
         <button type="button" class="button button-primary" data-action="next-step">Next</button>
@@ -303,11 +358,15 @@
             const panels = wizard.querySelectorAll(".estimate-step-section");
             const prevBtn = wizard.querySelector('[data-action="prev-step"]');
             const nextBtn = wizard.querySelector('[data-action="next-step"]');
+            const maxStep = Math.max(
+                ...Array.from(navButtons).map(btn => Number(btn.dataset.step) || 1),
+                1
+            );
             let activeStep = 1;
 
             function updateButtons() {
                 if (prevBtn) prevBtn.disabled = activeStep === 1;
-                if (nextBtn) nextBtn.disabled = activeStep === 5;
+                if (nextBtn) nextBtn.disabled = activeStep === maxStep;
             }
 
             function showStep(step) {
@@ -333,7 +392,7 @@
 
             if (nextBtn) {
                 nextBtn.addEventListener("click", () => {
-                    if (activeStep < 5) showStep(activeStep + 1);
+                    if (activeStep < maxStep) showStep(activeStep + 1);
                 });
             }
 
