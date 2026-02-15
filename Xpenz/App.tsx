@@ -58,6 +58,8 @@ type ExpenseDraft = {
   localId: string;
   manualOnly: boolean;
   receiptUri?: string;
+  receiptFileName?: string;
+  receiptMimeType?: string;
   voiceUri?: string;
   voiceDurationSeconds?: number;
   expenseText: string;
@@ -67,7 +69,7 @@ type ExpenseDraft = {
 
 const TOKEN_KEY = 'xpenz_token';
 const BASE_URL_KEY = 'xpenz_base_url';
-const DEFAULT_BASE_URL = 'https://cater-base-pro.herokuapp.com';
+const DEFAULT_BASE_URL = 'https://www.caterbasepro.com';
 
 function normalizeBaseUrl(value: string) {
   return value.trim().replace(/\/+$/, '');
@@ -110,6 +112,7 @@ export default function App() {
   const [savedEntries, setSavedEntries] = useState<SavedEntry[]>([]);
 
   const [drafts, setDrafts] = useState<ExpenseDraft[]>([]);
+  const [activeRecordingDraftId, setActiveRecordingDraftId] = useState<string | null>(null);
   const [recordingPhotoUri, setRecordingPhotoUri] = useState<string | null>(null);
   const [recordingStartedAt, setRecordingStartedAt] = useState<number | null>(null);
 
@@ -302,9 +305,27 @@ export default function App() {
       return;
     }
 
+    const captured = pickerResult.assets[0];
+    const draftId = localId();
+    setDrafts((prev) => [
+      {
+        localId: draftId,
+        manualOnly: false,
+        receiptUri: captured.uri,
+        receiptFileName: captured.fileName || `receipt-${draftId}.jpg`,
+        receiptMimeType: captured.mimeType || 'image/jpeg',
+        expenseText: '',
+        expenseAmount: '',
+        noteText: '',
+      },
+      ...prev,
+    ]);
+
     const { granted } = await requestRecordingPermissionsAsync();
     if (!granted) {
       Alert.alert('Microphone permission needed', 'Allow microphone access to record voice notes.');
+      setActiveRecordingDraftId(null);
+      setRecordingPhotoUri(null);
       return;
     }
 
@@ -312,9 +333,12 @@ export default function App() {
       await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
       await recorder.prepareToRecordAsync();
       recorder.record();
-      setRecordingPhotoUri(pickerResult.assets[0].uri);
+      setActiveRecordingDraftId(draftId);
+      setRecordingPhotoUri(captured.uri);
       setRecordingStartedAt(Date.now());
     } catch (error) {
+      setActiveRecordingDraftId(null);
+      setRecordingPhotoUri(null);
       Alert.alert(
         'Recording error',
         error instanceof Error ? error.message : 'Unable to start recording.',
@@ -323,7 +347,7 @@ export default function App() {
   }, [isRecording, recorder]);
 
   const stopRecordingAndCreateDraft = useCallback(async () => {
-    if (!recordingPhotoUri) {
+    if (!recordingPhotoUri || !activeRecordingDraftId) {
       return;
     }
 
@@ -331,10 +355,8 @@ export default function App() {
       await recorder.stop();
       await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true });
 
-      const voiceUri = recorder.uri;
-      if (!voiceUri) {
-        throw new Error('Recording finished but no audio file was found.');
-      }
+      const recorderStateNow = recorder.getStatus();
+      const voiceUri = recorder.uri || recorderStateNow.url || null;
 
       const fallbackSeconds = recordingStartedAt
         ? Math.max(1, Math.round((Date.now() - recordingStartedAt) / 1000))
@@ -342,28 +364,39 @@ export default function App() {
       const durationSeconds = recorderState.durationMillis
         ? Math.max(1, Math.round(recorderState.durationMillis / 1000))
         : fallbackSeconds;
-
-      const nextDraft: ExpenseDraft = {
-        localId: localId(),
-        manualOnly: false,
-        receiptUri: recordingPhotoUri,
-        voiceUri,
-        voiceDurationSeconds: durationSeconds,
-        expenseText: '',
-        expenseAmount: '',
-        noteText: '',
-      };
-
-      setDrafts((prev) => [nextDraft, ...prev]);
+      setDrafts((prev) =>
+        prev.map((draft) =>
+          draft.localId === activeRecordingDraftId
+            ? {
+                ...draft,
+                voiceUri: voiceUri || undefined,
+                voiceDurationSeconds: voiceUri ? durationSeconds : undefined,
+              }
+            : draft,
+        ),
+      );
+      if (!voiceUri) {
+        Alert.alert(
+          'Voice note missing',
+          'Receipt was added. Voice note was not attached, but you can still save this expense.',
+        );
+      }
       setRecordingPhotoUri(null);
       setRecordingStartedAt(null);
+      setActiveRecordingDraftId(null);
     } catch (error) {
       Alert.alert(
         'Stop recording error',
         error instanceof Error ? error.message : 'Unable to stop recording.',
       );
     }
-  }, [recorder, recorderState.durationMillis, recordingPhotoUri, recordingStartedAt]);
+  }, [
+    activeRecordingDraftId,
+    recorder,
+    recorderState.durationMillis,
+    recordingPhotoUri,
+    recordingStartedAt,
+  ]);
 
   const cancelRecording = useCallback(async () => {
     try {
@@ -376,6 +409,7 @@ export default function App() {
     await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true });
     setRecordingPhotoUri(null);
     setRecordingStartedAt(null);
+    setActiveRecordingDraftId(null);
   }, [isRecording, recorder]);
 
   const updateDraft = useCallback((id: string, patch: Partial<ExpenseDraft>) => {
@@ -401,8 +435,8 @@ export default function App() {
       for (let index = 0; index < drafts.length; index += 1) {
         const draft = drafts[index];
 
-        if (!draft.manualOnly && (!draft.receiptUri || !draft.voiceUri)) {
-          throw new Error(`Draft ${index + 1} is missing receipt or voice note.`);
+        if (!draft.manualOnly && !draft.receiptUri) {
+          throw new Error(`Draft ${index + 1} is missing a receipt image.`);
         }
 
         const formData = new FormData();
@@ -421,12 +455,14 @@ export default function App() {
         if (draft.voiceDurationSeconds) {
           formData.append('voice_note_duration_seconds', String(draft.voiceDurationSeconds));
         }
-        if (!draft.manualOnly && draft.receiptUri && draft.voiceUri) {
+        if (!draft.manualOnly && draft.receiptUri) {
           formData.append('receipt_image', {
             uri: draft.receiptUri,
-            name: `receipt-${draft.localId}.jpg`,
-            type: 'image/jpeg',
+            name: draft.receiptFileName || `receipt-${draft.localId}.jpg`,
+            type: draft.receiptMimeType || 'image/jpeg',
           } as unknown as Blob);
+        }
+        if (!draft.manualOnly && draft.voiceUri) {
           formData.append('voice_note', {
             uri: draft.voiceUri,
             name: `voice-${draft.localId}.m4a`,
@@ -500,7 +536,7 @@ export default function App() {
               onChangeText={setApiBaseUrl}
               autoCapitalize="none"
               autoCorrect={false}
-              placeholder="https://cater-base-pro.herokuapp.com"
+              placeholder="https://www.caterbasepro.com"
             />
 
             <Text style={styles.label}>Username or Email</Text>
@@ -651,6 +687,9 @@ export default function App() {
               {!draft.manualOnly && draft.voiceDurationSeconds ? (
                 <Text style={styles.subtleText}>Voice note: {draft.voiceDurationSeconds}s</Text>
               ) : null}
+              {!draft.manualOnly && !draft.voiceUri ? (
+                <Text style={styles.subtleText}>Voice note not attached yet.</Text>
+              ) : null}
 
               <TextInput
                 style={styles.input}
@@ -658,12 +697,13 @@ export default function App() {
                 onChangeText={(value) => updateDraft(draft.localId, { expenseText: value })}
                 placeholder="Expense line (e.g. Produce market)"
               />
+              <Text style={styles.labelInline}>Total amount</Text>
               <TextInput
                 style={styles.input}
                 value={draft.expenseAmount}
                 onChangeText={(value) => updateDraft(draft.localId, { expenseAmount: value })}
                 keyboardType="decimal-pad"
-                placeholder="Expense amount"
+                placeholder="Total amount"
               />
               <TextInput
                 style={[styles.input, styles.noteInput]}
@@ -790,6 +830,12 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
     color: '#1f2937',
+  },
+  labelInline: {
+    marginTop: 2,
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#334155',
   },
   input: {
     borderWidth: 1,

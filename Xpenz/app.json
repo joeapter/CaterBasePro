@@ -52,7 +52,7 @@
       "expo-asset"
     ],
     "extra": {
-      "defaultApiBaseUrl": "https://cater-base-pro.herokuapp.com"
+      "defaultApiBaseUrl": "https://www.caterbasepro.com"
     }
   }
 }

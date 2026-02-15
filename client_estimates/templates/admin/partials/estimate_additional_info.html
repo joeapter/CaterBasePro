@@ -3,6 +3,13 @@
     <p class="help">
         Uploaded from the Xpenz mobile app. These files are internal only and are not included in printed estimates.
     </p>
+    <p class="expense-entry-note">
+        <strong>Total expenses for this job:</strong>
+        {{ estimate.currency }} {{ expense_total|floatformat:2 }}
+        {% if expense_entries %}
+            • {{ expense_entries|length }} entr{{ expense_entries|length|pluralize:"y,ies" }}
+        {% endif %}
+    </p>
 
     {% if expense_entries %}
         <div class="expense-entry-list">
@@ -62,6 +69,17 @@
                     {% if entry.note_text %}
                         <p class="expense-entry-note">{{ entry.note_text }}</p>
                     {% endif %}
+                    <div class="expense-entry-actions">
+                        {% url expense_delete_url_name estimate.pk entry.pk as delete_url %}
+                        <button
+                            type="button"
+                            class="button expense-delete-btn"
+                            data-expense-delete
+                            data-url="{{ delete_url }}"
+                        >
+                            Delete expense
+                        </button>
+                    </div>
                 </article>
             {% endfor %}
         </div>

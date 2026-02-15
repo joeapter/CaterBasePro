@@ -6,7 +6,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
 from django.urls import reverse
 
-from .models import CatererAccount, Estimate
+from .models import CatererAccount, Estimate, EstimateExpenseEntry
 
 
 class XpenzApiTests(TestCase):
@@ -105,7 +105,7 @@ class XpenzApiTests(TestCase):
         self.assertGreaterEqual(len(ids), 2)
         self.assertEqual(ids[0], self.newer_estimate.id)
 
-    def test_expense_upload_requires_both_files(self):
+    def test_expense_upload_requires_receipt_file(self):
         token = self._login_and_get_token()
         response = self.client.post(
             reverse("xpenz_estimate_expenses", args=[self.estimate.id]),
@@ -149,6 +149,28 @@ class XpenzApiTests(TestCase):
         self.assertEqual(entries[0]["note_text"], "Taxi to market")
         self.assertEqual(entries[0]["expense_text"], "")
 
+    def test_expense_upload_allows_receipt_without_voice(self):
+        token = self._login_and_get_token()
+        receipt = SimpleUploadedFile(
+            "receipt-only.jpg",
+            b"fake-jpg-content",
+            content_type="image/jpeg",
+        )
+        upload_response = self.client.post(
+            reverse("xpenz_estimate_expenses", args=[self.estimate.id]),
+            data={
+                "receipt_image": receipt,
+                "note_text": "Receipt only",
+                "expense_amount": "14.00",
+            },
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        self.assertEqual(upload_response.status_code, 201)
+        payload = upload_response.json()
+        self.assertTrue(payload["ok"])
+        self.assertTrue(payload["entry"]["has_receipt_image"])
+        self.assertFalse(payload["entry"]["has_voice_note"])
+
     def test_manual_expense_without_files(self):
         token = self._login_and_get_token()
         response = self.client.post(
@@ -167,3 +189,43 @@ class XpenzApiTests(TestCase):
         self.assertTrue(payload["entry"]["is_manual_only"])
         self.assertEqual(payload["entry"]["expense_text"], "Parking")
         self.assertEqual(payload["entry"]["expense_amount"], "28.50")
+
+    def test_admin_can_delete_expense_entry_for_owned_estimate(self):
+        entry = EstimateExpenseEntry.objects.create(
+            estimate=self.estimate,
+            created_by=self.user,
+            receipt_image=SimpleUploadedFile(
+                "receipt-delete.jpg",
+                b"fake-jpg-content",
+                content_type="image/jpeg",
+            ),
+            expense_text="Delete me",
+            expense_amount=Decimal("9.99"),
+        )
+        self.client.force_login(self.user)
+        response = self.client.post(
+            reverse("admin:client_estimates_estimate_expense_delete", args=[self.estimate.id, entry.id]),
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["ok"])
+        self.assertFalse(EstimateExpenseEntry.objects.filter(pk=entry.pk).exists())
+
+    def test_admin_cannot_delete_expense_entry_for_other_owner(self):
+        entry = EstimateExpenseEntry.objects.create(
+            estimate=self.estimate,
+            created_by=self.user,
+            receipt_image=SimpleUploadedFile(
+                "receipt-denied.jpg",
+                b"fake-jpg-content",
+                content_type="image/jpeg",
+            ),
+            expense_text="Should stay",
+            expense_amount=Decimal("11.00"),
+        )
+        self.client.force_login(self.other_user)
+        response = self.client.post(
+            reverse("admin:client_estimates_estimate_expense_delete", args=[self.estimate.id, entry.id]),
+        )
+        self.assertEqual(response.status_code, 403)
+        self.assertTrue(EstimateExpenseEntry.objects.filter(pk=entry.pk).exists())

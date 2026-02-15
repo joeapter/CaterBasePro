@@ -17,7 +17,7 @@ Internal expense capture app for CaterBase Pro estimates.
 2. `npm install`
 3. `npm run start`
 4. Open in Expo Go on iPhone and log in with your CaterBase admin user
-5. API base URL default is `https://cater-base-pro.herokuapp.com` (editable on login screen)
+5. API base URL default is `https://www.caterbasepro.com` (editable on login screen)
 
 ## Backend Requirements
 

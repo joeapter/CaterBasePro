@@ -11,8 +11,8 @@ from django.core.exceptions import PermissionDenied
 from django.contrib.admin.exceptions import DisallowedModelAdminToField
 from django.db.models import F
 from django.forms.formsets import all_valid
-from django.http import HttpResponse, HttpResponseRedirect
-from django.shortcuts import redirect, render
+from django.http import HttpResponse, HttpResponseRedirect, JsonResponse
+from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import path, reverse
 from django.utils.html import format_html
 from django.utils.translation import gettext as _
@@ -1225,6 +1225,11 @@ class EstimateAdmin(admin.ModelAdmin):
                 self.admin_site.admin_view(self.workflow_bulk_view),
                 name=self._admin_url_name("workflow_bulk"),
             ),
+            path(
+                "<int:estimate_id>/expenses/<int:entry_id>/delete/",
+                self.admin_site.admin_view(self.delete_expense_entry),
+                name=self._admin_url_name("expense_delete"),
+            ),
         ]
         return custom + urls
 
@@ -1255,6 +1260,23 @@ class EstimateAdmin(admin.ModelAdmin):
         )
 
     schedule_button.short_description = "Schedule"
+
+    def delete_expense_entry(self, request, estimate_id, entry_id):
+        estimate = self._get_estimate(estimate_id)
+        if not request.user.is_superuser and estimate.caterer.owner != request.user:
+            raise PermissionDenied("You do not have access to this estimate.")
+
+        if request.method != "POST":
+            return JsonResponse({"ok": False, "error": "Method not allowed."}, status=405)
+
+        entry = get_object_or_404(
+            EstimateExpenseEntry,
+            pk=entry_id,
+            estimate=estimate,
+        )
+        entry.delete()
+        self.message_user(request, "Expense entry removed.", level=messages.SUCCESS)
+        return JsonResponse({"ok": True})
 
     def print_estimate(self, request, estimate_id):
         estimate = self._get_estimate(estimate_id)
@@ -1881,10 +1903,15 @@ class EstimateAdmin(admin.ModelAdmin):
         else:
             title = _("View %s")
         expense_entries = []
+        expense_total = Decimal("0.00")
         if obj and obj.pk:
             expense_entries = list(
                 obj.expense_entries.select_related("created_by").order_by("-created_at")
             )
+            for entry in expense_entries:
+                if entry.expense_amount is not None:
+                    expense_total += entry.expense_amount
+            expense_total = expense_total.quantize(Decimal("0.01"))
         context = {
             **self.admin_site.each_context(request),
             "title": title % self.opts.verbose_name,
@@ -1901,6 +1928,8 @@ class EstimateAdmin(admin.ModelAdmin):
             "new_menu_item_ids": new_menu_item_ids,
             "preview_url_name": self._admin_url_name("print"),
             "expense_entries": expense_entries,
+            "expense_total": expense_total,
+            "expense_delete_url_name": f"admin:{self._admin_url_name('expense_delete')}",
         }
 
         if (

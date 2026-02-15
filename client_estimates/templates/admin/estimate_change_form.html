@@ -239,6 +239,16 @@
             color: #111827;
             font-size: 13px;
         }
+        .expense-entry-actions {
+            display: flex;
+            justify-content: flex-end;
+            margin-top: 10px;
+        }
+        .expense-delete-btn {
+            border-color: #fecaca !important;
+            background: #fff1f2 !important;
+            color: #b91c1c !important;
+        }
         @media (max-width: 640px) {
             .estimate-wizard__nav {
                 flex-direction: column;
@@ -336,7 +346,7 @@
 
     {% if original %}
         <section class="estimate-step-section" data-step="6">
-            {% include "admin/partials/estimate_additional_info.html" with expense_entries=expense_entries estimate=original only %}
+            {% include "admin/partials/estimate_additional_info.html" with expense_entries=expense_entries expense_total=expense_total expense_delete_url_name=expense_delete_url_name estimate=original only %}
         </section>
     {% endif %}
 
@@ -837,6 +847,40 @@
                 toggle.addEventListener("click", (e) => {
                     e.preventDefault();
                     showKids();
+                });
+            }
+
+            const expenseDeleteButtons = wizard.querySelectorAll("[data-expense-delete]");
+            if (expenseDeleteButtons.length) {
+                const csrfToken = document.querySelector('input[name="csrfmiddlewaretoken"]')?.value || "";
+                expenseDeleteButtons.forEach(btn => {
+                    btn.addEventListener("click", async () => {
+                        const url = btn.dataset.url;
+                        if (!url) return;
+                        const confirmed = window.confirm("Delete this expense entry?");
+                        if (!confirmed) return;
+                        const originalText = btn.textContent;
+                        btn.disabled = true;
+                        btn.textContent = "Deleting...";
+                        try {
+                            const response = await fetch(url, {
+                                method: "POST",
+                                headers: {
+                                    "X-CSRFToken": csrfToken,
+                                    "X-Requested-With": "XMLHttpRequest",
+                                },
+                            });
+                            const payload = await response.json().catch(() => ({}));
+                            if (!response.ok || payload.ok === false) {
+                                throw new Error(payload.error || "Unable to delete expense.");
+                            }
+                            window.location.reload();
+                        } catch (err) {
+                            window.alert(err instanceof Error ? err.message : "Unable to delete expense.");
+                            btn.disabled = false;
+                            btn.textContent = originalText || "Delete expense";
+                        }
+                    });
                 });
             }
         })();

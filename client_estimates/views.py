@@ -428,8 +428,6 @@ def xpenz_estimate_expenses(request, estimate_id):
     if not is_manual_only:
         if not receipt_image:
             return _json_error("`receipt_image` file is required.", status=400)
-        if not voice_note:
-            return _json_error("`voice_note` file is required.", status=400)
 
     raw_duration = (
         request.POST.get("voice_note_duration_seconds")
