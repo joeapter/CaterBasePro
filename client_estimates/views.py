@@ -1,11 +1,13 @@
 import logging
 import json
 from decimal import Decimal, InvalidOperation
+from urllib.parse import quote_plus
 
 from django import forms
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth import authenticate, get_user_model, login
+from django.core import signing
 from django.db.models import Count
 from django.db.models.functions import Coalesce
 from django.core.mail import send_mail
@@ -20,14 +22,24 @@ import stripe
 from .forms import ClientInquiryForm
 from .models import (
     CatererAccount,
+    CatererUserAccess,
     Estimate,
     EstimateExpenseEntry,
+    EstimateStaffTimeEntry,
+    STAFF_ROLE_CHOICES,
     TrialRequest,
     XpenzMobileToken,
 )
 
 logger = logging.getLogger(__name__)
 User = get_user_model()
+
+STAFF_ROLE_RATES = {
+    "KITCHEN": Decimal("50.00"),
+    "WAIT": Decimal("40.00"),
+    "MANAGEMENT": Decimal("60.00"),
+}
+STAFF_PUNCH_TOKEN_SALT = "xpenz-staff-punch"
 
 
 class TrialSignupForm(forms.Form):
@@ -254,10 +266,70 @@ def _xpenz_authenticated_user(request):
     return token.user
 
 
-def _can_access_estimate(user, estimate):
+def _mobile_access_map_for_user(user):
     if user.is_superuser:
-        return True
-    return estimate.caterer.owner_id == user.id
+        return {"__superuser__": True}
+
+    owner_caterer_ids = set(
+        CatererAccount.objects.filter(owner=user).values_list("id", flat=True)
+    )
+    access_rows = list(
+        CatererUserAccess.objects.select_related("caterer")
+        .filter(
+            user=user,
+            is_active=True,
+            can_access_mobile_app=True,
+        )
+    )
+
+    access_map = {}
+    for caterer_id in owner_caterer_ids:
+        access_map[caterer_id] = {
+            "is_owner": True,
+            "can_access_mobile_app": True,
+            "can_add_expenses": True,
+            "can_view_job_billing": True,
+            "can_manage_staff": True,
+        }
+
+    for row in access_rows:
+        if row.caterer_id in access_map and access_map[row.caterer_id]["is_owner"]:
+            continue
+        access_map[row.caterer_id] = {
+            "is_owner": False,
+            "can_access_mobile_app": bool(row.can_access_mobile_app),
+            "can_add_expenses": bool(row.can_add_expenses),
+            "can_view_job_billing": bool(row.can_view_job_billing),
+            "can_manage_staff": bool(row.can_manage_staff),
+        }
+    return access_map
+
+
+def _mobile_access_for_caterer(user, caterer_id, access_map=None):
+    if user.is_superuser:
+        return {
+            "is_owner": True,
+            "can_access_mobile_app": True,
+            "can_add_expenses": True,
+            "can_view_job_billing": True,
+            "can_manage_staff": True,
+        }
+    access_map = access_map or _mobile_access_map_for_user(user)
+    return access_map.get(caterer_id)
+
+
+def _can_access_estimate(user, estimate, access_map=None):
+    return bool(_mobile_access_for_caterer(user, estimate.caterer_id, access_map=access_map))
+
+
+def _can_add_expenses(user, estimate, access_map=None):
+    access = _mobile_access_for_caterer(user, estimate.caterer_id, access_map=access_map)
+    return bool(access and access.get("can_add_expenses"))
+
+
+def _can_manage_staff(user, estimate, access_map=None):
+    access = _mobile_access_for_caterer(user, estimate.caterer_id, access_map=access_map)
+    return bool(access and access.get("can_manage_staff"))
 
 
 def _to_bool(value):
@@ -285,6 +357,64 @@ def _serialize_expense_entry(request, entry):
         "has_receipt_image": bool(entry.receipt_image),
         "has_voice_note": bool(entry.voice_note),
     }
+
+
+def _serialize_staff_entry(entry):
+    return {
+        "id": entry.id,
+        "role": entry.role,
+        "role_label": entry.get_role_display(),
+        "worker_first_name": entry.worker_first_name,
+        "hourly_rate": str(entry.hourly_rate),
+        "punched_in_at": entry.punched_in_at.isoformat() if entry.punched_in_at else "",
+        "punched_out_at": entry.punched_out_at.isoformat() if entry.punched_out_at else "",
+        "total_hours": str(entry.total_hours or Decimal("0.00")),
+        "total_cost": str(entry.total_cost or Decimal("0.00")),
+        "applied_to_expenses": bool(entry.applied_to_expenses),
+        "expense_entry_id": entry.expense_entry_id,
+    }
+
+
+def _staff_punch_token_payload(estimate_id, role):
+    return {
+        "estimate_id": int(estimate_id),
+        "role": str(role),
+    }
+
+
+def _build_staff_punch_token(estimate_id, role):
+    return signing.dumps(
+        _staff_punch_token_payload(estimate_id, role),
+        salt=STAFF_PUNCH_TOKEN_SALT,
+    )
+
+
+def _load_staff_punch_token(token):
+    return signing.loads(
+        token,
+        salt=STAFF_PUNCH_TOKEN_SALT,
+        max_age=60 * 60 * 24 * 120,
+    )
+
+
+def _staff_role_rows_for_estimate(request, estimate):
+    rows = []
+    for role_code, role_label in STAFF_ROLE_CHOICES:
+        token = _build_staff_punch_token(estimate.id, role_code)
+        punch_url = request.build_absolute_uri(
+            reverse("xpenz_staff_punch", kwargs={"token": token})
+        )
+        qr_data = quote_plus(punch_url)
+        rows.append(
+            {
+                "code": role_code,
+                "label": role_label,
+                "hourly_rate": str(STAFF_ROLE_RATES.get(role_code, Decimal("0.00"))),
+                "punch_url": punch_url,
+                "qr_image_url": f"https://api.qrserver.com/v1/create-qr-code/?size=360x360&data={qr_data}",
+            }
+        )
+    return rows
 
 
 @csrf_exempt
@@ -328,9 +458,9 @@ def xpenz_mobile_login(request):
     if not user or not user.is_active:
         return _json_error("Invalid credentials.", status=401)
 
-    has_caterer = CatererAccount.objects.filter(owner=user).exists()
-    if not user.is_superuser and not has_caterer:
-        return _json_error("No caterer account linked to this user.", status=403)
+    access_map = _mobile_access_map_for_user(user)
+    if not user.is_superuser and not access_map:
+        return _json_error("No mobile app access is configured for this user.", status=403)
 
     token, _created = XpenzMobileToken.objects.get_or_create(user=user)
     token.rotate(save=False)
@@ -358,6 +488,10 @@ def xpenz_estimate_list(request):
     if request.method != "GET":
         return _json_error("Method not allowed.", status=405)
 
+    access_map = _mobile_access_map_for_user(user)
+    if not user.is_superuser and not access_map:
+        return _json_error("No mobile app access is configured for this user.", status=403)
+
     estimates = (
         Estimate.objects.select_related("caterer")
         .annotate(
@@ -367,11 +501,19 @@ def xpenz_estimate_list(request):
         .order_by("-estimate_number_sort", "-created_at")
     )
     if not user.is_superuser:
-        estimates = estimates.filter(caterer__owner=user)
+        estimates = estimates.filter(caterer_id__in=list(access_map.keys()))
 
     results = []
     for estimate in estimates:
         event_type = (estimate.event_type or "Event").strip()
+        access = _mobile_access_for_caterer(user, estimate.caterer_id, access_map=access_map)
+        can_view_billing = bool(access and access.get("can_view_job_billing"))
+        can_add_expenses = bool(access and access.get("can_add_expenses"))
+        can_manage_staff = bool(access and access.get("can_manage_staff"))
+        if user.is_superuser:
+            can_view_billing = True
+            can_add_expenses = True
+            can_manage_staff = True
         results.append(
             {
                 "id": estimate.id,
@@ -383,8 +525,11 @@ def xpenz_estimate_list(request):
                 "event_location": estimate.event_location,
                 "caterer_name": estimate.caterer.name,
                 "currency": estimate.currency,
-                "grand_total": str(estimate.grand_total),
+                "grand_total": str(estimate.grand_total) if can_view_billing else "",
                 "expense_count": estimate.expense_count,
+                "can_view_billing": can_view_billing,
+                "can_add_expenses": can_add_expenses,
+                "can_manage_staff": can_manage_staff,
             }
         )
 
@@ -397,11 +542,15 @@ def xpenz_estimate_expenses(request, estimate_id):
     if not user:
         return _json_error("Authentication required.", status=401)
 
+    access_map = _mobile_access_map_for_user(user)
+    if not user.is_superuser and not access_map:
+        return _json_error("No mobile app access is configured for this user.", status=403)
+
     estimate = get_object_or_404(
         Estimate.objects.select_related("caterer", "caterer__owner"),
         pk=estimate_id,
     )
-    if not _can_access_estimate(user, estimate):
+    if not _can_access_estimate(user, estimate, access_map=access_map):
         return _json_error("You do not have access to this estimate.", status=403)
 
     if request.method == "GET":
@@ -418,6 +567,8 @@ def xpenz_estimate_expenses(request, estimate_id):
 
     if request.method != "POST":
         return _json_error("Method not allowed.", status=405)
+    if not _can_add_expenses(user, estimate, access_map=access_map):
+        return _json_error("You do not have permission to add expenses.", status=403)
 
     receipt_image = request.FILES.get("receipt_image")
     voice_note = request.FILES.get("voice_note")
@@ -481,3 +632,237 @@ def xpenz_estimate_expenses(request, estimate_id):
         },
         status=201,
     )
+
+
+@csrf_exempt
+def xpenz_staff_summary(request, estimate_id):
+    user = _xpenz_authenticated_user(request)
+    if not user:
+        return _json_error("Authentication required.", status=401)
+    if request.method != "GET":
+        return _json_error("Method not allowed.", status=405)
+
+    access_map = _mobile_access_map_for_user(user)
+    if not user.is_superuser and not access_map:
+        return _json_error("No mobile app access is configured for this user.", status=403)
+
+    estimate = get_object_or_404(
+        Estimate.objects.select_related("caterer", "caterer__owner"),
+        pk=estimate_id,
+    )
+    if not _can_access_estimate(user, estimate, access_map=access_map):
+        return _json_error("You do not have access to this estimate.", status=403)
+    if not _can_manage_staff(user, estimate, access_map=access_map):
+        return _json_error("You do not have permission to manage staff.", status=403)
+
+    entries = list(
+        estimate.staff_time_entries.select_related("expense_entry").order_by("-punched_in_at")
+    )
+    total_staff_cost = sum(
+        (entry.total_cost or Decimal("0.00") for entry in entries),
+        Decimal("0.00"),
+    )
+    unapplied_staff_cost = sum(
+        (
+            entry.total_cost or Decimal("0.00")
+            for entry in entries
+            if entry.punched_out_at and not entry.applied_to_expenses
+        ),
+        Decimal("0.00"),
+    )
+
+    return JsonResponse(
+        {
+            "ok": True,
+            "estimate_id": estimate.id,
+            "roles": _staff_role_rows_for_estimate(request, estimate),
+            "entries": [_serialize_staff_entry(entry) for entry in entries],
+            "total_staff_cost": str(total_staff_cost.quantize(Decimal("0.01"))),
+            "unapplied_staff_cost": str(unapplied_staff_cost.quantize(Decimal("0.01"))),
+        }
+    )
+
+
+@csrf_exempt
+def xpenz_apply_staff_costs_to_expense(request, estimate_id):
+    user = _xpenz_authenticated_user(request)
+    if not user:
+        return _json_error("Authentication required.", status=401)
+    if request.method != "POST":
+        return _json_error("Method not allowed.", status=405)
+
+    access_map = _mobile_access_map_for_user(user)
+    if not user.is_superuser and not access_map:
+        return _json_error("No mobile app access is configured for this user.", status=403)
+
+    estimate = get_object_or_404(
+        Estimate.objects.select_related("caterer", "caterer__owner"),
+        pk=estimate_id,
+    )
+    if not _can_access_estimate(user, estimate, access_map=access_map):
+        return _json_error("You do not have access to this estimate.", status=403)
+    if not _can_manage_staff(user, estimate, access_map=access_map):
+        return _json_error("You do not have permission to manage staff.", status=403)
+    if not _can_add_expenses(user, estimate, access_map=access_map):
+        return _json_error("You do not have permission to add expenses.", status=403)
+
+    pending_entries = list(
+        estimate.staff_time_entries.filter(
+            punched_out_at__isnull=False,
+            applied_to_expenses=False,
+        ).order_by("punched_in_at")
+    )
+    if not pending_entries:
+        return _json_error("No unapplied staff costs found for this estimate.", status=400)
+
+    total = sum(
+        (entry.total_cost or Decimal("0.00") for entry in pending_entries),
+        Decimal("0.00"),
+    )
+    total = total.quantize(Decimal("0.01"))
+    if total <= Decimal("0.00"):
+        return _json_error("Staff cost total is zero.", status=400)
+
+    role_counts = {}
+    for entry in pending_entries:
+        role_counts[entry.role] = role_counts.get(entry.role, 0) + 1
+    role_bits = []
+    role_labels = dict(STAFF_ROLE_CHOICES)
+    for role_code, count in role_counts.items():
+        role_bits.append(f"{role_labels.get(role_code, role_code)} x{count}")
+
+    expense_entry = EstimateExpenseEntry.objects.create(
+        estimate=estimate,
+        created_by=user,
+        is_manual_only=True,
+        expense_text="Staff payroll cost",
+        expense_amount=total,
+        note_text="Auto-added from staff punch records. " + ", ".join(role_bits),
+    )
+
+    EstimateStaffTimeEntry.objects.filter(id__in=[entry.id for entry in pending_entries]).update(
+        applied_to_expenses=True,
+        expense_entry=expense_entry,
+    )
+
+    return JsonResponse(
+        {
+            "ok": True,
+            "estimate_id": estimate.id,
+            "expense_entry_id": expense_entry.id,
+            "applied_total": str(total),
+            "entry_count": len(pending_entries),
+        }
+    )
+
+
+@csrf_exempt
+def xpenz_staff_punch(request, token):
+    try:
+        payload = _load_staff_punch_token(token)
+    except signing.SignatureExpired:
+        return render(
+            request,
+            "public/xpenz_staff_punch.html",
+            {
+                "invalid_token": True,
+                "error_message": "This punch link has expired.",
+            },
+            status=400,
+        )
+    except signing.BadSignature:
+        return render(
+            request,
+            "public/xpenz_staff_punch.html",
+            {
+                "invalid_token": True,
+                "error_message": "This punch link is invalid or has expired.",
+            },
+            status=400,
+        )
+
+    estimate = get_object_or_404(
+        Estimate.objects.select_related("caterer"),
+        pk=payload.get("estimate_id"),
+    )
+    role_code = payload.get("role")
+    role_labels = dict(STAFF_ROLE_CHOICES)
+    if role_code not in role_labels:
+        return render(
+            request,
+            "public/xpenz_staff_punch.html",
+            {
+                "invalid_token": True,
+                "error_message": "Unsupported staff role.",
+            },
+            status=400,
+        )
+
+    hourly_rate = STAFF_ROLE_RATES.get(role_code, Decimal("0.00"))
+    active_entries = list(
+        estimate.staff_time_entries.filter(role=role_code, punched_out_at__isnull=True).order_by("punched_in_at")
+    )
+    recent_entries = list(
+        estimate.staff_time_entries.filter(role=role_code, punched_out_at__isnull=False)
+        .order_by("-punched_out_at")[:20]
+    )
+
+    success_message = ""
+    error_message = ""
+
+    if request.method == "POST":
+        action = (request.POST.get("action") or "").strip()
+        if action == "punch_in":
+            first_name = (request.POST.get("first_name") or "").strip()
+            if not first_name:
+                error_message = "Enter a first name."
+            else:
+                EstimateStaffTimeEntry.objects.create(
+                    estimate=estimate,
+                    role=role_code,
+                    worker_first_name=first_name,
+                    hourly_rate=hourly_rate,
+                    punched_in_at=timezone.now(),
+                )
+                success_message = f"{first_name} punched in."
+        elif action == "punch_out":
+            entry_id = (request.POST.get("active_entry_id") or "").strip()
+            if not entry_id.isdigit():
+                error_message = "Select a worker to punch out."
+            else:
+                entry = (
+                    estimate.staff_time_entries.filter(
+                        id=int(entry_id),
+                        role=role_code,
+                        punched_out_at__isnull=True,
+                    ).first()
+                )
+                if not entry:
+                    error_message = "Selected worker is no longer active."
+                else:
+                    entry.punch_out()
+                    entry.save(update_fields=["punched_out_at", "total_hours", "total_cost", "updated_at"])
+                    success_message = f"{entry.worker_first_name} punched out."
+        else:
+            error_message = "Unsupported action."
+
+        active_entries = list(
+            estimate.staff_time_entries.filter(role=role_code, punched_out_at__isnull=True).order_by("punched_in_at")
+        )
+        recent_entries = list(
+            estimate.staff_time_entries.filter(role=role_code, punched_out_at__isnull=False)
+            .order_by("-punched_out_at")[:20]
+        )
+
+    context = {
+        "invalid_token": False,
+        "estimate": estimate,
+        "role_code": role_code,
+        "role_label": role_labels[role_code],
+        "hourly_rate": hourly_rate,
+        "success_message": success_message,
+        "error_message": error_message,
+        "active_entries": active_entries,
+        "recent_entries": recent_entries,
+    }
+    return render(request, "public/xpenz_staff_punch.html", context)

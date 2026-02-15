@@ -28,7 +28,10 @@ from client_estimates.views import (
     trial_expired,
     xpenz_estimate_expenses,
     xpenz_estimate_list,
+    xpenz_apply_staff_costs_to_expense,
     xpenz_mobile_login,
+    xpenz_staff_punch,
+    xpenz_staff_summary,
 )
 
 urlpatterns = [
@@ -41,5 +44,8 @@ urlpatterns = [
     path('api/xpenz/login/', xpenz_mobile_login, name='xpenz_mobile_login'),
     path('api/xpenz/estimates/', xpenz_estimate_list, name='xpenz_estimate_list'),
     path('api/xpenz/estimates/<int:estimate_id>/expenses/', xpenz_estimate_expenses, name='xpenz_estimate_expenses'),
+    path('api/xpenz/estimates/<int:estimate_id>/staff/', xpenz_staff_summary, name='xpenz_staff_summary'),
+    path('api/xpenz/estimates/<int:estimate_id>/staff/apply-expense/', xpenz_apply_staff_costs_to_expense, name='xpenz_apply_staff_costs_to_expense'),
+    path('xpenz/punch/<str:token>/', xpenz_staff_punch, name='xpenz_staff_punch'),
     path('admin/', admin.site.urls),
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

@@ -15,6 +15,7 @@ import {
   Image,
   KeyboardAvoidingView,
   Linking,
+  Modal,
   Platform,
   Pressable,
   SafeAreaView,
@@ -37,6 +38,9 @@ type EstimateRow = {
   currency: string;
   grand_total: string;
   expense_count: number;
+  can_view_billing: boolean;
+  can_add_expenses: boolean;
+  can_manage_staff: boolean;
 };
 
 type SavedEntry = {
@@ -67,6 +71,28 @@ type ExpenseDraft = {
   noteText: string;
 };
 
+type StaffRoleOption = {
+  code: string;
+  label: string;
+  hourly_rate: string;
+  punch_url: string;
+  qr_image_url: string;
+};
+
+type StaffEntry = {
+  id: number;
+  role: string;
+  role_label: string;
+  worker_first_name: string;
+  hourly_rate: string;
+  punched_in_at: string;
+  punched_out_at: string;
+  total_hours: string;
+  total_cost: string;
+  applied_to_expenses: boolean;
+  expense_entry_id: number | null;
+};
+
 const TOKEN_KEY = 'xpenz_token';
 const BASE_URL_KEY = 'xpenz_base_url';
 const DEFAULT_BASE_URL = 'https://www.caterbasepro.com';
@@ -93,6 +119,13 @@ function formatDate(iso: string) {
   return date.toLocaleDateString();
 }
 
+function formatDateTime(iso: string) {
+  if (!iso) return '-';
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  return `${date.toLocaleDateString()} ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+}
+
 function formatShekel(amount: string) {
   return `${SHEKEL_SYMBOL}${amount}`;
 }
@@ -114,7 +147,15 @@ export default function App() {
   const [token, setToken] = useState('');
   const [estimates, setEstimates] = useState<EstimateRow[]>([]);
   const [selectedEstimate, setSelectedEstimate] = useState<EstimateRow | null>(null);
+  const [selectedJobTab, setSelectedJobTab] = useState<'expenses' | 'staff'>('expenses');
   const [savedEntries, setSavedEntries] = useState<SavedEntry[]>([]);
+  const [staffRoleOptions, setStaffRoleOptions] = useState<StaffRoleOption[]>([]);
+  const [staffEntries, setStaffEntries] = useState<StaffEntry[]>([]);
+  const [staffTotalCost, setStaffTotalCost] = useState('0.00');
+  const [unappliedStaffCost, setUnappliedStaffCost] = useState('0.00');
+  const [loadingStaff, setLoadingStaff] = useState(false);
+  const [applyingStaffCosts, setApplyingStaffCosts] = useState(false);
+  const [activeQrRole, setActiveQrRole] = useState<StaffRoleOption | null>(null);
 
   const [drafts, setDrafts] = useState<ExpenseDraft[]>([]);
   const [activeRecordingDraftId, setActiveRecordingDraftId] = useState<string | null>(null);
@@ -180,6 +221,27 @@ export default function App() {
         setSavedEntries(Array.isArray(payload.entries) ? payload.entries : []);
       } finally {
         setLoadingEntries(false);
+      }
+    },
+    [authFetchJson],
+  );
+
+  const loadStaffSummary = useCallback(
+    async (estimateId: number, overrideToken?: string, overrideBaseUrl?: string) => {
+      setLoadingStaff(true);
+      try {
+        const payload = await authFetchJson(
+          `/api/xpenz/estimates/${estimateId}/staff/`,
+          { method: 'GET' },
+          overrideToken,
+          overrideBaseUrl,
+        );
+        setStaffRoleOptions(Array.isArray(payload.roles) ? payload.roles : []);
+        setStaffEntries(Array.isArray(payload.entries) ? payload.entries : []);
+        setStaffTotalCost(payload.total_staff_cost || '0.00');
+        setUnappliedStaffCost(payload.unapplied_staff_cost || '0.00');
+      } finally {
+        setLoadingStaff(false);
       }
     },
     [authFetchJson],
@@ -255,8 +317,13 @@ export default function App() {
     } finally {
       setToken('');
       setSelectedEstimate(null);
+      setSelectedJobTab('expenses');
       setEstimates([]);
       setSavedEntries([]);
+      setStaffRoleOptions([]);
+      setStaffEntries([]);
+      setStaffTotalCost('0.00');
+      setUnappliedStaffCost('0.00');
       setDrafts([]);
     }
   }, []);
@@ -264,9 +331,10 @@ export default function App() {
   const handleSelectEstimate = useCallback(
     async (estimate: EstimateRow) => {
       setSelectedEstimate(estimate);
+      setSelectedJobTab('expenses');
       setDrafts([]);
       try {
-        await loadEntries(estimate.id);
+        await Promise.all([loadEntries(estimate.id), estimate.can_manage_staff ? loadStaffSummary(estimate.id) : Promise.resolve()]);
       } catch (error) {
         Alert.alert(
           'Load error',
@@ -274,7 +342,7 @@ export default function App() {
         );
       }
     },
-    [loadEntries],
+    [loadEntries, loadStaffSummary],
   );
 
   const addManualDraft = useCallback(() => {
@@ -289,6 +357,50 @@ export default function App() {
       ...prev,
     ]);
   }, []);
+
+  const createDraftAndStartVoice = useCallback(
+    async (captured: ImagePicker.ImagePickerAsset) => {
+      const draftId = localId();
+      setDrafts((prev) => [
+        {
+          localId: draftId,
+          manualOnly: false,
+          receiptUri: captured.uri,
+          receiptFileName: captured.fileName || `receipt-${draftId}.jpg`,
+          receiptMimeType: captured.mimeType || 'image/jpeg',
+          expenseText: '',
+          expenseAmount: '',
+          noteText: '',
+        },
+        ...prev,
+      ]);
+
+      const { granted } = await requestRecordingPermissionsAsync();
+      if (!granted) {
+        Alert.alert('Microphone permission needed', 'Allow microphone access to record voice notes.');
+        setActiveRecordingDraftId(null);
+        setRecordingPhotoUri(null);
+        return;
+      }
+
+      try {
+        await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
+        await recorder.prepareToRecordAsync();
+        recorder.record();
+        setActiveRecordingDraftId(draftId);
+        setRecordingPhotoUri(captured.uri);
+        setRecordingStartedAt(Date.now());
+      } catch (error) {
+        setActiveRecordingDraftId(null);
+        setRecordingPhotoUri(null);
+        Alert.alert(
+          'Recording error',
+          error instanceof Error ? error.message : 'Unable to start recording.',
+        );
+      }
+    },
+    [recorder],
+  );
 
   const captureReceiptAndVoice = useCallback(async () => {
     if (isRecording) {
@@ -309,47 +421,31 @@ export default function App() {
     if (pickerResult.canceled || !pickerResult.assets.length) {
       return;
     }
+    await createDraftAndStartVoice(pickerResult.assets[0]);
+  }, [createDraftAndStartVoice, isRecording]);
 
-    const captured = pickerResult.assets[0];
-    const draftId = localId();
-    setDrafts((prev) => [
-      {
-        localId: draftId,
-        manualOnly: false,
-        receiptUri: captured.uri,
-        receiptFileName: captured.fileName || `receipt-${draftId}.jpg`,
-        receiptMimeType: captured.mimeType || 'image/jpeg',
-        expenseText: '',
-        expenseAmount: '',
-        noteText: '',
-      },
-      ...prev,
-    ]);
-
-    const { granted } = await requestRecordingPermissionsAsync();
-    if (!granted) {
-      Alert.alert('Microphone permission needed', 'Allow microphone access to record voice notes.');
-      setActiveRecordingDraftId(null);
-      setRecordingPhotoUri(null);
+  const pickReceiptFromGalleryAndVoice = useCallback(async () => {
+    if (isRecording) {
+      Alert.alert('Recording in progress', 'Stop the current recording first.');
       return;
     }
 
-    try {
-      await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
-      await recorder.prepareToRecordAsync();
-      recorder.record();
-      setActiveRecordingDraftId(draftId);
-      setRecordingPhotoUri(captured.uri);
-      setRecordingStartedAt(Date.now());
-    } catch (error) {
-      setActiveRecordingDraftId(null);
-      setRecordingPhotoUri(null);
-      Alert.alert(
-        'Recording error',
-        error instanceof Error ? error.message : 'Unable to start recording.',
-      );
+    const mediaPerm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!mediaPerm.granted) {
+      Alert.alert('Photos permission needed', 'Allow photo library access to choose receipt images.');
+      return;
     }
-  }, [isRecording, recorder]);
+
+    const pickerResult = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality: 0.75,
+      allowsMultipleSelection: false,
+    });
+    if (pickerResult.canceled || !pickerResult.assets.length) {
+      return;
+    }
+    await createDraftAndStartVoice(pickerResult.assets[0]);
+  }, [createDraftAndStartVoice, isRecording]);
 
   const stopRecordingAndCreateDraft = useCallback(async () => {
     if (!recordingPhotoUri || !activeRecordingDraftId) {
@@ -503,6 +599,38 @@ export default function App() {
     }
   }, [apiBaseUrl, drafts, loadEntries, loadEstimates, selectedEstimate, token]);
 
+  const applyStaffCostsToExpenses = useCallback(async () => {
+    if (!selectedEstimate || !token) {
+      return;
+    }
+    if (!selectedEstimate.can_manage_staff) {
+      Alert.alert('No access', 'Your account cannot manage staff costs for this job.');
+      return;
+    }
+    setApplyingStaffCosts(true);
+    try {
+      const response = await fetch(
+        apiUrl(apiBaseUrl, `/api/xpenz/estimates/${selectedEstimate.id}/staff/apply-expense/`),
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        },
+      );
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || payload.ok === false) {
+        throw new Error(payload.error || 'Unable to apply staff costs.');
+      }
+      await Promise.all([loadStaffSummary(selectedEstimate.id), loadEntries(selectedEstimate.id), loadEstimates()]);
+      Alert.alert('Applied', `Moved ${formatShekel(payload.applied_total || '0.00')} to expenses.`);
+    } catch (error) {
+      Alert.alert('Apply failed', error instanceof Error ? error.message : 'Unable to apply staff costs.');
+    } finally {
+      setApplyingStaffCosts(false);
+    }
+  }, [apiBaseUrl, loadEntries, loadEstimates, loadStaffSummary, selectedEstimate, token]);
+
   const recordingSeconds = useMemo(() => {
     if (recorderState.durationMillis) {
       return Math.max(1, Math.round(recorderState.durationMillis / 1000));
@@ -613,7 +741,10 @@ export default function App() {
                   #{estimate.estimate_number ?? 'N/A'} • {formatDate(estimate.event_date)}
                 </Text>
                 <Text style={styles.subtleText}>
-                  {estimate.currency} {estimate.grand_total} • {estimate.expense_count} saved entries
+                  {estimate.can_view_billing
+                    ? `${estimate.currency} ${estimate.grand_total}`
+                    : 'Billing hidden'}{' '}
+                  • {estimate.expense_count} saved entries
                 </Text>
               </Pressable>
             ))}
@@ -627,168 +758,336 @@ export default function App() {
 
   return (
     <SafeAreaView style={styles.screen}>
-      <ScrollView contentContainerStyle={styles.contentWrap}>
-        <View style={styles.headerRow}>
-          <View style={styles.inlineActions}>
-            <Pressable style={styles.smallButton} onPress={() => setSelectedEstimate(null)}>
-              <Text style={styles.smallButtonText}>Back</Text>
-            </Pressable>
-            <Pressable style={styles.smallButton} onPress={handleLogout}>
-              <Text style={styles.smallButtonText}>Log Out</Text>
-            </Pressable>
-          </View>
-        </View>
-
-        <View style={styles.sectionCard}>
-          <Text style={styles.sectionTitle}>{selectedEstimate.job_name}</Text>
-          <Text style={styles.subtleText}>
-            {selectedEstimate.customer_name} • {formatDate(selectedEstimate.event_date)}
-          </Text>
-          <Text style={styles.subtleText}>{selectedEstimate.event_location || 'No location'}</Text>
-        </View>
-
-        <View style={styles.sectionCard}>
-          <Text style={styles.sectionTitle}>Add Expenses</Text>
-          <Text style={styles.subtleText}>
-            Capture receipt + voice note, then type the expense line under that item. Use + for manual entries.
-          </Text>
-          <View style={styles.inlineActions}>
-            <Pressable style={styles.primaryButton} onPress={captureReceiptAndVoice}>
-              <Text style={styles.primaryButtonText}>Receipt + Voice</Text>
-            </Pressable>
-            <Pressable style={styles.secondaryButton} onPress={addManualDraft}>
-              <Text style={styles.secondaryButtonText}>+ Manual Expense</Text>
-            </Pressable>
-          </View>
-
-          {recordingPhotoUri && (
-            <View style={styles.recordingBar}>
-              <Text style={styles.recordingText}>Recording voice note... {recordingSeconds}s</Text>
-              <View style={styles.inlineActions}>
-                <Pressable style={styles.smallDangerButton} onPress={stopRecordingAndCreateDraft}>
-                  <Text style={styles.smallDangerButtonText}>Stop & Add</Text>
-                </Pressable>
-                <Pressable style={styles.smallButton} onPress={cancelRecording}>
-                  <Text style={styles.smallButtonText}>Cancel</Text>
-                </Pressable>
-              </View>
-            </View>
-          )}
-
-          {drafts.map((draft) => (
-            <View key={draft.localId} style={styles.draftCard}>
-              <View style={styles.draftHeaderRow}>
-                <Text style={styles.draftTitle}>
-                  {draft.manualOnly ? 'Manual Entry' : 'Receipt + Voice Entry'}
-                </Text>
-                <Pressable onPress={() => removeDraft(draft.localId)}>
-                  <Text style={styles.deleteText}>Remove</Text>
-                </Pressable>
-              </View>
-
-              {!draft.manualOnly && draft.receiptUri && (
-                <Image source={{ uri: draft.receiptUri }} style={styles.receiptPreview} />
-              )}
-              {!draft.manualOnly && draft.voiceDurationSeconds ? (
-                <Text style={styles.subtleText}>Voice note: {draft.voiceDurationSeconds}s</Text>
-              ) : null}
-              {!draft.manualOnly && !draft.voiceUri ? (
-                <Text style={styles.subtleText}>Voice note not attached yet.</Text>
-              ) : null}
-
-              <TextInput
-                style={styles.input}
-                value={draft.expenseText}
-                onChangeText={(value) => updateDraft(draft.localId, { expenseText: value })}
-                placeholder="Expense line (e.g. Produce market)"
-              />
-              <Text style={styles.labelInline}>Total amount (₪)</Text>
-              <TextInput
-                style={styles.input}
-                value={draft.expenseAmount}
-                onChangeText={(value) => updateDraft(draft.localId, { expenseAmount: value })}
-                keyboardType="decimal-pad"
-                placeholder="Total amount (₪)"
-              />
-              <TextInput
-                style={[styles.input, styles.noteInput]}
-                value={draft.noteText}
-                onChangeText={(value) => updateDraft(draft.localId, { noteText: value })}
-                multiline
-                placeholder="Extra note or transcript"
-              />
-            </View>
-          ))}
-
-          {!drafts.length && <Text style={styles.subtleText}>No pending items yet.</Text>}
-
-          <Pressable
-            style={[styles.primaryButton, (!drafts.length || uploading) && styles.buttonDisabled]}
-            onPress={uploadDrafts}
-            disabled={!drafts.length || uploading}
-          >
-            {uploading ? (
-              <ActivityIndicator color="#ffffff" />
-            ) : (
-              <Text style={styles.primaryButtonText}>Save {drafts.length} Expense(s)</Text>
-            )}
-          </Pressable>
-        </View>
-
-        <View style={styles.sectionCard}>
+      <View style={styles.flexOne}>
+        <ScrollView contentContainerStyle={styles.contentWrap}>
           <View style={styles.headerRow}>
-            <Text style={styles.sectionTitle}>Saved in Additional Info Tab</Text>
-            <Pressable
-              style={styles.smallButton}
-              onPress={() => loadEntries(selectedEstimate.id)}
-            >
-              <Text style={styles.smallButtonText}>Refresh</Text>
-            </Pressable>
+            <View style={styles.inlineActions}>
+              <Pressable style={styles.smallButton} onPress={() => setSelectedEstimate(null)}>
+                <Text style={styles.smallButtonText}>Back</Text>
+              </Pressable>
+              <Pressable style={styles.smallButton} onPress={handleLogout}>
+                <Text style={styles.smallButtonText}>Log Out</Text>
+              </Pressable>
+            </View>
           </View>
 
-          {loadingEntries ? (
-            <ActivityIndicator color="#0f766e" />
-          ) : (
-            <View style={styles.savedList}>
-              {savedEntries.map((entry) => (
-                <View key={entry.id} style={styles.savedCard}>
-                  <Text style={styles.savedTitle}>
-                    {entry.expense_text || (entry.is_manual_only ? 'Manual expense' : 'Receipt expense')}
-                  </Text>
-                  <Text style={styles.subtleText}>
-                    {entry.expense_amount ? formatShekel(entry.expense_amount) : 'No amount'} •{' '}
-                    {formatDate(entry.created_at)}
-                  </Text>
-                  {entry.note_text ? <Text style={styles.subtleText}>{entry.note_text}</Text> : null}
+          <View style={styles.sectionCard}>
+            <Text style={styles.sectionTitle}>{selectedEstimate.job_name}</Text>
+            <Text style={styles.subtleText}>
+              {selectedEstimate.customer_name} • {formatDate(selectedEstimate.event_date)}
+            </Text>
+            <Text style={styles.subtleText}>{selectedEstimate.event_location || 'No location'}</Text>
+            {selectedEstimate.can_view_billing ? (
+              <Text style={styles.subtleText}>Estimate total: {formatShekel(selectedEstimate.grand_total || '0.00')}</Text>
+            ) : (
+              <Text style={styles.subtleText}>Estimate total hidden for this user.</Text>
+            )}
+          </View>
 
+          {selectedJobTab === 'expenses' ? (
+            <>
+              <View style={styles.sectionCard}>
+                <Text style={styles.sectionTitle}>Add Expenses</Text>
+                <Text style={styles.subtleText}>
+                  Use camera or gallery for the receipt, then record voice. Type the expense line under each item.
+                </Text>
+                {selectedEstimate.can_add_expenses ? (
                   <View style={styles.inlineActions}>
-                    {entry.receipt_image_url ? (
-                      <Pressable
-                        style={styles.smallButton}
-                        onPress={() => Linking.openURL(entry.receipt_image_url)}
-                      >
-                        <Text style={styles.smallButtonText}>Receipt</Text>
-                      </Pressable>
-                    ) : null}
-                    {entry.voice_note_url ? (
-                      <Pressable
-                        style={styles.smallButton}
-                        onPress={() => Linking.openURL(entry.voice_note_url)}
-                      >
-                        <Text style={styles.smallButtonText}>Voice</Text>
-                      </Pressable>
-                    ) : null}
+                    <Pressable style={styles.primaryButton} onPress={captureReceiptAndVoice}>
+                      <Text style={styles.primaryButtonText}>Camera + Voice</Text>
+                    </Pressable>
+                    <Pressable style={styles.secondaryButton} onPress={pickReceiptFromGalleryAndVoice}>
+                      <Text style={styles.secondaryButtonText}>Gallery + Voice</Text>
+                    </Pressable>
+                    <Pressable style={styles.secondaryButton} onPress={addManualDraft}>
+                      <Text style={styles.secondaryButtonText}>+ Manual Expense</Text>
+                    </Pressable>
                   </View>
-                </View>
-              ))}
+                ) : (
+                  <Text style={styles.subtleText}>
+                    Your account can view expenses for this job but cannot add new expense entries.
+                  </Text>
+                )}
 
-              {!savedEntries.length && (
-                <Text style={styles.subtleText}>No saved entries for this estimate yet.</Text>
-              )}
-            </View>
+                {recordingPhotoUri && (
+                  <View style={styles.recordingBar}>
+                    <Text style={styles.recordingText}>Recording voice note... {recordingSeconds}s</Text>
+                    <View style={styles.inlineActions}>
+                      <Pressable style={styles.smallDangerButton} onPress={stopRecordingAndCreateDraft}>
+                        <Text style={styles.smallDangerButtonText}>Stop & Add</Text>
+                      </Pressable>
+                      <Pressable style={styles.smallButton} onPress={cancelRecording}>
+                        <Text style={styles.smallButtonText}>Cancel</Text>
+                      </Pressable>
+                    </View>
+                  </View>
+                )}
+
+                {drafts.map((draft) => (
+                  <View key={draft.localId} style={styles.draftCard}>
+                    <View style={styles.draftHeaderRow}>
+                      <Text style={styles.draftTitle}>
+                        {draft.manualOnly ? 'Manual Entry' : 'Receipt + Voice Entry'}
+                      </Text>
+                      <Pressable onPress={() => removeDraft(draft.localId)}>
+                        <Text style={styles.deleteText}>Remove</Text>
+                      </Pressable>
+                    </View>
+
+                    {!draft.manualOnly && draft.receiptUri && (
+                      <Image source={{ uri: draft.receiptUri }} style={styles.receiptPreview} />
+                    )}
+                    {!draft.manualOnly && draft.voiceDurationSeconds ? (
+                      <Text style={styles.subtleText}>Voice note: {draft.voiceDurationSeconds}s</Text>
+                    ) : null}
+                    {!draft.manualOnly && !draft.voiceUri ? (
+                      <Text style={styles.subtleText}>Voice note not attached yet.</Text>
+                    ) : null}
+
+                    <TextInput
+                      style={styles.input}
+                      value={draft.expenseText}
+                      onChangeText={(value) => updateDraft(draft.localId, { expenseText: value })}
+                      placeholder="Expense line (e.g. Produce market)"
+                    />
+                    <Text style={styles.labelInline}>Total amount (₪)</Text>
+                    <TextInput
+                      style={styles.input}
+                      value={draft.expenseAmount}
+                      onChangeText={(value) => updateDraft(draft.localId, { expenseAmount: value })}
+                      keyboardType="decimal-pad"
+                      placeholder="Total amount (₪)"
+                    />
+                    <TextInput
+                      style={[styles.input, styles.noteInput]}
+                      value={draft.noteText}
+                      onChangeText={(value) => updateDraft(draft.localId, { noteText: value })}
+                      multiline
+                      placeholder="Extra note or transcript"
+                    />
+                  </View>
+                ))}
+
+                {!drafts.length && <Text style={styles.subtleText}>No pending items yet.</Text>}
+
+                <Pressable
+                  style={[styles.primaryButton, (!drafts.length || uploading || !selectedEstimate.can_add_expenses) && styles.buttonDisabled]}
+                  onPress={uploadDrafts}
+                  disabled={!drafts.length || uploading || !selectedEstimate.can_add_expenses}
+                >
+                  {uploading ? (
+                    <ActivityIndicator color="#ffffff" />
+                  ) : (
+                    <Text style={styles.primaryButtonText}>Save {drafts.length} Expense(s)</Text>
+                  )}
+                </Pressable>
+              </View>
+
+              <View style={styles.sectionCard}>
+                <View style={styles.headerRow}>
+                  <Text style={styles.sectionTitle}>Saved in Additional Info Tab</Text>
+                  <Pressable
+                    style={styles.smallButton}
+                    onPress={() => loadEntries(selectedEstimate.id)}
+                  >
+                    <Text style={styles.smallButtonText}>Refresh</Text>
+                  </Pressable>
+                </View>
+
+                {loadingEntries ? (
+                  <ActivityIndicator color="#0f766e" />
+                ) : (
+                  <View style={styles.savedList}>
+                    {savedEntries.map((entry) => (
+                      <View key={entry.id} style={styles.savedCard}>
+                        <Text style={styles.savedTitle}>
+                          {entry.expense_text || (entry.is_manual_only ? 'Manual expense' : 'Receipt expense')}
+                        </Text>
+                        <Text style={styles.subtleText}>
+                          {entry.expense_amount ? formatShekel(entry.expense_amount) : 'No amount'} •{' '}
+                          {formatDate(entry.created_at)}
+                        </Text>
+                        {entry.note_text ? <Text style={styles.subtleText}>{entry.note_text}</Text> : null}
+
+                        <View style={styles.inlineActions}>
+                          {entry.receipt_image_url ? (
+                            <Pressable
+                              style={styles.smallButton}
+                              onPress={() => Linking.openURL(entry.receipt_image_url)}
+                            >
+                              <Text style={styles.smallButtonText}>Receipt</Text>
+                            </Pressable>
+                          ) : null}
+                          {entry.voice_note_url ? (
+                            <Pressable
+                              style={styles.smallButton}
+                              onPress={() => Linking.openURL(entry.voice_note_url)}
+                            >
+                              <Text style={styles.smallButtonText}>Voice</Text>
+                            </Pressable>
+                          ) : null}
+                        </View>
+                      </View>
+                    ))}
+
+                    {!savedEntries.length && (
+                      <Text style={styles.subtleText}>No saved entries for this estimate yet.</Text>
+                    )}
+                  </View>
+                )}
+              </View>
+            </>
+          ) : (
+            <>
+              <View style={styles.sectionCard}>
+                <View style={styles.headerRow}>
+                  <Text style={styles.sectionTitle}>Staff QR Codes</Text>
+                  <Pressable
+                    style={styles.smallButton}
+                    onPress={() => loadStaffSummary(selectedEstimate.id)}
+                  >
+                    <Text style={styles.smallButtonText}>Refresh</Text>
+                  </Pressable>
+                </View>
+                <Text style={styles.subtleText}>
+                  Staff scan role QR code to punch in and out on this job.
+                </Text>
+
+                {loadingStaff ? (
+                  <ActivityIndicator color="#0f766e" />
+                ) : (
+                  <View style={styles.savedList}>
+                    {staffRoleOptions.map((role) => (
+                      <Pressable
+                        key={role.code}
+                        style={styles.roleCard}
+                        onPress={() => setActiveQrRole(role)}
+                      >
+                        <Text style={styles.savedTitle}>{role.label}</Text>
+                        <Text style={styles.subtleText}>Rate: {formatShekel(role.hourly_rate)} / hour</Text>
+                        <Text style={styles.linkText}>Open QR Code</Text>
+                      </Pressable>
+                    ))}
+                    {!staffRoleOptions.length && (
+                      <Text style={styles.subtleText}>No staff role options available yet.</Text>
+                    )}
+                  </View>
+                )}
+              </View>
+
+              <View style={styles.sectionCard}>
+                <Text style={styles.sectionTitle}>Staff Totals</Text>
+                <Text style={styles.subtleText}>Total staff cost: {formatShekel(staffTotalCost)}</Text>
+                <Text style={styles.subtleText}>Unapplied staff cost: {formatShekel(unappliedStaffCost)}</Text>
+                <Pressable
+                  style={[
+                    styles.primaryButton,
+                    (applyingStaffCosts || Number.parseFloat(unappliedStaffCost) <= 0) && styles.buttonDisabled,
+                  ]}
+                  onPress={applyStaffCostsToExpenses}
+                  disabled={applyingStaffCosts || Number.parseFloat(unappliedStaffCost) <= 0}
+                >
+                  {applyingStaffCosts ? (
+                    <ActivityIndicator color="#ffffff" />
+                  ) : (
+                    <Text style={styles.primaryButtonText}>Apply staff costs to expense page</Text>
+                  )}
+                </Pressable>
+              </View>
+
+              <View style={styles.sectionCard}>
+                <Text style={styles.sectionTitle}>Staff Records</Text>
+                {loadingStaff ? (
+                  <ActivityIndicator color="#0f766e" />
+                ) : (
+                  <View style={styles.savedList}>
+                    {staffEntries.map((entry) => (
+                      <View key={entry.id} style={styles.savedCard}>
+                        <Text style={styles.savedTitle}>
+                          {entry.worker_first_name} • {entry.role_label}
+                        </Text>
+                        <Text style={styles.subtleText}>In: {formatDateTime(entry.punched_in_at)}</Text>
+                        <Text style={styles.subtleText}>
+                          Out: {entry.punched_out_at ? formatDateTime(entry.punched_out_at) : 'Still active'}
+                        </Text>
+                        <Text style={styles.subtleText}>
+                          Hours: {entry.total_hours} • Cost: {formatShekel(entry.total_cost)}
+                        </Text>
+                        <Text style={styles.subtleText}>
+                          {entry.applied_to_expenses
+                            ? `Applied to expense #${entry.expense_entry_id ?? '-'}`
+                            : 'Not applied to expenses yet'}
+                        </Text>
+                      </View>
+                    ))}
+                    {!staffEntries.length && (
+                      <Text style={styles.subtleText}>No staff records for this estimate yet.</Text>
+                    )}
+                  </View>
+                )}
+              </View>
+            </>
           )}
+        </ScrollView>
+
+        <View style={styles.bottomTabs}>
+          <Pressable
+            style={[styles.bottomTabButton, selectedJobTab === 'expenses' && styles.bottomTabButtonActive]}
+            onPress={() => setSelectedJobTab('expenses')}
+          >
+            <Text style={[styles.bottomTabLabel, selectedJobTab === 'expenses' && styles.bottomTabLabelActive]}>
+              Expenses
+            </Text>
+          </Pressable>
+          {selectedEstimate.can_manage_staff ? (
+            <Pressable
+              style={[styles.bottomTabButton, selectedJobTab === 'staff' && styles.bottomTabButtonActive]}
+              onPress={() => setSelectedJobTab('staff')}
+            >
+              <Text style={[styles.bottomTabLabel, selectedJobTab === 'staff' && styles.bottomTabLabelActive]}>
+                Staff
+              </Text>
+            </Pressable>
+          ) : null}
         </View>
-      </ScrollView>
+      </View>
+
+      <Modal
+        visible={!!activeQrRole}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setActiveQrRole(null)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <Text style={styles.sectionTitle}>{activeQrRole?.label || 'Staff QR'}</Text>
+            <Text style={styles.subtleText}>
+              Rate: {formatShekel(activeQrRole?.hourly_rate || '0.00')} / hour
+            </Text>
+            {activeQrRole?.qr_image_url ? (
+              <Image source={{ uri: activeQrRole.qr_image_url }} style={styles.qrImage} />
+            ) : null}
+            <Text style={styles.subtleText}>
+              Staff scan this code for punch in/out on this job.
+            </Text>
+            <View style={styles.inlineActions}>
+              <Pressable
+                style={styles.primaryButton}
+                onPress={() => {
+                  if (activeQrRole?.punch_url) {
+                    Linking.openURL(activeQrRole.punch_url);
+                  }
+                }}
+              >
+                <Text style={styles.primaryButtonText}>Open Punch Page</Text>
+              </Pressable>
+              <Pressable style={styles.smallButton} onPress={() => setActiveQrRole(null)}>
+                <Text style={styles.smallButtonText}>Close</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
       <StatusBar style="dark" />
     </SafeAreaView>
   );
@@ -812,6 +1111,7 @@ const styles = StyleSheet.create({
   contentWrap: {
     padding: 16,
     gap: 14,
+    paddingBottom: 96,
   },
   loginCard: {
     margin: 18,
@@ -1013,5 +1313,63 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
     color: '#0f172a',
+  },
+  roleCard: {
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#99f6e4',
+    backgroundColor: '#f0fdfa',
+    padding: 12,
+    gap: 6,
+  },
+  linkText: {
+    color: '#0f766e',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  bottomTabs: {
+    borderTopWidth: 1,
+    borderTopColor: '#d1d5db',
+    backgroundColor: '#ffffff',
+    flexDirection: 'row',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    gap: 8,
+  },
+  bottomTabButton: {
+    flex: 1,
+    borderRadius: 10,
+    paddingVertical: 10,
+    alignItems: 'center',
+    backgroundColor: '#f1f5f9',
+  },
+  bottomTabButtonActive: {
+    backgroundColor: '#0f766e',
+  },
+  bottomTabLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#0f172a',
+  },
+  bottomTabLabelActive: {
+    color: '#ffffff',
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.45)',
+    justifyContent: 'center',
+    padding: 18,
+  },
+  modalCard: {
+    borderRadius: 16,
+    backgroundColor: '#ffffff',
+    padding: 16,
+    gap: 10,
+  },
+  qrImage: {
+    width: '100%',
+    aspectRatio: 1,
+    borderRadius: 12,
+    backgroundColor: '#f8fafc',
   },
 });

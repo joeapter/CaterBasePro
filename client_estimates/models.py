@@ -31,6 +31,12 @@ PAYMENT_METHOD_CHOICES = [
     ("CHECK", "Check"),
 ]
 
+STAFF_ROLE_CHOICES = [
+    ("KITCHEN", "Kitchen Staff"),
+    ("WAIT", "Wait Staff"),
+    ("MANAGEMENT", "Management Staff"),
+]
+
 DOCUMENT_BACKGROUND_CHOICES = [
     ("CLEAN", "Clean white"),
     ("WATERCOLOR_SAGE", "Watercolor sage wash"),
@@ -1150,6 +1156,100 @@ class EstimateExpenseEntry(models.Model):
     def __str__(self):
         label = self.expense_text or "Expense"
         return f"{label} for estimate #{self.estimate_id}"
+
+
+class EstimateStaffTimeEntry(models.Model):
+    estimate = models.ForeignKey(
+        Estimate,
+        on_delete=models.CASCADE,
+        related_name="staff_time_entries",
+    )
+    role = models.CharField(
+        max_length=20,
+        choices=STAFF_ROLE_CHOICES,
+    )
+    worker_first_name = models.CharField(max_length=120)
+    hourly_rate = models.DecimalField(max_digits=8, decimal_places=2)
+    punched_in_at = models.DateTimeField(default=timezone.now)
+    punched_out_at = models.DateTimeField(null=True, blank=True)
+    total_hours = models.DecimalField(
+        max_digits=8,
+        decimal_places=2,
+        default=Decimal("0.00"),
+    )
+    total_cost = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        default=Decimal("0.00"),
+    )
+    applied_to_expenses = models.BooleanField(default=False)
+    expense_entry = models.ForeignKey(
+        "EstimateExpenseEntry",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="staff_time_entries",
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="staff_time_entries_created",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-punched_in_at"]
+        verbose_name = "Estimate staff time entry"
+        verbose_name_plural = "Estimate staff time entries"
+
+    def __str__(self):
+        return f"{self.worker_first_name} ({self.get_role_display()}) - estimate #{self.estimate_id}"
+
+    def punch_out(self, when=None):
+        if self.punched_out_at:
+            return
+        when = when or timezone.now()
+        if when < self.punched_in_at:
+            when = self.punched_in_at
+        self.punched_out_at = when
+        seconds = (self.punched_out_at - self.punched_in_at).total_seconds()
+        hours = Decimal(str(seconds / 3600)) if seconds > 0 else Decimal("0.00")
+        self.total_hours = hours.quantize(Decimal("0.01"))
+        self.total_cost = (self.total_hours * (self.hourly_rate or Decimal("0.00"))).quantize(
+            Decimal("0.01")
+        )
+
+
+class CatererUserAccess(models.Model):
+    caterer = models.ForeignKey(
+        CatererAccount,
+        on_delete=models.CASCADE,
+        related_name="user_accesses",
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="caterer_accesses",
+    )
+    can_access_mobile_app = models.BooleanField(default=True)
+    can_add_expenses = models.BooleanField(default=True)
+    can_view_job_billing = models.BooleanField(default=False)
+    can_manage_staff = models.BooleanField(default=False)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ("caterer", "user")
+        ordering = ["caterer__name", "user__username"]
+        verbose_name = "Caterer user access"
+        verbose_name_plural = "Caterer user access"
+
+    def __str__(self):
+        return f"{self.user} access for {self.caterer}"
 
 
 class XpenzMobileToken(models.Model):

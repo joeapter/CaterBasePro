@@ -20,7 +20,8 @@
       "infoPlist": {
         "NSCameraUsageDescription": "Capture receipt photos for internal estimate expense tracking.",
         "NSMicrophoneUsageDescription": "Record voice notes that explain each receipt expense.",
-        "NSPhotoLibraryUsageDescription": "Attach receipt images to internal estimate expenses."
+        "NSPhotoLibraryUsageDescription": "Attach receipt images to internal estimate expenses.",
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
@@ -32,8 +33,9 @@
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
       "permissions": [
-        "CAMERA",
-        "RECORD_AUDIO"
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS"
       ]
     },
     "web": {
@@ -52,7 +54,10 @@
       "expo-asset"
     ],
     "extra": {
-      "defaultApiBaseUrl": "https://www.caterbasepro.com"
+      "defaultApiBaseUrl": "https://www.caterbasepro.com",
+      "eas": {
+        "projectId": "cdd07f37-35e0-40b5-b0a0-e12417f252dd"
+      }
     }
   }
 }

@@ -35,6 +35,7 @@ from .models import (
     TastingAppointment,
     TrialRequest,
     EstimateExpenseEntry,
+    EstimateStaffTimeEntry,
     XpenzMobileToken,
 )
 from .kiddush_menu import ensure_kiddush_menu, ensure_kiddush_planning_fee_line
@@ -407,6 +408,61 @@ class XpenzMobileTokenAdmin(admin.ModelAdmin):
 
     def has_add_permission(self, request):
         return False
+
+
+@admin.register(EstimateStaffTimeEntry)
+class EstimateStaffTimeEntryAdmin(admin.ModelAdmin):
+    list_display = (
+        "estimate",
+        "worker_first_name",
+        "role",
+        "hourly_rate",
+        "punched_in_at",
+        "punched_out_at",
+        "total_hours",
+        "total_cost",
+        "applied_to_expenses",
+    )
+    list_filter = ("role", "applied_to_expenses", "estimate__caterer")
+    search_fields = ("worker_first_name", "estimate__customer_name", "estimate__event_type")
+    readonly_fields = (
+        "estimate",
+        "role",
+        "worker_first_name",
+        "hourly_rate",
+        "punched_in_at",
+        "punched_out_at",
+        "total_hours",
+        "total_cost",
+        "applied_to_expenses",
+        "expense_entry",
+        "created_by",
+        "created_at",
+        "updated_at",
+    )
+
+    def get_queryset(self, request):
+        qs = super().get_queryset(request).select_related("estimate", "estimate__caterer")
+        if request.user.is_superuser:
+            return qs
+        return qs.filter(estimate__caterer__owner=request.user)
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        if request.user.is_superuser:
+            return True
+        if obj is None:
+            return False
+        return obj.estimate.caterer.owner == request.user
+
+    def has_delete_permission(self, request, obj=None):
+        if request.user.is_superuser:
+            return True
+        if obj is None:
+            return False
+        return obj.estimate.caterer.owner == request.user
 
 
 @admin.register(TrialRequest)

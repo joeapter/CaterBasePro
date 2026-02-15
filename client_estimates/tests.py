@@ -1,12 +1,20 @@
 from decimal import Decimal
 import json
+from datetime import timedelta
 
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
 from django.urls import reverse
+from django.utils import timezone
 
-from .models import CatererAccount, Estimate, EstimateExpenseEntry
+from .models import (
+    CatererAccount,
+    CatererUserAccess,
+    Estimate,
+    EstimateExpenseEntry,
+    EstimateStaffTimeEntry,
+)
 
 
 class XpenzApiTests(TestCase):
@@ -21,6 +29,12 @@ class XpenzApiTests(TestCase):
         self.other_user = user_model.objects.create_user(
             username="other@example.com",
             email="other@example.com",
+            password="secret123",
+            is_staff=True,
+        )
+        self.app_user = user_model.objects.create_user(
+            username="appstaff@example.com",
+            email="appstaff@example.com",
             password="secret123",
             is_staff=True,
         )
@@ -58,11 +72,19 @@ class XpenzApiTests(TestCase):
             guest_count=80,
             grand_total=Decimal("8000.00"),
         )
+        CatererUserAccess.objects.create(
+            caterer=self.caterer,
+            user=self.app_user,
+            can_access_mobile_app=True,
+            can_add_expenses=True,
+            can_view_job_billing=False,
+            can_manage_staff=True,
+        )
 
-    def _login_and_get_token(self):
+    def _login_and_get_token(self, username="owner@example.com"):
         response = self.client.post(
             reverse("xpenz_mobile_login"),
-            data=json.dumps({"username": "owner@example.com", "password": "secret123"}),
+            data=json.dumps({"username": username, "password": "secret123"}),
             content_type="application/json",
         )
         self.assertEqual(response.status_code, 200)
@@ -104,6 +126,23 @@ class XpenzApiTests(TestCase):
         ids = [row["id"] for row in payload["estimates"]]
         self.assertGreaterEqual(len(ids), 2)
         self.assertEqual(ids[0], self.newer_estimate.id)
+
+    def test_app_user_sees_jobs_but_not_billing_totals(self):
+        token = self._login_and_get_token("appstaff@example.com")
+        response = self.client.get(
+            reverse("xpenz_estimate_list"),
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        rows = payload["estimates"]
+        self.assertTrue(rows)
+        first = rows[0]
+        self.assertIn("job_name", first)
+        self.assertEqual(first["grand_total"], "")
+        self.assertFalse(first["can_view_billing"])
+        self.assertTrue(first["can_add_expenses"])
+        self.assertTrue(first["can_manage_staff"])
 
     def test_expense_upload_requires_receipt_file(self):
         token = self._login_and_get_token()
@@ -171,6 +210,27 @@ class XpenzApiTests(TestCase):
         self.assertTrue(payload["entry"]["has_receipt_image"])
         self.assertFalse(payload["entry"]["has_voice_note"])
 
+    def test_app_user_can_add_expense_when_allowed(self):
+        token = self._login_and_get_token("appstaff@example.com")
+        receipt = SimpleUploadedFile(
+            "staff-receipt.jpg",
+            b"fake-jpg-content",
+            content_type="image/jpeg",
+        )
+        response = self.client.post(
+            reverse("xpenz_estimate_expenses", args=[self.estimate.id]),
+            data={
+                "receipt_image": receipt,
+                "expense_text": "Staff fuel",
+                "expense_amount": "12.00",
+            },
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        self.assertEqual(response.status_code, 201)
+        payload = response.json()
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["entry"]["expense_text"], "Staff fuel")
+
     def test_manual_expense_without_files(self):
         token = self._login_and_get_token()
         response = self.client.post(
@@ -189,6 +249,83 @@ class XpenzApiTests(TestCase):
         self.assertTrue(payload["entry"]["is_manual_only"])
         self.assertEqual(payload["entry"]["expense_text"], "Parking")
         self.assertEqual(payload["entry"]["expense_amount"], "28.50")
+
+    def test_staff_summary_returns_qr_links(self):
+        token = self._login_and_get_token("appstaff@example.com")
+        response = self.client.get(
+            reverse("xpenz_staff_summary", args=[self.estimate.id]),
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["ok"])
+        self.assertEqual(len(payload["roles"]), 3)
+        self.assertIn("qr_image_url", payload["roles"][0])
+        self.assertIn("punch_url", payload["roles"][0])
+
+    def test_apply_staff_costs_creates_single_expense_entry(self):
+        token = self._login_and_get_token("appstaff@example.com")
+        now = timezone.now()
+        entry1 = EstimateStaffTimeEntry.objects.create(
+            estimate=self.estimate,
+            role="KITCHEN",
+            worker_first_name="Avi",
+            hourly_rate=Decimal("50.00"),
+            punched_in_at=now - timedelta(hours=2),
+            punched_out_at=now - timedelta(hours=1),
+            total_hours=Decimal("1.00"),
+            total_cost=Decimal("50.00"),
+        )
+        entry2 = EstimateStaffTimeEntry.objects.create(
+            estimate=self.estimate,
+            role="WAIT",
+            worker_first_name="Dan",
+            hourly_rate=Decimal("40.00"),
+            punched_in_at=now - timedelta(hours=3),
+            punched_out_at=now - timedelta(hours=1),
+            total_hours=Decimal("2.00"),
+            total_cost=Decimal("80.00"),
+        )
+
+        response = self.client.post(
+            reverse("xpenz_apply_staff_costs_to_expense", args=[self.estimate.id]),
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["applied_total"], "130.00")
+
+        created_expense = EstimateExpenseEntry.objects.get(pk=payload["expense_entry_id"])
+        self.assertEqual(created_expense.expense_amount, Decimal("130.00"))
+        entry1.refresh_from_db()
+        entry2.refresh_from_db()
+        self.assertTrue(entry1.applied_to_expenses)
+        self.assertTrue(entry2.applied_to_expenses)
+
+    def test_admin_can_create_app_user_from_global_permissions_tab(self):
+        self.client.force_login(self.user)
+        response = self.client.post(
+            reverse("admin:app_users_appuser_create_app_user"),
+            data={
+                "caterer": self.caterer.id,
+                "first_name": "New",
+                "email": "newapp@example.com",
+                "password": "temp-pass-123",
+                "can_add_expenses": "on",
+                "can_view_job_billing": "",
+                "can_manage_staff": "on",
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+
+        user_model = get_user_model()
+        created_user = user_model.objects.get(username="newapp@example.com")
+        access = CatererUserAccess.objects.get(caterer=self.caterer, user=created_user)
+        self.assertTrue(access.can_access_mobile_app)
+        self.assertTrue(access.can_add_expenses)
+        self.assertFalse(access.can_view_job_billing)
+        self.assertTrue(access.can_manage_staff)
 
     def test_admin_can_delete_expense_entry_for_owned_estimate(self):
         entry = EstimateExpenseEntry.objects.create(

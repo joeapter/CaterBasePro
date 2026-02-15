@@ -89,6 +89,7 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
 
     "client_estimates",  # 👈 USE THIS
+    "app_users.apps.AppUsersConfig",
 ]
 
 MIDDLEWARE = [
