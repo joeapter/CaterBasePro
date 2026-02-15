@@ -80,6 +80,7 @@
     </style>
 </head>
 <body>
+{% load tz %}
 <div class="wrap">
     <div class="card">
         <h1>Staff Punch Clock</h1>
@@ -121,7 +122,7 @@
                 <select id="active_entry_id" name="active_entry_id" required>
                     <option value="">Select worker</option>
                     {% for row in active_entries %}
-                        <option value="{{ row.id }}">{{ row.worker_first_name }} (in at {{ row.punched_in_at|date:"g:i A" }})</option>
+                        <option value="{{ row.id }}">{{ row.worker_first_name }} (in at {{ row.punched_in_at|timezone:"Asia/Jerusalem"|date:"g:i A" }})</option>
                     {% endfor %}
                 </select>
                 <button type="submit" class="secondary">Punch Out</button>
@@ -135,7 +136,7 @@
                     {% for row in recent_entries %}
                         <li>
                             {{ row.worker_first_name }} · {{ row.total_hours }}h · ₪{{ row.total_cost }}
-                            ({{ row.punched_out_at|date:"M j g:i A" }})
+                            ({{ row.punched_out_at|timezone:"Asia/Jerusalem"|date:"M j g:i A" }})
                         </li>
                     {% endfor %}
                 </ul>
