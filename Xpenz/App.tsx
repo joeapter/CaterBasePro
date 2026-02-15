@@ -70,6 +70,7 @@ type ExpenseDraft = {
 const TOKEN_KEY = 'xpenz_token';
 const BASE_URL_KEY = 'xpenz_base_url';
 const DEFAULT_BASE_URL = 'https://www.caterbasepro.com';
+const SHEKEL_SYMBOL = '₪';
 
 function normalizeBaseUrl(value: string) {
   return value.trim().replace(/\/+$/, '');
@@ -90,6 +91,10 @@ function formatDate(iso: string) {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return iso;
   return date.toLocaleDateString();
+}
+
+function formatShekel(amount: string) {
+  return `${SHEKEL_SYMBOL}${amount}`;
 }
 
 export default function App() {
@@ -697,13 +702,13 @@ export default function App() {
                 onChangeText={(value) => updateDraft(draft.localId, { expenseText: value })}
                 placeholder="Expense line (e.g. Produce market)"
               />
-              <Text style={styles.labelInline}>Total amount</Text>
+              <Text style={styles.labelInline}>Total amount (₪)</Text>
               <TextInput
                 style={styles.input}
                 value={draft.expenseAmount}
                 onChangeText={(value) => updateDraft(draft.localId, { expenseAmount: value })}
                 keyboardType="decimal-pad"
-                placeholder="Total amount"
+                placeholder="Total amount (₪)"
               />
               <TextInput
                 style={[styles.input, styles.noteInput]}
@@ -751,7 +756,7 @@ export default function App() {
                     {entry.expense_text || (entry.is_manual_only ? 'Manual expense' : 'Receipt expense')}
                   </Text>
                   <Text style={styles.subtleText}>
-                    {entry.expense_amount ? `$${entry.expense_amount}` : 'No amount'} •{' '}
+                    {entry.expense_amount ? formatShekel(entry.expense_amount) : 'No amount'} •{' '}
                     {formatDate(entry.created_at)}
                   </Text>
                   {entry.note_text ? <Text style={styles.subtleText}>{entry.note_text}</Text> : null}
