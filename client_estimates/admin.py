@@ -510,8 +510,18 @@ class EstimateStaffTimeEntryAdmin(admin.ModelAdmin):
 
 @admin.register(ShoppingList)
 class ShoppingListAdmin(admin.ModelAdmin):
-    list_display = ("id", "title", "caterer", "estimate", "created_by", "updated_at", "created_at")
-    list_filter = ("caterer", "created_at", "updated_at")
+    list_display = (
+        "id",
+        "title",
+        "caterer",
+        "estimate",
+        "execution_started_by",
+        "execution_started_at",
+        "created_by",
+        "updated_at",
+        "created_at",
+    )
+    list_filter = ("caterer", "execution_started_at", "created_at", "updated_at")
     search_fields = ("title", "caterer__name", "estimate__customer_name", "estimate__event_type")
 
     def get_queryset(self, request):
@@ -535,14 +545,30 @@ class ShoppingListItemAdmin(admin.ModelAdmin):
         "shopping_list",
         "item_name",
         "item_type",
+        "item_unit",
         "quantity",
         "category",
+        "collaboration_note",
         "is_completed",
+        "completed_by",
+        "completed_at",
         "created_by",
         "created_at",
     )
-    list_filter = ("category", "is_completed", "shopping_list__caterer", "created_at")
-    search_fields = ("item_name", "item_type", "shopping_list__title", "shopping_list__caterer__name")
+    list_filter = (
+        "category",
+        "is_completed",
+        "collaboration_note",
+        "shopping_list__caterer",
+        "created_at",
+    )
+    search_fields = (
+        "item_name",
+        "item_type",
+        "item_unit",
+        "shopping_list__title",
+        "shopping_list__caterer__name",
+    )
 
     def get_queryset(self, request):
         qs = super().get_queryset(request).select_related("shopping_list", "shopping_list__caterer")

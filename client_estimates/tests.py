@@ -324,7 +324,14 @@ class XpenzApiTests(TestCase):
 
         first_item = self.client.post(
             reverse("xpenz_shopping_list_items", args=[shopping_list_id]),
-            data=json.dumps({"item_name": "Mushrooms", "item_type": "pack", "quantity": "2"}),
+            data=json.dumps(
+                {
+                    "item_name": "Mushrooms",
+                    "item_type": "pack",
+                    "item_unit": "Pieces",
+                    "quantity": "2",
+                }
+            ),
             content_type="application/json",
             HTTP_AUTHORIZATION=f"Bearer {token}",
         )
@@ -333,7 +340,14 @@ class XpenzApiTests(TestCase):
 
         second_item = self.client.post(
             reverse("xpenz_shopping_list_items", args=[shopping_list_id]),
-            data=json.dumps({"item_name": "mushrooms", "item_type": "Pack", "quantity": "3"}),
+            data=json.dumps(
+                {
+                    "item_name": "mushrooms",
+                    "item_type": "Pack",
+                    "item_unit": "pieces",
+                    "quantity": "3",
+                }
+            ),
             content_type="application/json",
             HTTP_AUTHORIZATION=f"Bearer {token}",
         )
@@ -341,6 +355,8 @@ class XpenzApiTests(TestCase):
         payload = second_item.json()
         self.assertTrue(payload["merged"])
         self.assertEqual(payload["item"]["quantity"], "5")
+        self.assertEqual(payload["item"]["item_unit"], "Pieces")
+        self.assertEqual(payload["item"]["collaboration_note"], "")
 
         detail_response = self.client.get(
             reverse("xpenz_shopping_list_detail", args=[shopping_list_id]),
@@ -351,6 +367,142 @@ class XpenzApiTests(TestCase):
         self.assertEqual(detail_payload["shopping_list"]["estimate_id"], self.estimate.id)
         self.assertEqual(len(detail_payload["items"]), 1)
         self.assertEqual(detail_payload["items"][0]["item_name"], "Mushrooms")
+
+    def test_shopping_list_same_item_different_unit_does_not_merge(self):
+        token = self._login_and_get_token("appstaff@example.com")
+        shopping_list = ShoppingList.objects.create(
+            caterer=self.caterer,
+            title="Unit split",
+            created_by=self.app_user,
+        )
+        first_item = self.client.post(
+            reverse("xpenz_shopping_list_items", args=[shopping_list.id]),
+            data=json.dumps(
+                {
+                    "item_name": "Chicken breast",
+                    "item_type": "",
+                    "item_unit": "Kg",
+                    "quantity": "4",
+                }
+            ),
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        self.assertEqual(first_item.status_code, 201)
+
+        second_item = self.client.post(
+            reverse("xpenz_shopping_list_items", args=[shopping_list.id]),
+            data=json.dumps(
+                {
+                    "item_name": "Chicken breast",
+                    "item_type": "",
+                    "item_unit": "Pieces",
+                    "quantity": "8",
+                }
+            ),
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        self.assertEqual(second_item.status_code, 201)
+
+        detail_response = self.client.get(
+            reverse("xpenz_shopping_list_detail", args=[shopping_list.id]),
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        self.assertEqual(detail_response.status_code, 200)
+        self.assertEqual(len(detail_response.json()["items"]), 2)
+
+    def test_shopping_list_marks_combined_after_other_user_started_execution(self):
+        owner_token = self._login_and_get_token("owner@example.com")
+        app_token = self._login_and_get_token("appstaff@example.com")
+        shopping_list = ShoppingList.objects.create(
+            caterer=self.caterer,
+            title="Collab list",
+            created_by=self.user,
+        )
+        pre_item = ShoppingListItem.objects.create(
+            shopping_list=shopping_list,
+            item_name="Salt",
+            item_type="",
+            item_unit="Kg",
+            quantity=Decimal("1.00"),
+            category="PANTRY",
+            created_by=self.user,
+        )
+        active_item = ShoppingListItem.objects.create(
+            shopping_list=shopping_list,
+            item_name="Tomato",
+            item_type="",
+            item_unit="Kg",
+            quantity=Decimal("2.00"),
+            category="PRODUCE",
+            created_by=self.user,
+        )
+
+        remove_response = self.client.post(
+            reverse("xpenz_shopping_list_remove_item", args=[shopping_list.id, pre_item.id]),
+            HTTP_AUTHORIZATION=f"Bearer {owner_token}",
+        )
+        self.assertEqual(remove_response.status_code, 200)
+
+        add_response = self.client.post(
+            reverse("xpenz_shopping_list_items", args=[shopping_list.id]),
+            data=json.dumps(
+                {
+                    "item_name": "tomato",
+                    "item_type": "",
+                    "item_unit": "kg",
+                    "quantity": "1",
+                }
+            ),
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {app_token}",
+        )
+        self.assertEqual(add_response.status_code, 200)
+        self.assertEqual(add_response.json()["item"]["collaboration_note"], "combined")
+        active_item.refresh_from_db()
+        self.assertEqual(active_item.quantity, Decimal("3.00"))
+        self.assertEqual(active_item.collaboration_note, "COMBINED")
+
+    def test_shopping_list_marks_added_when_readding_executed_item_after_other_user_started(self):
+        owner_token = self._login_and_get_token("owner@example.com")
+        app_token = self._login_and_get_token("appstaff@example.com")
+        shopping_list = ShoppingList.objects.create(
+            caterer=self.caterer,
+            title="Added marker list",
+            created_by=self.user,
+        )
+        item = ShoppingListItem.objects.create(
+            shopping_list=shopping_list,
+            item_name="Chicken breast",
+            item_type="",
+            item_unit="Kg",
+            quantity=Decimal("4.00"),
+            category="MEAT_POULTRY_FISH",
+            created_by=self.user,
+        )
+        remove_response = self.client.post(
+            reverse("xpenz_shopping_list_remove_item", args=[shopping_list.id, item.id]),
+            HTTP_AUTHORIZATION=f"Bearer {owner_token}",
+        )
+        self.assertEqual(remove_response.status_code, 200)
+
+        add_response = self.client.post(
+            reverse("xpenz_shopping_list_items", args=[shopping_list.id]),
+            data=json.dumps(
+                {
+                    "item_name": "Chicken breast",
+                    "item_type": "",
+                    "item_unit": "Kg",
+                    "quantity": "2",
+                }
+            ),
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {app_token}",
+        )
+        self.assertEqual(add_response.status_code, 201)
+        payload = add_response.json()
+        self.assertEqual(payload["item"]["collaboration_note"], "added")
 
     def test_shopping_list_remove_item(self):
         token = self._login_and_get_token("appstaff@example.com")
@@ -375,6 +527,11 @@ class XpenzApiTests(TestCase):
         self.assertEqual(remove_response.status_code, 200)
         item.refresh_from_db()
         self.assertTrue(item.is_completed)
+        self.assertEqual(item.completed_by, self.app_user)
+        self.assertIsNotNone(item.completed_at)
+        shopping_list.refresh_from_db()
+        self.assertEqual(shopping_list.execution_started_by, self.app_user)
+        self.assertIsNotNone(shopping_list.execution_started_at)
 
         detail_response = self.client.get(
             reverse("xpenz_shopping_list_detail", args=[shopping_list.id]),
@@ -460,6 +617,7 @@ class XpenzApiTests(TestCase):
             shopping_list=shopping_list,
             item_name="apples",
             item_type="Red",
+            item_unit="Kg",
             quantity=Decimal("3.00"),
             category="PRODUCE",
             created_by=self.app_user,
@@ -480,6 +638,7 @@ class XpenzApiTests(TestCase):
         self.assertEqual(apples["category"], "PRODUCE")
         self.assertEqual(apples["usage_count"], 2)
         self.assertEqual(apples["type_options"], ["Green", "Red"])
+        self.assertEqual(apples["unit_options"], ["Kg", "Pieces", "Cans"])
 
     def test_admin_can_create_app_user_from_global_permissions_tab(self):
         self.client.force_login(self.user)

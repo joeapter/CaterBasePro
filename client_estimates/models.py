@@ -1250,6 +1250,17 @@ class ShoppingList(models.Model):
         help_text="Optional estimate reference used for context only.",
     )
     title = models.CharField(max_length=200, blank=True)
+    execution_started_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="shopping_lists_execution_started",
+    )
+    execution_started_at = models.DateTimeField(
+        null=True,
+        blank=True,
+    )
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
@@ -1283,10 +1294,26 @@ class ShoppingListItem(models.Model):
         blank=True,
         help_text="Optional variant, e.g. pack size, dry/fresh, jar, etc.",
     )
+    item_unit = models.CharField(
+        max_length=60,
+        blank=True,
+        help_text="Optional quantity unit, e.g. Kg, Pieces, Cans.",
+    )
     quantity = models.DecimalField(
         max_digits=10,
         decimal_places=2,
         default=Decimal("1.00"),
+    )
+    collaboration_note = models.CharField(
+        max_length=20,
+        choices=[
+            ("", "None"),
+            ("COMBINED", "Combined"),
+            ("ADDED", "Added"),
+        ],
+        blank=True,
+        default="",
+        help_text="Collaboration marker shown during shared list execution.",
     )
     is_completed = models.BooleanField(
         default=False,
@@ -1304,22 +1331,47 @@ class ShoppingListItem(models.Model):
         blank=True,
         related_name="shopping_list_items_created",
     )
+    completed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="shopping_list_items_completed",
+    )
+    completed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        ordering = ["is_completed", "category", "item_name", "item_type", "created_at"]
+        ordering = [
+            "is_completed",
+            "category",
+            "item_name",
+            "item_type",
+            "item_unit",
+            "created_at",
+        ]
         verbose_name = "Shopping list item"
         verbose_name_plural = "Shopping list items"
 
     def __str__(self):
+        detail_bits = []
         if self.item_type:
-            return f"{self.item_name} ({self.item_type}) x {self.quantity}"
+            detail_bits.append(self.item_type)
+        if self.item_unit:
+            detail_bits.append(self.item_unit)
+        if detail_bits:
+            detail = ", ".join(detail_bits)
+            return f"{self.item_name} ({detail}) x {self.quantity}"
         return f"{self.item_name} x {self.quantity}"
 
     def save(self, *args, **kwargs):
         self.item_name = " ".join((self.item_name or "").split()).strip()
         self.item_type = " ".join((self.item_type or "").split()).strip()
+        self.item_unit = " ".join((self.item_unit or "").split()).strip()
         if not self.quantity or self.quantity <= Decimal("0.00"):
             self.quantity = Decimal("1.00")
         self.quantity = Decimal(self.quantity).quantize(Decimal("0.01"))

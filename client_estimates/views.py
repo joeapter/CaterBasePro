@@ -141,6 +141,7 @@ DISPOSABLE_KEYWORDS = {
     "container",
     "containers",
 }
+DEFAULT_SHOPPING_UNIT_OPTIONS = ("Kg", "Pieces", "Cans")
 
 
 class TrialSignupForm(forms.Form):
@@ -522,6 +523,22 @@ def _normalize_item_text(value):
     return " ".join((value or "").strip().split())
 
 
+def _merge_option_values(*groups):
+    seen = set()
+    merged = []
+    for group in groups:
+        for raw_value in group or []:
+            value = _normalize_item_text(raw_value)
+            if not value:
+                continue
+            key = value.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            merged.append(value)
+    return merged
+
+
 def _parse_quantity(value):
     raw = _normalize_item_text(value)
     if not raw:
@@ -582,6 +599,12 @@ def _serialize_shopping_list_entry(entry):
         "estimate_id": entry.estimate_id,
         "estimate_label": estimate_label,
         "item_count": getattr(entry, "item_count", 0),
+        "execution_started_at": entry.execution_started_at.isoformat() if entry.execution_started_at else "",
+        "execution_started_by": (
+            entry.execution_started_by.get_username()
+            if getattr(entry, "execution_started_by", None)
+            else ""
+        ),
         "created_by": entry.created_by.get_username() if entry.created_by else "",
         "created_at": entry.created_at.isoformat() if entry.created_at else "",
         "updated_at": entry.updated_at.isoformat() if entry.updated_at else "",
@@ -593,9 +616,11 @@ def _serialize_shopping_item(entry):
         "id": entry.id,
         "item_name": entry.item_name,
         "item_type": entry.item_type,
+        "item_unit": entry.item_unit,
         "quantity": _format_quantity(entry.quantity),
         "category": entry.category,
         "category_label": entry.get_category_display(),
+        "collaboration_note": (entry.collaboration_note or "").lower(),
         "created_at": entry.created_at.isoformat() if entry.created_at else "",
     }
 
@@ -620,6 +645,7 @@ def _shopping_catalog_payload(rows):
                 "usage_count": 0,
                 "category_counts": {},
                 "type_options": set(),
+                "unit_options": set(),
             }
         bucket = grouped[key]
         bucket["usage_count"] += 1
@@ -630,6 +656,9 @@ def _shopping_catalog_payload(rows):
         item_type = _normalize_item_text(row.item_type)
         if item_type:
             bucket["type_options"].add(item_type)
+        item_unit = _normalize_item_text(row.item_unit)
+        if item_unit:
+            bucket["unit_options"].add(item_unit)
 
     items = []
     for bucket in grouped.values():
@@ -648,6 +677,10 @@ def _shopping_catalog_payload(rows):
                 "category": category_code,
                 "category_label": SHOPPING_CATEGORY_LABELS.get(category_code, "Other"),
                 "type_options": sorted(bucket["type_options"], key=lambda value: value.lower()),
+                "unit_options": _merge_option_values(
+                    DEFAULT_SHOPPING_UNIT_OPTIONS,
+                    sorted(bucket["unit_options"], key=lambda value: value.lower()),
+                ),
             }
         )
 
@@ -1034,7 +1067,12 @@ def xpenz_shopping_lists(request):
         return _json_error("No mobile app access is configured for this user.", status=403)
 
     if request.method == "GET":
-        rows = ShoppingList.objects.select_related("caterer", "estimate", "created_by").annotate(
+        rows = ShoppingList.objects.select_related(
+            "caterer",
+            "estimate",
+            "created_by",
+            "execution_started_by",
+        ).annotate(
             item_count=Count("items", filter=Q(items__is_completed=False))
         )
         if not user.is_superuser:
@@ -1131,7 +1169,12 @@ def xpenz_shopping_lists(request):
 
 def _shopping_list_for_user(user, shopping_list_id, access_map):
     entry = get_object_or_404(
-        ShoppingList.objects.select_related("caterer", "estimate", "created_by"),
+        ShoppingList.objects.select_related(
+            "caterer",
+            "estimate",
+            "created_by",
+            "execution_started_by",
+        ),
         pk=shopping_list_id,
     )
     access = _mobile_access_for_caterer(user, entry.caterer_id, access_map=access_map)
@@ -1164,6 +1207,7 @@ def xpenz_shopping_list_detail(request, shopping_list_id):
             SHOPPING_CATEGORY_ORDER.get(row.category, 999),
             (row.item_name or "").lower(),
             (row.item_type or "").lower(),
+            (row.item_unit or "").lower(),
             row.created_at,
         ),
     )
@@ -1210,6 +1254,9 @@ def xpenz_shopping_list_items(request, shopping_list_id):
     item_type = _normalize_item_text(
         payload.get("item_type") if payload.get("item_type") is not None else request.POST.get("item_type", "")
     )
+    item_unit = _normalize_item_text(
+        payload.get("item_unit") if payload.get("item_unit") is not None else request.POST.get("item_unit", "")
+    )
     raw_quantity = payload.get("quantity") if payload.get("quantity") is not None else request.POST.get("quantity")
     quantity = _parse_quantity(raw_quantity or "")
     if quantity is None:
@@ -1218,26 +1265,48 @@ def xpenz_shopping_list_items(request, shopping_list_id):
         return _json_error("`item_name` is required.", status=400)
 
     category = _infer_shopping_category(item_name)
+    execution_started_by_other = bool(
+        shopping_list.execution_started_at
+        and shopping_list.execution_started_by_id
+        and shopping_list.execution_started_by_id != user.id
+    )
     existing = ShoppingListItem.objects.filter(
         shopping_list=shopping_list,
         is_completed=False,
         item_name__iexact=item_name,
         item_type__iexact=item_type,
+        item_unit__iexact=item_unit,
     ).first()
 
     if existing:
         existing.quantity = (existing.quantity or Decimal("0.00")) + quantity
         existing.category = category
-        existing.save(update_fields=["quantity", "category", "updated_at"])
+        if execution_started_by_other:
+            existing.collaboration_note = "COMBINED"
+        existing.save(update_fields=["quantity", "category", "collaboration_note", "updated_at"])
         item = existing
         merged = True
     else:
+        completed_match_exists = ShoppingListItem.objects.filter(
+            shopping_list=shopping_list,
+            is_completed=True,
+            item_name__iexact=item_name,
+            item_type__iexact=item_type,
+            item_unit__iexact=item_unit,
+        ).exists()
+        collaboration_note = ""
+        if execution_started_by_other and completed_match_exists:
+            collaboration_note = "ADDED"
+        elif execution_started_by_other and not completed_match_exists:
+            collaboration_note = "ADDED"
         item = ShoppingListItem.objects.create(
             shopping_list=shopping_list,
             item_name=item_name,
             item_type=item_type,
+            item_unit=item_unit,
             quantity=quantity,
             category=category,
+            collaboration_note=collaboration_note,
             created_by=user,
         )
         merged = False
@@ -1277,9 +1346,18 @@ def xpenz_shopping_list_remove_item(request, shopping_list_id, item_id):
         shopping_list=shopping_list,
         is_completed=False,
     )
+    now = timezone.now()
+    if not shopping_list.execution_started_at:
+        shopping_list.execution_started_at = now
+        shopping_list.execution_started_by = user
+        shopping_list.save(
+            update_fields=["execution_started_at", "execution_started_by", "updated_at"]
+        )
     item.is_completed = True
-    item.save(update_fields=["is_completed", "updated_at"])
-    ShoppingList.objects.filter(pk=shopping_list.pk).update(updated_at=timezone.now())
+    item.completed_by = user
+    item.completed_at = now
+    item.save(update_fields=["is_completed", "completed_by", "completed_at", "updated_at"])
+    ShoppingList.objects.filter(pk=shopping_list.pk).update(updated_at=now)
     return JsonResponse({"ok": True, "shopping_list_id": shopping_list.id, "item_id": item_id})
 
 

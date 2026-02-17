@@ -111,9 +111,11 @@ type ShoppingItem = {
   id: number;
   item_name: string;
   item_type: string;
+  item_unit: string;
   quantity: string;
   category: string;
   category_label: string;
+  collaboration_note: string;
   created_at: string;
 };
 
@@ -122,6 +124,7 @@ type ShoppingCatalogItem = {
   category: string;
   category_label: string;
   type_options: string[];
+  unit_options: string[];
   usage_count: number;
 };
 
@@ -135,6 +138,7 @@ const TOKEN_KEY = 'xpenz_token';
 const BASE_URL_KEY = 'xpenz_base_url';
 const DEFAULT_BASE_URL = 'https://www.caterbasepro.com';
 const SHEKEL_SYMBOL = '₪';
+const DEFAULT_SHOPPING_UNIT_OPTIONS = ['Kg', 'Pieces', 'Cans'];
 
 function normalizeBaseUrl(value: string) {
   return value.trim().replace(/\/+$/, '');
@@ -166,6 +170,22 @@ function formatDateTime(iso: string) {
 
 function formatShekel(amount: string) {
   return `${SHEKEL_SYMBOL}${amount}`;
+}
+
+function mergeOptionValues(...groups: Array<Array<string> | undefined>) {
+  const seen = new Set<string>();
+  const merged: string[] = [];
+  for (const group of groups) {
+    for (const raw of group || []) {
+      const value = (raw || '').trim();
+      if (!value) continue;
+      const key = value.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      merged.push(value);
+    }
+  }
+  return merged;
 }
 
 export default function App() {
@@ -212,9 +232,11 @@ export default function App() {
   const [newShoppingItemName, setNewShoppingItemName] = useState('');
   const [newShoppingItemType, setNewShoppingItemType] = useState('');
   const [newShoppingItemQuantity, setNewShoppingItemQuantity] = useState('1');
+  const [newShoppingItemUnit, setNewShoppingItemUnit] = useState('');
   const [selectedCatalogItem, setSelectedCatalogItem] = useState<ShoppingCatalogItem | null>(null);
   const [catalogItemType, setCatalogItemType] = useState('');
   const [catalogItemQuantity, setCatalogItemQuantity] = useState('1');
+  const [catalogItemUnit, setCatalogItemUnit] = useState('');
 
   const [drafts, setDrafts] = useState<ExpenseDraft[]>([]);
   const [activeRecordingDraftId, setActiveRecordingDraftId] = useState<string | null>(null);
@@ -389,6 +411,27 @@ export default function App() {
     return Array.from(grouped.values());
   }, [shoppingItems]);
 
+  const knownUnitOptions = useMemo(() => {
+    const fromCatalog = shoppingCatalogCategories.flatMap((category) =>
+      category.items.flatMap((item) => item.unit_options || []),
+    );
+    return mergeOptionValues(
+      DEFAULT_SHOPPING_UNIT_OPTIONS,
+      fromCatalog,
+      [newShoppingItemUnit],
+    );
+  }, [newShoppingItemUnit, shoppingCatalogCategories]);
+
+  const selectedCatalogUnitOptions = useMemo(
+    () =>
+      mergeOptionValues(
+        DEFAULT_SHOPPING_UNIT_OPTIONS,
+        selectedCatalogItem?.unit_options || [],
+        [catalogItemUnit],
+      ),
+    [catalogItemUnit, selectedCatalogItem],
+  );
+
   useEffect(() => {
     async function bootstrap() {
       try {
@@ -429,6 +472,28 @@ export default function App() {
       setShoppingCatererId(catererChoices[0].id);
     }
   }, [catererChoices, shoppingEstimateRefId]);
+
+  useEffect(() => {
+    if (!token || mainTab !== 'shopping' || !selectedShoppingList?.id || selectedEstimate) {
+      return;
+    }
+    const intervalId = setInterval(() => {
+      loadShoppingListDetail(selectedShoppingList.id).catch(() => {
+        // Keep polling alive even if one request fails.
+      });
+      loadShoppingLists().catch(() => {
+        // Keep polling alive even if one request fails.
+      });
+    }, 3500);
+    return () => clearInterval(intervalId);
+  }, [
+    loadShoppingListDetail,
+    loadShoppingLists,
+    mainTab,
+    selectedEstimate,
+    selectedShoppingList?.id,
+    token,
+  ]);
 
   const handleLogin = useCallback(async () => {
     const cleanBase = normalizeBaseUrl(apiBaseUrl);
@@ -495,9 +560,11 @@ export default function App() {
       setNewShoppingItemName('');
       setNewShoppingItemType('');
       setNewShoppingItemQuantity('1');
+      setNewShoppingItemUnit('');
       setSelectedCatalogItem(null);
       setCatalogItemType('');
       setCatalogItemQuantity('1');
+      setCatalogItemUnit('');
       setDrafts([]);
     }
   }, []);
@@ -600,7 +667,12 @@ export default function App() {
   );
 
   const submitShoppingItem = useCallback(
-    async (itemNameRaw: string, itemTypeRaw: string, quantityRaw: string) => {
+    async (
+      itemNameRaw: string,
+      itemTypeRaw: string,
+      quantityRaw: string,
+      itemUnitRaw: string,
+    ) => {
       if (!selectedShoppingList || !token) {
         return false;
       }
@@ -624,6 +696,7 @@ export default function App() {
               item_name: itemName,
               item_type: itemTypeRaw.trim(),
               quantity: quantityRaw.trim() || '1',
+              item_unit: itemUnitRaw.trim(),
             }),
           },
         );
@@ -655,6 +728,7 @@ export default function App() {
       newShoppingItemName,
       newShoppingItemType,
       newShoppingItemQuantity,
+      newShoppingItemUnit,
     );
     if (!added) {
       return;
@@ -662,12 +736,14 @@ export default function App() {
     setNewShoppingItemName('');
     setNewShoppingItemType('');
     setNewShoppingItemQuantity('1');
-  }, [newShoppingItemName, newShoppingItemQuantity, newShoppingItemType, submitShoppingItem]);
+    setNewShoppingItemUnit('');
+  }, [newShoppingItemName, newShoppingItemQuantity, newShoppingItemType, newShoppingItemUnit, submitShoppingItem]);
 
   const openCatalogItemEditor = useCallback((item: ShoppingCatalogItem) => {
     setSelectedCatalogItem(item);
     setCatalogItemType('');
     setCatalogItemQuantity('1');
+    setCatalogItemUnit('');
   }, []);
 
   const handleAddCatalogItem = useCallback(async () => {
@@ -678,6 +754,7 @@ export default function App() {
       selectedCatalogItem.item_name,
       catalogItemType,
       catalogItemQuantity,
+      catalogItemUnit,
     );
     if (!added) {
       return;
@@ -685,7 +762,8 @@ export default function App() {
     setSelectedCatalogItem(null);
     setCatalogItemType('');
     setCatalogItemQuantity('1');
-  }, [catalogItemQuantity, catalogItemType, selectedCatalogItem, submitShoppingItem]);
+    setCatalogItemUnit('');
+  }, [catalogItemQuantity, catalogItemType, catalogItemUnit, selectedCatalogItem, submitShoppingItem]);
 
   const handleRemoveShoppingItem = useCallback(
     async (item: ShoppingItem) => {
@@ -1183,6 +1261,7 @@ export default function App() {
                       setSelectedShoppingList(null);
                       setShoppingItems([]);
                       setSelectedCatalogItem(null);
+                      setCatalogItemUnit('');
                     }}
                   >
                     <Text style={styles.smallButtonText}>Back to Lists</Text>
@@ -1217,6 +1296,33 @@ export default function App() {
                   keyboardType="decimal-pad"
                   placeholder="Quantity (default 1)"
                 />
+                <TextInput
+                  style={styles.input}
+                  value={newShoppingItemUnit}
+                  onChangeText={setNewShoppingItemUnit}
+                  placeholder="Kg, Pieces, Cans"
+                />
+                <View style={styles.catalogItemWrap}>
+                  {knownUnitOptions.map((option) => {
+                    const selected = newShoppingItemUnit.trim().toLowerCase() === option.toLowerCase();
+                    return (
+                      <Pressable
+                        key={`manual-unit-${option}`}
+                        style={[styles.catalogTypePill, selected && styles.selectedPill]}
+                        onPress={() => setNewShoppingItemUnit(option)}
+                      >
+                        <Text
+                          style={[
+                            styles.catalogTypePillText,
+                            selected && styles.selectedPillText,
+                          ]}
+                        >
+                          {option}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
                 <Pressable
                   style={[styles.primaryButton, addingShoppingItem && styles.buttonDisabled]}
                   onPress={handleAddShoppingItem}
@@ -1235,7 +1341,7 @@ export default function App() {
                   </Pressable>
                 </View>
                 <Text style={styles.subtleText}>
-                  Tap a saved item, then choose type and quantity.
+                  Tap a saved item, then choose type, quantity, and unit.
                 </Text>
                 {loadingShoppingCatalog ? (
                   <ActivityIndicator color="#0f766e" />
@@ -1268,7 +1374,7 @@ export default function App() {
 
               <View style={styles.sectionCard}>
                 <Text style={styles.sectionTitle}>Execute List</Text>
-                <Text style={styles.subtleText}>Tap an item or X to remove it when purchased.</Text>
+                <Text style={styles.subtleText}>Tap X to remove an item when purchased.</Text>
                 {loadingShoppingItems ? (
                   <ActivityIndicator color="#0f766e" />
                 ) : (
@@ -1277,21 +1383,25 @@ export default function App() {
                       <View key={section.label} style={styles.shoppingCategoryBlock}>
                         <Text style={styles.shoppingCategoryTitle}>{section.label}</Text>
                         {section.items.map((item) => (
-                          <Pressable
+                          <View
                             key={item.id}
                             style={[
                               styles.shoppingItemRow,
                               removingShoppingItemId === item.id && styles.buttonDisabled,
                             ]}
-                            onPress={() => handleRemoveShoppingItem(item)}
-                            disabled={removingShoppingItemId === item.id}
                           >
                             <View style={styles.shoppingItemTextWrap}>
                               <Text style={styles.shoppingItemMain}>
                                 {item.item_name}
                                 {item.item_type ? ` (${item.item_type})` : ''}
+                                {item.collaboration_note
+                                  ? ` (${item.collaboration_note.toLowerCase()})`
+                                  : ''}
                               </Text>
-                              <Text style={styles.subtleText}>Qty: {item.quantity}</Text>
+                              <Text style={styles.subtleText}>
+                                Qty: {item.quantity}
+                                {item.item_unit ? ` ${item.item_unit}` : ''}
+                              </Text>
                             </View>
                             <Pressable
                               style={styles.shoppingItemRemove}
@@ -1303,7 +1413,7 @@ export default function App() {
                             >
                               <Text style={styles.shoppingItemRemoveText}>✕</Text>
                             </Pressable>
-                          </Pressable>
+                          </View>
                         ))}
                       </View>
                     ))}
@@ -1463,12 +1573,15 @@ export default function App() {
           visible={!!selectedCatalogItem}
           transparent
           animationType="slide"
-          onRequestClose={() => setSelectedCatalogItem(null)}
+          onRequestClose={() => {
+            setSelectedCatalogItem(null);
+            setCatalogItemUnit('');
+          }}
         >
           <View style={styles.modalBackdrop}>
             <View style={styles.modalCard}>
               <Text style={styles.sectionTitle}>{selectedCatalogItem?.item_name || 'Add Item'}</Text>
-              <Text style={styles.subtleText}>Select type and quantity for this list.</Text>
+              <Text style={styles.subtleText}>Select type, quantity, and unit for this list.</Text>
               {selectedCatalogItem?.type_options?.length ? (
                 <View style={styles.savedList}>
                   <Text style={styles.subtleText}>Saved types</Text>
@@ -1509,6 +1622,33 @@ export default function App() {
                 keyboardType="decimal-pad"
                 placeholder="Quantity (default 1)"
               />
+              <TextInput
+                style={styles.input}
+                value={catalogItemUnit}
+                onChangeText={setCatalogItemUnit}
+                placeholder="Kg, Pieces, Cans"
+              />
+              <View style={styles.catalogItemWrap}>
+                {selectedCatalogUnitOptions.map((option) => {
+                  const selected = catalogItemUnit.trim().toLowerCase() === option.toLowerCase();
+                  return (
+                    <Pressable
+                      key={`catalog-unit-${option}`}
+                      style={[styles.catalogTypePill, selected && styles.selectedPill]}
+                      onPress={() => setCatalogItemUnit(option)}
+                    >
+                      <Text
+                        style={[
+                          styles.catalogTypePillText,
+                          selected && styles.selectedPillText,
+                        ]}
+                      >
+                        {option}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
               <View style={styles.inlineActions}>
                 <Pressable
                   style={[styles.primaryButton, addingShoppingItem && styles.buttonDisabled]}
@@ -1521,7 +1661,13 @@ export default function App() {
                     <Text style={styles.primaryButtonText}>Add Item</Text>
                   )}
                 </Pressable>
-                <Pressable style={styles.smallButton} onPress={() => setSelectedCatalogItem(null)}>
+                <Pressable
+                  style={styles.smallButton}
+                  onPress={() => {
+                    setSelectedCatalogItem(null);
+                    setCatalogItemUnit('');
+                  }}
+                >
                   <Text style={styles.smallButtonText}>Cancel</Text>
                 </Pressable>
               </View>
