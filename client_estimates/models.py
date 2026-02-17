@@ -1288,6 +1288,10 @@ class ShoppingListItem(models.Model):
         decimal_places=2,
         default=Decimal("1.00"),
     )
+    is_completed = models.BooleanField(
+        default=False,
+        help_text="Checked off/purchased on a shopping run.",
+    )
     category = models.CharField(
         max_length=30,
         choices=SHOPPING_CATEGORY_CHOICES,
@@ -1304,7 +1308,7 @@ class ShoppingListItem(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        ordering = ["category", "item_name", "item_type", "created_at"]
+        ordering = ["is_completed", "category", "item_name", "item_type", "created_at"]
         verbose_name = "Shopping list item"
         verbose_name_plural = "Shopping list items"
 

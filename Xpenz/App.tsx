@@ -117,6 +117,20 @@ type ShoppingItem = {
   created_at: string;
 };
 
+type ShoppingCatalogItem = {
+  item_name: string;
+  category: string;
+  category_label: string;
+  type_options: string[];
+  usage_count: number;
+};
+
+type ShoppingCatalogCategory = {
+  category: string;
+  category_label: string;
+  items: ShoppingCatalogItem[];
+};
+
 const TOKEN_KEY = 'xpenz_token';
 const BASE_URL_KEY = 'xpenz_base_url';
 const DEFAULT_BASE_URL = 'https://www.caterbasepro.com';
@@ -187,6 +201,8 @@ export default function App() {
   const [selectedShoppingList, setSelectedShoppingList] = useState<ShoppingListRow | null>(null);
   const [shoppingItems, setShoppingItems] = useState<ShoppingItem[]>([]);
   const [loadingShoppingItems, setLoadingShoppingItems] = useState(false);
+  const [shoppingCatalogCategories, setShoppingCatalogCategories] = useState<ShoppingCatalogCategory[]>([]);
+  const [loadingShoppingCatalog, setLoadingShoppingCatalog] = useState(false);
   const [addingShoppingItem, setAddingShoppingItem] = useState(false);
   const [removingShoppingItemId, setRemovingShoppingItemId] = useState<number | null>(null);
   const [shoppingListTitle, setShoppingListTitle] = useState('');
@@ -196,6 +212,9 @@ export default function App() {
   const [newShoppingItemName, setNewShoppingItemName] = useState('');
   const [newShoppingItemType, setNewShoppingItemType] = useState('');
   const [newShoppingItemQuantity, setNewShoppingItemQuantity] = useState('1');
+  const [selectedCatalogItem, setSelectedCatalogItem] = useState<ShoppingCatalogItem | null>(null);
+  const [catalogItemType, setCatalogItemType] = useState('');
+  const [catalogItemQuantity, setCatalogItemQuantity] = useState('1');
 
   const [drafts, setDrafts] = useState<ExpenseDraft[]>([]);
   const [activeRecordingDraftId, setActiveRecordingDraftId] = useState<string | null>(null);
@@ -326,6 +345,26 @@ export default function App() {
     [authFetchJson],
   );
 
+  const loadShoppingCatalog = useCallback(
+    async (overrideToken?: string, overrideBaseUrl?: string) => {
+      setLoadingShoppingCatalog(true);
+      try {
+        const payload = await authFetchJson(
+          '/api/xpenz/shopping-catalog/',
+          { method: 'GET' },
+          overrideToken,
+          overrideBaseUrl,
+        );
+        setShoppingCatalogCategories(
+          Array.isArray(payload.categories) ? payload.categories : [],
+        );
+      } finally {
+        setLoadingShoppingCatalog(false);
+      }
+    },
+    [authFetchJson],
+  );
+
   const catererChoices = useMemo(() => {
     const map = new Map<number, string>();
     for (const estimate of estimates) {
@@ -365,6 +404,7 @@ export default function App() {
           await Promise.all([
             loadEstimates(savedToken, savedBase),
             loadShoppingLists(savedToken, savedBase),
+            loadShoppingCatalog(savedToken, savedBase),
           ]);
         }
       } catch {
@@ -379,7 +419,7 @@ export default function App() {
     }
 
     bootstrap();
-  }, [loadEstimates, loadShoppingLists]);
+  }, [loadEstimates, loadShoppingCatalog, loadShoppingLists]);
 
   useEffect(() => {
     if (shoppingEstimateRefId) {
@@ -417,6 +457,7 @@ export default function App() {
       await Promise.all([
         loadEstimates(payload.token, cleanBase),
         loadShoppingLists(payload.token, cleanBase),
+        loadShoppingCatalog(payload.token, cleanBase),
       ]);
       setPassword('');
     } catch (error) {
@@ -424,7 +465,7 @@ export default function App() {
     } finally {
       setLoggingIn(false);
     }
-  }, [apiBaseUrl, loadEstimates, loadShoppingLists, password, username]);
+  }, [apiBaseUrl, loadEstimates, loadShoppingCatalog, loadShoppingLists, password, username]);
 
   const handleLogout = useCallback(async () => {
     try {
@@ -446,6 +487,7 @@ export default function App() {
       setShoppingLists([]);
       setSelectedShoppingList(null);
       setShoppingItems([]);
+      setShoppingCatalogCategories([]);
       setShoppingListTitle('');
       setShoppingCatererId(null);
       setShoppingEstimateRefId(null);
@@ -453,6 +495,9 @@ export default function App() {
       setNewShoppingItemName('');
       setNewShoppingItemType('');
       setNewShoppingItemQuantity('1');
+      setSelectedCatalogItem(null);
+      setCatalogItemType('');
+      setCatalogItemQuantity('1');
       setDrafts([]);
     }
   }, []);
@@ -511,7 +556,10 @@ export default function App() {
       }
       await loadShoppingLists();
       setSelectedShoppingList(payload.shopping_list);
-      await loadShoppingListDetail(payload.shopping_list.id);
+      await Promise.all([
+        loadShoppingListDetail(payload.shopping_list.id),
+        loadShoppingCatalog(),
+      ]);
     } catch (error) {
       Alert.alert(
         'Create list failed',
@@ -524,6 +572,7 @@ export default function App() {
     apiBaseUrl,
     catererChoices,
     estimates,
+    loadShoppingCatalog,
     loadShoppingListDetail,
     loadShoppingLists,
     shoppingCatererId,
@@ -536,7 +585,10 @@ export default function App() {
     async (shoppingList: ShoppingListRow) => {
       setSelectedShoppingList(shoppingList);
       try {
-        await loadShoppingListDetail(shoppingList.id);
+        await Promise.all([
+          loadShoppingListDetail(shoppingList.id),
+          loadShoppingCatalog(),
+        ]);
       } catch (error) {
         Alert.alert(
           'Load error',
@@ -544,63 +596,96 @@ export default function App() {
         );
       }
     },
-    [loadShoppingListDetail],
+    [loadShoppingCatalog, loadShoppingListDetail],
+  );
+
+  const submitShoppingItem = useCallback(
+    async (itemNameRaw: string, itemTypeRaw: string, quantityRaw: string) => {
+      if (!selectedShoppingList || !token) {
+        return false;
+      }
+      const itemName = itemNameRaw.trim();
+      if (!itemName) {
+        Alert.alert('Missing item', 'Enter the shopping item name.');
+        return false;
+      }
+
+      setAddingShoppingItem(true);
+      try {
+        const response = await fetch(
+          apiUrl(apiBaseUrl, `/api/xpenz/shopping-lists/${selectedShoppingList.id}/items/`),
+          {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${token}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              item_name: itemName,
+              item_type: itemTypeRaw.trim(),
+              quantity: quantityRaw.trim() || '1',
+            }),
+          },
+        );
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok || payload.ok === false) {
+          throw new Error(payload.error || 'Unable to add shopping item.');
+        }
+        await Promise.all([
+          loadShoppingListDetail(selectedShoppingList.id),
+          loadShoppingLists(),
+          loadShoppingCatalog(),
+        ]);
+        return true;
+      } catch (error) {
+        Alert.alert(
+          'Add item failed',
+          error instanceof Error ? error.message : 'Unable to add shopping item.',
+        );
+        return false;
+      } finally {
+        setAddingShoppingItem(false);
+      }
+    },
+    [apiBaseUrl, loadShoppingCatalog, loadShoppingListDetail, loadShoppingLists, selectedShoppingList, token],
   );
 
   const handleAddShoppingItem = useCallback(async () => {
-    if (!selectedShoppingList || !token) {
+    const added = await submitShoppingItem(
+      newShoppingItemName,
+      newShoppingItemType,
+      newShoppingItemQuantity,
+    );
+    if (!added) {
       return;
     }
-    if (!newShoppingItemName.trim()) {
-      Alert.alert('Missing item', 'Enter the shopping item name.');
+    setNewShoppingItemName('');
+    setNewShoppingItemType('');
+    setNewShoppingItemQuantity('1');
+  }, [newShoppingItemName, newShoppingItemQuantity, newShoppingItemType, submitShoppingItem]);
+
+  const openCatalogItemEditor = useCallback((item: ShoppingCatalogItem) => {
+    setSelectedCatalogItem(item);
+    setCatalogItemType('');
+    setCatalogItemQuantity('1');
+  }, []);
+
+  const handleAddCatalogItem = useCallback(async () => {
+    if (!selectedCatalogItem) {
       return;
     }
-    setAddingShoppingItem(true);
-    try {
-      const response = await fetch(
-        apiUrl(apiBaseUrl, `/api/xpenz/shopping-lists/${selectedShoppingList.id}/items/`),
-        {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            item_name: newShoppingItemName.trim(),
-            item_type: newShoppingItemType.trim(),
-            quantity: newShoppingItemQuantity.trim() || '1',
-          }),
-        },
-      );
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok || payload.ok === false) {
-        throw new Error(payload.error || 'Unable to add shopping item.');
-      }
-      setNewShoppingItemName('');
-      setNewShoppingItemType('');
-      setNewShoppingItemQuantity('1');
-      await Promise.all([
-        loadShoppingListDetail(selectedShoppingList.id),
-        loadShoppingLists(),
-      ]);
-    } catch (error) {
-      Alert.alert(
-        'Add item failed',
-        error instanceof Error ? error.message : 'Unable to add shopping item.',
-      );
-    } finally {
-      setAddingShoppingItem(false);
+    const added = await submitShoppingItem(
+      selectedCatalogItem.item_name,
+      catalogItemType,
+      catalogItemQuantity,
+    );
+    if (!added) {
+      return;
     }
-  }, [
-    apiBaseUrl,
-    loadShoppingListDetail,
-    loadShoppingLists,
-    newShoppingItemName,
-    newShoppingItemQuantity,
-    newShoppingItemType,
-    selectedShoppingList,
-    token,
-  ]);
+    setSelectedCatalogItem(null);
+    setCatalogItemType('');
+    setCatalogItemQuantity('1');
+  }, [catalogItemQuantity, catalogItemType, selectedCatalogItem, submitShoppingItem]);
 
   const handleRemoveShoppingItem = useCallback(
     async (item: ShoppingItem) => {
@@ -1025,9 +1110,12 @@ export default function App() {
                   return;
                 }
                 if (selectedShoppingList) {
-                  loadShoppingListDetail(selectedShoppingList.id);
+                  Promise.all([
+                    loadShoppingListDetail(selectedShoppingList.id),
+                    loadShoppingCatalog(),
+                  ]);
                 } else {
-                  loadShoppingLists();
+                  Promise.all([loadShoppingLists(), loadShoppingCatalog()]);
                 }
               }}
             >
@@ -1094,6 +1182,7 @@ export default function App() {
                     onPress={() => {
                       setSelectedShoppingList(null);
                       setShoppingItems([]);
+                      setSelectedCatalogItem(null);
                     }}
                   >
                     <Text style={styles.smallButtonText}>Back to Lists</Text>
@@ -1139,6 +1228,42 @@ export default function App() {
                     <Text style={styles.primaryButtonText}>Add To List</Text>
                   )}
                 </Pressable>
+                <View style={styles.headerRow}>
+                  <Text style={styles.sectionTitle}>Saved Items</Text>
+                  <Pressable style={styles.smallButton} onPress={() => loadShoppingCatalog()}>
+                    <Text style={styles.smallButtonText}>Refresh</Text>
+                  </Pressable>
+                </View>
+                <Text style={styles.subtleText}>
+                  Tap a saved item, then choose type and quantity.
+                </Text>
+                {loadingShoppingCatalog ? (
+                  <ActivityIndicator color="#0f766e" />
+                ) : (
+                  <View style={styles.savedList}>
+                    {shoppingCatalogCategories.map((category) => (
+                      <View key={category.category} style={styles.catalogCategoryBlock}>
+                        <Text style={styles.catalogCategoryTitle}>{category.category_label}</Text>
+                        <View style={styles.catalogItemWrap}>
+                          {category.items.map((item) => (
+                            <Pressable
+                              key={`${category.category}-${item.item_name}`}
+                              style={styles.catalogItemPill}
+                              onPress={() => openCatalogItemEditor(item)}
+                            >
+                              <Text style={styles.catalogItemPillText}>{item.item_name}</Text>
+                            </Pressable>
+                          ))}
+                        </View>
+                      </View>
+                    ))}
+                    {!shoppingCatalogCategories.length && (
+                      <Text style={styles.subtleText}>
+                        No saved items yet. Add a few items and they will appear here.
+                      </Text>
+                    )}
+                  </View>
+                )}
               </View>
 
               <View style={styles.sectionCard}>
@@ -1329,6 +1454,75 @@ export default function App() {
                 </Pressable>
                 <Pressable style={styles.smallButton} onPress={() => setShowEstimatePicker(false)}>
                   <Text style={styles.smallButtonText}>Close</Text>
+                </Pressable>
+              </View>
+            </View>
+          </View>
+        </Modal>
+        <Modal
+          visible={!!selectedCatalogItem}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setSelectedCatalogItem(null)}
+        >
+          <View style={styles.modalBackdrop}>
+            <View style={styles.modalCard}>
+              <Text style={styles.sectionTitle}>{selectedCatalogItem?.item_name || 'Add Item'}</Text>
+              <Text style={styles.subtleText}>Select type and quantity for this list.</Text>
+              {selectedCatalogItem?.type_options?.length ? (
+                <View style={styles.savedList}>
+                  <Text style={styles.subtleText}>Saved types</Text>
+                  <View style={styles.catalogItemWrap}>
+                    {selectedCatalogItem.type_options.map((option) => (
+                      <Pressable
+                        key={option}
+                        style={[
+                          styles.catalogTypePill,
+                          catalogItemType.trim().toLowerCase() === option.toLowerCase() && styles.selectedPill,
+                        ]}
+                        onPress={() => setCatalogItemType(option)}
+                      >
+                        <Text
+                          style={[
+                            styles.catalogTypePillText,
+                            catalogItemType.trim().toLowerCase() === option.toLowerCase() &&
+                              styles.selectedPillText,
+                          ]}
+                        >
+                          {option}
+                        </Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                </View>
+              ) : null}
+              <TextInput
+                style={styles.input}
+                value={catalogItemType}
+                onChangeText={setCatalogItemType}
+                placeholder="Item type (optional)"
+              />
+              <TextInput
+                style={styles.input}
+                value={catalogItemQuantity}
+                onChangeText={setCatalogItemQuantity}
+                keyboardType="decimal-pad"
+                placeholder="Quantity (default 1)"
+              />
+              <View style={styles.inlineActions}>
+                <Pressable
+                  style={[styles.primaryButton, addingShoppingItem && styles.buttonDisabled]}
+                  onPress={handleAddCatalogItem}
+                  disabled={addingShoppingItem}
+                >
+                  {addingShoppingItem ? (
+                    <ActivityIndicator color="#ffffff" />
+                  ) : (
+                    <Text style={styles.primaryButtonText}>Add Item</Text>
+                  )}
+                </Pressable>
+                <Pressable style={styles.smallButton} onPress={() => setSelectedCatalogItem(null)}>
+                  <Text style={styles.smallButtonText}>Cancel</Text>
                 </Pressable>
               </View>
             </View>
@@ -1937,6 +2131,45 @@ const styles = StyleSheet.create({
   shoppingCategoryTitle: {
     fontSize: 13,
     fontWeight: '700',
+    color: '#0f172a',
+  },
+  catalogCategoryBlock: {
+    gap: 8,
+  },
+  catalogCategoryTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#0f172a',
+  },
+  catalogItemWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  catalogItemPill: {
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#cbd5e1',
+    backgroundColor: '#f8fafc',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  catalogItemPillText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#0f172a',
+  },
+  catalogTypePill: {
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#94a3b8',
+    backgroundColor: '#ffffff',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  catalogTypePillText: {
+    fontSize: 12,
+    fontWeight: '600',
     color: '#0f172a',
   },
   shoppingItemRow: {

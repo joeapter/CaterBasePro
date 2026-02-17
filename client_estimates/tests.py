@@ -373,9 +373,27 @@ class XpenzApiTests(TestCase):
             HTTP_AUTHORIZATION=f"Bearer {token}",
         )
         self.assertEqual(remove_response.status_code, 200)
-        self.assertFalse(
-            ShoppingListItem.objects.filter(pk=item.id, shopping_list=shopping_list).exists()
+        item.refresh_from_db()
+        self.assertTrue(item.is_completed)
+
+        detail_response = self.client.get(
+            reverse("xpenz_shopping_list_detail", args=[shopping_list.id]),
+            HTTP_AUTHORIZATION=f"Bearer {token}",
         )
+        self.assertEqual(detail_response.status_code, 200)
+        self.assertEqual(detail_response.json()["items"], [])
+
+        list_response = self.client.get(
+            reverse("xpenz_shopping_lists"),
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        self.assertEqual(list_response.status_code, 200)
+        row = next(
+            (entry for entry in list_response.json()["lists"] if entry["id"] == shopping_list.id),
+            None,
+        )
+        self.assertIsNotNone(row)
+        self.assertEqual(row["item_count"], 0)
 
     def test_shopping_list_category_sorting(self):
         token = self._login_and_get_token("appstaff@example.com")
@@ -421,6 +439,47 @@ class XpenzApiTests(TestCase):
             HTTP_AUTHORIZATION=f"Bearer {token}",
         )
         self.assertEqual(response.status_code, 403)
+
+    def test_shopping_catalog_groups_items_and_remembers_type_options(self):
+        token = self._login_and_get_token("appstaff@example.com")
+        shopping_list = ShoppingList.objects.create(
+            caterer=self.caterer,
+            title="Memory list",
+            created_by=self.app_user,
+        )
+        ShoppingListItem.objects.create(
+            shopping_list=shopping_list,
+            item_name="Apples",
+            item_type="Green",
+            quantity=Decimal("2.00"),
+            category="PRODUCE",
+            is_completed=True,
+            created_by=self.app_user,
+        )
+        ShoppingListItem.objects.create(
+            shopping_list=shopping_list,
+            item_name="apples",
+            item_type="Red",
+            quantity=Decimal("3.00"),
+            category="PRODUCE",
+            created_by=self.app_user,
+        )
+
+        response = self.client.get(
+            reverse("xpenz_shopping_catalog"),
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["ok"])
+        apples = next(
+            (row for row in payload["items"] if row["item_name"].lower() == "apples"),
+            None,
+        )
+        self.assertIsNotNone(apples)
+        self.assertEqual(apples["category"], "PRODUCE")
+        self.assertEqual(apples["usage_count"], 2)
+        self.assertEqual(apples["type_options"], ["Green", "Red"])
 
     def test_admin_can_create_app_user_from_global_permissions_tab(self):
         self.client.force_login(self.user)

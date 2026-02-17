@@ -531,8 +531,17 @@ class ShoppingListAdmin(admin.ModelAdmin):
 
 @admin.register(ShoppingListItem)
 class ShoppingListItemAdmin(admin.ModelAdmin):
-    list_display = ("shopping_list", "item_name", "item_type", "quantity", "category", "created_by", "created_at")
-    list_filter = ("category", "shopping_list__caterer", "created_at")
+    list_display = (
+        "shopping_list",
+        "item_name",
+        "item_type",
+        "quantity",
+        "category",
+        "is_completed",
+        "created_by",
+        "created_at",
+    )
+    list_filter = ("category", "is_completed", "shopping_list__caterer", "created_at")
     search_fields = ("item_name", "item_type", "shopping_list__title", "shopping_list__caterer__name")
 
     def get_queryset(self, request):

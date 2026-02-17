@@ -9,7 +9,7 @@ from django.contrib import messages
 from django.contrib.auth import authenticate, get_user_model, login
 from django.core import signing
 from django.core.exceptions import PermissionDenied
-from django.db.models import Count
+from django.db.models import Count, Q
 from django.db.models.functions import Coalesce
 from django.core.mail import send_mail
 from django.http import Http404, HttpResponse, JsonResponse
@@ -47,6 +47,7 @@ STAFF_PUNCH_TOKEN_SALT = "xpenz-staff-punch"
 SHOPPING_CATEGORY_ORDER = {
     code: index for index, (code, _label) in enumerate(SHOPPING_CATEGORY_CHOICES)
 }
+SHOPPING_CATEGORY_LABELS = {code: label for code, label in SHOPPING_CATEGORY_CHOICES}
 
 PRODUCE_KEYWORDS = {
     "produce",
@@ -599,6 +600,89 @@ def _serialize_shopping_item(entry):
     }
 
 
+def _build_shopping_catalog_queryset(user, access_map):
+    rows = ShoppingListItem.objects.select_related("shopping_list", "shopping_list__caterer")
+    if not user.is_superuser:
+        rows = rows.filter(shopping_list__caterer_id__in=list(access_map.keys()))
+    return rows
+
+
+def _shopping_catalog_payload(rows):
+    grouped = {}
+    for row in rows:
+        item_name = _normalize_item_text(row.item_name)
+        if not item_name:
+            continue
+        key = item_name.lower()
+        if key not in grouped:
+            grouped[key] = {
+                "item_name": item_name,
+                "usage_count": 0,
+                "category_counts": {},
+                "type_options": set(),
+            }
+        bucket = grouped[key]
+        bucket["usage_count"] += 1
+
+        category_code = row.category or _infer_shopping_category(item_name)
+        bucket["category_counts"][category_code] = bucket["category_counts"].get(category_code, 0) + 1
+
+        item_type = _normalize_item_text(row.item_type)
+        if item_type:
+            bucket["type_options"].add(item_type)
+
+    items = []
+    for bucket in grouped.values():
+        category_counts = bucket["category_counts"]
+        if category_counts:
+            category_code = sorted(
+                category_counts.items(),
+                key=lambda part: (-part[1], SHOPPING_CATEGORY_ORDER.get(part[0], 999), part[0]),
+            )[0][0]
+        else:
+            category_code = _infer_shopping_category(bucket["item_name"])
+        items.append(
+            {
+                "item_name": bucket["item_name"],
+                "usage_count": bucket["usage_count"],
+                "category": category_code,
+                "category_label": SHOPPING_CATEGORY_LABELS.get(category_code, "Other"),
+                "type_options": sorted(bucket["type_options"], key=lambda value: value.lower()),
+            }
+        )
+
+    items.sort(
+        key=lambda row: (
+            SHOPPING_CATEGORY_ORDER.get(row["category"], 999),
+            row["item_name"].lower(),
+        )
+    )
+
+    category_rows = []
+    by_category = {}
+    for row in items:
+        if row["category"] not in by_category:
+            by_category[row["category"]] = {
+                "category": row["category"],
+                "category_label": row["category_label"],
+                "items": [],
+            }
+        by_category[row["category"]]["items"].append(row)
+
+    for code, _label in SHOPPING_CATEGORY_CHOICES:
+        category = by_category.get(code)
+        if category and category["items"]:
+            category_rows.append(category)
+    for code, category in by_category.items():
+        if code not in SHOPPING_CATEGORY_LABELS:
+            category_rows.append(category)
+
+    return {
+        "items": items,
+        "categories": category_rows,
+    }
+
+
 @csrf_exempt
 def xpenz_mobile_login(request):
     if request.method != "POST":
@@ -951,7 +1035,7 @@ def xpenz_shopping_lists(request):
 
     if request.method == "GET":
         rows = ShoppingList.objects.select_related("caterer", "estimate", "created_by").annotate(
-            item_count=Count("items")
+            item_count=Count("items", filter=Q(items__is_completed=False))
         )
         if not user.is_superuser:
             rows = rows.filter(caterer_id__in=list(access_map.keys()))
@@ -1073,7 +1157,7 @@ def xpenz_shopping_list_detail(request, shopping_list_id):
     except PermissionDenied:
         return _json_error("You do not have access to this shopping list.", status=403)
 
-    item_rows = list(shopping_list.items.all())
+    item_rows = list(shopping_list.items.filter(is_completed=False))
     item_rows = sorted(
         item_rows,
         key=lambda row: (
@@ -1136,6 +1220,7 @@ def xpenz_shopping_list_items(request, shopping_list_id):
     category = _infer_shopping_category(item_name)
     existing = ShoppingListItem.objects.filter(
         shopping_list=shopping_list,
+        is_completed=False,
         item_name__iexact=item_name,
         item_type__iexact=item_type,
     ).first()
@@ -1190,10 +1275,35 @@ def xpenz_shopping_list_remove_item(request, shopping_list_id, item_id):
         ShoppingListItem,
         pk=item_id,
         shopping_list=shopping_list,
+        is_completed=False,
     )
-    item.delete()
+    item.is_completed = True
+    item.save(update_fields=["is_completed", "updated_at"])
     ShoppingList.objects.filter(pk=shopping_list.pk).update(updated_at=timezone.now())
     return JsonResponse({"ok": True, "shopping_list_id": shopping_list.id, "item_id": item_id})
+
+
+@csrf_exempt
+def xpenz_shopping_catalog(request):
+    user = _xpenz_authenticated_user(request)
+    if not user:
+        return _json_error("Authentication required.", status=401)
+    if request.method != "GET":
+        return _json_error("Method not allowed.", status=405)
+
+    access_map = _mobile_access_map_for_user(user)
+    if not user.is_superuser and not access_map:
+        return _json_error("No mobile app access is configured for this user.", status=403)
+
+    rows = _build_shopping_catalog_queryset(user, access_map)
+    payload = _shopping_catalog_payload(rows)
+    return JsonResponse(
+        {
+            "ok": True,
+            "items": payload["items"],
+            "categories": payload["categories"],
+        }
+    )
 
 
 @csrf_exempt
