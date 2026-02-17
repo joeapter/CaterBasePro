@@ -347,8 +347,15 @@ export default function App() {
   );
 
   const loadShoppingListDetail = useCallback(
-    async (shoppingListId: number, overrideToken?: string, overrideBaseUrl?: string) => {
-      setLoadingShoppingItems(true);
+    async (
+      shoppingListId: number,
+      overrideToken?: string,
+      overrideBaseUrl?: string,
+      silent = false,
+    ) => {
+      if (!silent) {
+        setLoadingShoppingItems(true);
+      }
       try {
         const payload = await authFetchJson(
           `/api/xpenz/shopping-lists/${shoppingListId}/`,
@@ -361,8 +368,30 @@ export default function App() {
         }
         setShoppingItems(Array.isArray(payload.items) ? payload.items : []);
       } finally {
-        setLoadingShoppingItems(false);
+        if (!silent) {
+          setLoadingShoppingItems(false);
+        }
       }
+    },
+    [authFetchJson],
+  );
+
+  const loadShoppingListChanges = useCallback(
+    async (
+      shoppingListId: number,
+      sinceCursor: string,
+      timeoutSeconds = 25,
+    ) => {
+      const params = new URLSearchParams();
+      if (sinceCursor) {
+        params.set('since', sinceCursor);
+      }
+      params.set('timeout', String(timeoutSeconds));
+      const payload = await authFetchJson(
+        `/api/xpenz/shopping-lists/${shoppingListId}/changes/?${params.toString()}`,
+        { method: 'GET' },
+      );
+      return payload;
     },
     [authFetchJson],
   );
@@ -477,23 +506,45 @@ export default function App() {
     if (!token || mainTab !== 'shopping' || !selectedShoppingList?.id || selectedEstimate) {
       return;
     }
-    const intervalId = setInterval(() => {
-      loadShoppingListDetail(selectedShoppingList.id).catch(() => {
-        // Keep polling alive even if one request fails.
-      });
-      loadShoppingLists().catch(() => {
-        // Keep polling alive even if one request fails.
-      });
-    }, 3500);
-    return () => clearInterval(intervalId);
-  }, [
-    loadShoppingListDetail,
-    loadShoppingLists,
-    mainTab,
-    selectedEstimate,
-    selectedShoppingList?.id,
-    token,
-  ]);
+    let cancelled = false;
+    const shoppingListId = selectedShoppingList.id;
+    let cursor = selectedShoppingList.updated_at || '';
+
+    async function loop() {
+      while (!cancelled) {
+        try {
+          const payload = await loadShoppingListChanges(shoppingListId, cursor, 25);
+          if (cancelled) {
+            return;
+          }
+          if (payload.shopping_list) {
+            setSelectedShoppingList(payload.shopping_list);
+            setShoppingLists((prev) =>
+              prev.map((row) => (row.id === payload.shopping_list.id ? payload.shopping_list : row)),
+            );
+          }
+          if (payload.changed && Array.isArray(payload.items)) {
+            setShoppingItems(payload.items);
+          }
+          if (payload.cursor) {
+            cursor = payload.cursor;
+          } else if (payload.shopping_list?.updated_at) {
+            cursor = payload.shopping_list.updated_at;
+          }
+        } catch {
+          if (cancelled) {
+            return;
+          }
+          await new Promise((resolve) => setTimeout(resolve, 1200));
+        }
+      }
+    }
+
+    loop();
+    return () => {
+      cancelled = true;
+    };
+  }, [loadShoppingListChanges, mainTab, selectedEstimate, selectedShoppingList?.id, token]);
 
   const handleLogin = useCallback(async () => {
     const cleanBase = normalizeBaseUrl(apiBaseUrl);
@@ -705,7 +756,7 @@ export default function App() {
           throw new Error(payload.error || 'Unable to add shopping item.');
         }
         await Promise.all([
-          loadShoppingListDetail(selectedShoppingList.id),
+          loadShoppingListDetail(selectedShoppingList.id, undefined, undefined, true),
           loadShoppingLists(),
           loadShoppingCatalog(),
         ]);
@@ -789,7 +840,7 @@ export default function App() {
           throw new Error(payload.error || 'Unable to remove item.');
         }
         await Promise.all([
-          loadShoppingListDetail(selectedShoppingList.id),
+          loadShoppingListDetail(selectedShoppingList.id, undefined, undefined, true),
           loadShoppingLists(),
         ]);
       } catch (error) {

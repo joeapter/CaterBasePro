@@ -587,6 +587,66 @@ class XpenzApiTests(TestCase):
         categories = [row["category"] for row in detail_response.json()["items"]]
         self.assertEqual(categories[:3], ["PRODUCE", "MEAT_POULTRY_FISH", "PANTRY"])
 
+    def test_shopping_list_changes_returns_unchanged_when_cursor_matches(self):
+        token = self._login_and_get_token("appstaff@example.com")
+        shopping_list = ShoppingList.objects.create(
+            caterer=self.caterer,
+            title="Changes list",
+            created_by=self.app_user,
+        )
+        snapshot = self.client.get(
+            reverse("xpenz_shopping_list_detail", args=[shopping_list.id]),
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        self.assertEqual(snapshot.status_code, 200)
+        cursor = snapshot.json()["shopping_list"]["updated_at"]
+
+        response = self.client.get(
+            reverse("xpenz_shopping_list_changes", args=[shopping_list.id]),
+            data={"since": cursor, "timeout": "0"},
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["ok"])
+        self.assertFalse(payload["changed"])
+        self.assertEqual(payload["items"], [])
+
+    def test_shopping_list_changes_returns_items_after_update(self):
+        token = self._login_and_get_token("appstaff@example.com")
+        shopping_list = ShoppingList.objects.create(
+            caterer=self.caterer,
+            title="Changes update list",
+            created_by=self.app_user,
+        )
+        snapshot = self.client.get(
+            reverse("xpenz_shopping_list_detail", args=[shopping_list.id]),
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        self.assertEqual(snapshot.status_code, 200)
+        cursor = snapshot.json()["shopping_list"]["updated_at"]
+
+        create_item = self.client.post(
+            reverse("xpenz_shopping_list_items", args=[shopping_list.id]),
+            data=json.dumps(
+                {"item_name": "Tomato", "item_unit": "Kg", "quantity": "2"}
+            ),
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        self.assertEqual(create_item.status_code, 201)
+
+        changes_response = self.client.get(
+            reverse("xpenz_shopping_list_changes", args=[shopping_list.id]),
+            data={"since": cursor, "timeout": "0"},
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        self.assertEqual(changes_response.status_code, 200)
+        payload = changes_response.json()
+        self.assertTrue(payload["changed"])
+        self.assertEqual(len(payload["items"]), 1)
+        self.assertEqual(payload["items"][0]["item_name"], "Tomato")
+
     def test_shopping_list_create_denied_for_other_caterer(self):
         token = self._login_and_get_token("appstaff@example.com")
         response = self.client.post(

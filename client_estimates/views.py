@@ -1,5 +1,7 @@
 import logging
 import json
+import time
+from datetime import timedelta
 from decimal import Decimal, InvalidOperation
 from urllib.parse import quote_plus
 
@@ -15,6 +17,7 @@ from django.core.mail import send_mail
 from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
+from django.utils.dateparse import parse_datetime
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 
@@ -1183,6 +1186,20 @@ def _shopping_list_for_user(user, shopping_list_id, access_map):
     return entry
 
 
+def _active_shopping_items_sorted(shopping_list):
+    item_rows = list(shopping_list.items.filter(is_completed=False))
+    return sorted(
+        item_rows,
+        key=lambda row: (
+            SHOPPING_CATEGORY_ORDER.get(row.category, 999),
+            (row.item_name or "").lower(),
+            (row.item_type or "").lower(),
+            (row.item_unit or "").lower(),
+            row.created_at,
+        ),
+    )
+
+
 @csrf_exempt
 def xpenz_shopping_list_detail(request, shopping_list_id):
     user = _xpenz_authenticated_user(request)
@@ -1200,22 +1217,82 @@ def xpenz_shopping_list_detail(request, shopping_list_id):
     except PermissionDenied:
         return _json_error("You do not have access to this shopping list.", status=403)
 
-    item_rows = list(shopping_list.items.filter(is_completed=False))
-    item_rows = sorted(
-        item_rows,
-        key=lambda row: (
-            SHOPPING_CATEGORY_ORDER.get(row.category, 999),
-            (row.item_name or "").lower(),
-            (row.item_type or "").lower(),
-            (row.item_unit or "").lower(),
-            row.created_at,
-        ),
-    )
+    item_rows = _active_shopping_items_sorted(shopping_list)
     shopping_list.item_count = len(item_rows)
 
     return JsonResponse(
         {
             "ok": True,
+            "shopping_list": _serialize_shopping_list_entry(shopping_list),
+            "items": [_serialize_shopping_item(row) for row in item_rows],
+        }
+    )
+
+
+@csrf_exempt
+def xpenz_shopping_list_changes(request, shopping_list_id):
+    user = _xpenz_authenticated_user(request)
+    if not user:
+        return _json_error("Authentication required.", status=401)
+    if request.method != "GET":
+        return _json_error("Method not allowed.", status=405)
+
+    access_map = _mobile_access_map_for_user(user)
+    if not user.is_superuser and not access_map:
+        return _json_error("No mobile app access is configured for this user.", status=403)
+
+    since_raw = (request.GET.get("since") or "").strip()
+    timeout_raw = (request.GET.get("timeout") or "").strip()
+
+    since_dt = None
+    if since_raw:
+        since_dt = parse_datetime(since_raw)
+        if since_dt is None:
+            return _json_error("Invalid `since` timestamp.", status=400)
+        if timezone.is_naive(since_dt):
+            since_dt = timezone.make_aware(since_dt, timezone.get_current_timezone())
+
+    timeout_seconds = 25
+    if timeout_raw:
+        try:
+            timeout_seconds = int(timeout_raw)
+        except (TypeError, ValueError):
+            return _json_error("Invalid `timeout` value.", status=400)
+    timeout_seconds = max(0, min(timeout_seconds, 25))
+
+    deadline = timezone.now() + timedelta(seconds=timeout_seconds)
+    shopping_list = None
+    changed = False
+    cursor_value = ""
+    while True:
+        try:
+            shopping_list = _shopping_list_for_user(user, shopping_list_id, access_map)
+        except PermissionDenied:
+            return _json_error("You do not have access to this shopping list.", status=403)
+
+        cursor_dt = (
+            shopping_list.updated_at
+            or shopping_list.created_at
+            or timezone.now()
+        )
+        changed = since_dt is None or cursor_dt > since_dt
+        cursor_value = cursor_dt.isoformat()
+        if changed:
+            break
+        if timezone.now() >= deadline:
+            break
+        time.sleep(1)
+
+    item_rows = _active_shopping_items_sorted(shopping_list) if changed else []
+    shopping_list.item_count = len(item_rows) if changed else shopping_list.items.filter(
+        is_completed=False
+    ).count()
+
+    return JsonResponse(
+        {
+            "ok": True,
+            "changed": changed,
+            "cursor": cursor_value,
             "shopping_list": _serialize_shopping_list_entry(shopping_list),
             "items": [_serialize_shopping_item(row) for row in item_rows],
         }
