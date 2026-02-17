@@ -36,6 +36,8 @@ from .models import (
     TrialRequest,
     EstimateExpenseEntry,
     EstimateStaffTimeEntry,
+    ShoppingList,
+    ShoppingListItem,
     XpenzMobileToken,
 )
 from .kiddush_menu import ensure_kiddush_menu, ensure_kiddush_planning_fee_line
@@ -412,6 +414,23 @@ class XpenzMobileTokenAdmin(admin.ModelAdmin):
 
 @admin.register(EstimateStaffTimeEntry)
 class EstimateStaffTimeEntryAdmin(admin.ModelAdmin):
+    class EstimateStaffTimeEntryAdminForm(forms.ModelForm):
+        class Meta:
+            model = EstimateStaffTimeEntry
+            fields = "__all__"
+
+        def clean(self):
+            cleaned = super().clean()
+            punched_in_at = cleaned.get("punched_in_at")
+            punched_out_at = cleaned.get("punched_out_at")
+            if punched_in_at and punched_out_at and punched_out_at < punched_in_at:
+                self.add_error(
+                    "punched_out_at",
+                    "Punch out time must be after punch in time.",
+                )
+            return cleaned
+
+    form = EstimateStaffTimeEntryAdminForm
     list_display = (
         "estimate",
         "worker_first_name",
@@ -427,15 +446,10 @@ class EstimateStaffTimeEntryAdmin(admin.ModelAdmin):
     search_fields = ("worker_first_name", "estimate__customer_name", "estimate__event_type")
     readonly_fields = (
         "estimate",
-        "role",
-        "worker_first_name",
-        "hourly_rate",
-        "punched_in_at",
-        "punched_out_at",
-        "total_hours",
-        "total_cost",
         "applied_to_expenses",
         "expense_entry",
+        "total_hours",
+        "total_cost",
         "created_by",
         "created_at",
         "updated_at",
@@ -463,6 +477,77 @@ class EstimateStaffTimeEntryAdmin(admin.ModelAdmin):
         if obj is None:
             return False
         return obj.estimate.caterer.owner == request.user
+
+    def get_readonly_fields(self, request, obj=None):
+        readonly = list(super().get_readonly_fields(request, obj))
+        if obj and obj.applied_to_expenses:
+            readonly.extend(
+                [
+                    "role",
+                    "worker_first_name",
+                    "hourly_rate",
+                    "punched_in_at",
+                    "punched_out_at",
+                ]
+            )
+        return tuple(readonly)
+
+    def save_model(self, request, obj, form, change):
+        if obj.punched_out_at:
+            if obj.punched_out_at < obj.punched_in_at:
+                obj.punched_out_at = obj.punched_in_at
+            seconds = (obj.punched_out_at - obj.punched_in_at).total_seconds()
+            hours = Decimal(str(seconds / 3600)) if seconds > 0 else Decimal("0.00")
+            obj.total_hours = hours.quantize(Decimal("0.01"))
+            obj.total_cost = (
+                (obj.total_hours or Decimal("0.00")) * (obj.hourly_rate or Decimal("0.00"))
+            ).quantize(Decimal("0.01"))
+        else:
+            obj.total_hours = Decimal("0.00")
+            obj.total_cost = Decimal("0.00")
+        super().save_model(request, obj, form, change)
+
+
+@admin.register(ShoppingList)
+class ShoppingListAdmin(admin.ModelAdmin):
+    list_display = ("id", "title", "caterer", "estimate", "created_by", "updated_at", "created_at")
+    list_filter = ("caterer", "created_at", "updated_at")
+    search_fields = ("title", "caterer__name", "estimate__customer_name", "estimate__event_type")
+
+    def get_queryset(self, request):
+        qs = super().get_queryset(request).select_related("caterer", "estimate", "created_by")
+        if request.user.is_superuser:
+            return qs
+        return qs.filter(caterer__owner=request.user)
+
+    def get_form(self, request, obj=None, **kwargs):
+        form = super().get_form(request, obj, **kwargs)
+        if not request.user.is_superuser and "caterer" in form.base_fields:
+            form.base_fields["caterer"].queryset = CatererAccount.objects.filter(owner=request.user)
+        if not request.user.is_superuser and "estimate" in form.base_fields:
+            form.base_fields["estimate"].queryset = Estimate.objects.filter(caterer__owner=request.user)
+        return form
+
+
+@admin.register(ShoppingListItem)
+class ShoppingListItemAdmin(admin.ModelAdmin):
+    list_display = ("shopping_list", "item_name", "item_type", "quantity", "category", "created_by", "created_at")
+    list_filter = ("category", "shopping_list__caterer", "created_at")
+    search_fields = ("item_name", "item_type", "shopping_list__title", "shopping_list__caterer__name")
+
+    def get_queryset(self, request):
+        qs = super().get_queryset(request).select_related("shopping_list", "shopping_list__caterer")
+        if request.user.is_superuser:
+            return qs
+        return qs.filter(shopping_list__caterer__owner=request.user)
+
+    def get_form(self, request, obj=None, **kwargs):
+        form = super().get_form(request, obj, **kwargs)
+        if not request.user.is_superuser and "shopping_list" in form.base_fields:
+            form.base_fields["shopping_list"].queryset = ShoppingList.objects.filter(
+                caterer__owner=request.user
+            )
+        return form
 
 
 @admin.register(TrialRequest)
@@ -1960,6 +2045,7 @@ class EstimateAdmin(admin.ModelAdmin):
             title = _("View %s")
         expense_entries = []
         expense_total = Decimal("0.00")
+        staff_entries_manage_url = ""
         if obj and obj.pk:
             expense_entries = list(
                 obj.expense_entries.select_related("created_by").order_by("-created_at")
@@ -1968,6 +2054,10 @@ class EstimateAdmin(admin.ModelAdmin):
                 if entry.expense_amount is not None:
                     expense_total += entry.expense_amount
             expense_total = expense_total.quantize(Decimal("0.01"))
+            staff_entries_manage_url = (
+                reverse("admin:client_estimates_estimatestafftimeentry_changelist")
+                + f"?estimate__id__exact={obj.pk}&applied_to_expenses__exact=0"
+            )
         context = {
             **self.admin_site.each_context(request),
             "title": title % self.opts.verbose_name,
@@ -1986,6 +2076,7 @@ class EstimateAdmin(admin.ModelAdmin):
             "expense_entries": expense_entries,
             "expense_total": expense_total,
             "expense_delete_url_name": f"admin:{self._admin_url_name('expense_delete')}",
+            "staff_entries_manage_url": staff_entries_manage_url,
         }
 
         if (

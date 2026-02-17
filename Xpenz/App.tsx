@@ -34,6 +34,7 @@ type EstimateRow = {
   event_type: string;
   event_date: string;
   event_location: string;
+  caterer_id: number;
   caterer_name: string;
   currency: string;
   grand_total: string;
@@ -93,6 +94,29 @@ type StaffEntry = {
   expense_entry_id: number | null;
 };
 
+type ShoppingListRow = {
+  id: number;
+  title: string;
+  caterer_id: number;
+  caterer_name: string;
+  estimate_id: number | null;
+  estimate_label: string;
+  item_count: number;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+};
+
+type ShoppingItem = {
+  id: number;
+  item_name: string;
+  item_type: string;
+  quantity: string;
+  category: string;
+  category_label: string;
+  created_at: string;
+};
+
 const TOKEN_KEY = 'xpenz_token';
 const BASE_URL_KEY = 'xpenz_base_url';
 const DEFAULT_BASE_URL = 'https://www.caterbasepro.com';
@@ -145,6 +169,7 @@ export default function App() {
   const [password, setPassword] = useState('');
 
   const [token, setToken] = useState('');
+  const [mainTab, setMainTab] = useState<'jobs' | 'shopping'>('jobs');
   const [estimates, setEstimates] = useState<EstimateRow[]>([]);
   const [selectedEstimate, setSelectedEstimate] = useState<EstimateRow | null>(null);
   const [selectedJobTab, setSelectedJobTab] = useState<'expenses' | 'staff'>('expenses');
@@ -156,6 +181,21 @@ export default function App() {
   const [loadingStaff, setLoadingStaff] = useState(false);
   const [applyingStaffCosts, setApplyingStaffCosts] = useState(false);
   const [activeQrRole, setActiveQrRole] = useState<StaffRoleOption | null>(null);
+  const [shoppingLists, setShoppingLists] = useState<ShoppingListRow[]>([]);
+  const [loadingShoppingLists, setLoadingShoppingLists] = useState(false);
+  const [creatingShoppingList, setCreatingShoppingList] = useState(false);
+  const [selectedShoppingList, setSelectedShoppingList] = useState<ShoppingListRow | null>(null);
+  const [shoppingItems, setShoppingItems] = useState<ShoppingItem[]>([]);
+  const [loadingShoppingItems, setLoadingShoppingItems] = useState(false);
+  const [addingShoppingItem, setAddingShoppingItem] = useState(false);
+  const [removingShoppingItemId, setRemovingShoppingItemId] = useState<number | null>(null);
+  const [shoppingListTitle, setShoppingListTitle] = useState('');
+  const [shoppingCatererId, setShoppingCatererId] = useState<number | null>(null);
+  const [shoppingEstimateRefId, setShoppingEstimateRefId] = useState<number | null>(null);
+  const [showEstimatePicker, setShowEstimatePicker] = useState(false);
+  const [newShoppingItemName, setNewShoppingItemName] = useState('');
+  const [newShoppingItemType, setNewShoppingItemType] = useState('');
+  const [newShoppingItemQuantity, setNewShoppingItemQuantity] = useState('1');
 
   const [drafts, setDrafts] = useState<ExpenseDraft[]>([]);
   const [activeRecordingDraftId, setActiveRecordingDraftId] = useState<string | null>(null);
@@ -247,6 +287,69 @@ export default function App() {
     [authFetchJson],
   );
 
+  const loadShoppingLists = useCallback(
+    async (overrideToken?: string, overrideBaseUrl?: string) => {
+      setLoadingShoppingLists(true);
+      try {
+        const payload = await authFetchJson(
+          '/api/xpenz/shopping-lists/',
+          { method: 'GET' },
+          overrideToken,
+          overrideBaseUrl,
+        );
+        setShoppingLists(Array.isArray(payload.lists) ? payload.lists : []);
+      } finally {
+        setLoadingShoppingLists(false);
+      }
+    },
+    [authFetchJson],
+  );
+
+  const loadShoppingListDetail = useCallback(
+    async (shoppingListId: number, overrideToken?: string, overrideBaseUrl?: string) => {
+      setLoadingShoppingItems(true);
+      try {
+        const payload = await authFetchJson(
+          `/api/xpenz/shopping-lists/${shoppingListId}/`,
+          { method: 'GET' },
+          overrideToken,
+          overrideBaseUrl,
+        );
+        if (payload.shopping_list) {
+          setSelectedShoppingList(payload.shopping_list);
+        }
+        setShoppingItems(Array.isArray(payload.items) ? payload.items : []);
+      } finally {
+        setLoadingShoppingItems(false);
+      }
+    },
+    [authFetchJson],
+  );
+
+  const catererChoices = useMemo(() => {
+    const map = new Map<number, string>();
+    for (const estimate of estimates) {
+      map.set(estimate.caterer_id, estimate.caterer_name);
+    }
+    return Array.from(map.entries()).map(([id, name]) => ({ id, name }));
+  }, [estimates]);
+
+  const selectedEstimateReference = useMemo(
+    () => estimates.find((estimate) => estimate.id === shoppingEstimateRefId) || null,
+    [estimates, shoppingEstimateRefId],
+  );
+
+  const shoppingSections = useMemo(() => {
+    const grouped = new Map<string, { label: string; items: ShoppingItem[] }>();
+    for (const item of shoppingItems) {
+      if (!grouped.has(item.category)) {
+        grouped.set(item.category, { label: item.category_label, items: [] });
+      }
+      grouped.get(item.category)?.items.push(item);
+    }
+    return Array.from(grouped.values());
+  }, [shoppingItems]);
+
   useEffect(() => {
     async function bootstrap() {
       try {
@@ -259,7 +362,10 @@ export default function App() {
         }
         if (savedToken && savedBase) {
           setToken(savedToken);
-          await loadEstimates(savedToken, savedBase);
+          await Promise.all([
+            loadEstimates(savedToken, savedBase),
+            loadShoppingLists(savedToken, savedBase),
+          ]);
         }
       } catch {
         await Promise.all([
@@ -273,7 +379,16 @@ export default function App() {
     }
 
     bootstrap();
-  }, [loadEstimates]);
+  }, [loadEstimates, loadShoppingLists]);
+
+  useEffect(() => {
+    if (shoppingEstimateRefId) {
+      return;
+    }
+    if (catererChoices.length === 1) {
+      setShoppingCatererId(catererChoices[0].id);
+    }
+  }, [catererChoices, shoppingEstimateRefId]);
 
   const handleLogin = useCallback(async () => {
     const cleanBase = normalizeBaseUrl(apiBaseUrl);
@@ -299,14 +414,17 @@ export default function App() {
         SecureStore.setItemAsync(TOKEN_KEY, payload.token),
         SecureStore.setItemAsync(BASE_URL_KEY, cleanBase),
       ]);
-      await loadEstimates(payload.token, cleanBase);
+      await Promise.all([
+        loadEstimates(payload.token, cleanBase),
+        loadShoppingLists(payload.token, cleanBase),
+      ]);
       setPassword('');
     } catch (error) {
       Alert.alert('Login error', error instanceof Error ? error.message : 'Unable to log in.');
     } finally {
       setLoggingIn(false);
     }
-  }, [apiBaseUrl, loadEstimates, password, username]);
+  }, [apiBaseUrl, loadEstimates, loadShoppingLists, password, username]);
 
   const handleLogout = useCallback(async () => {
     try {
@@ -316,6 +434,7 @@ export default function App() {
       ]);
     } finally {
       setToken('');
+      setMainTab('jobs');
       setSelectedEstimate(null);
       setSelectedJobTab('expenses');
       setEstimates([]);
@@ -324,6 +443,16 @@ export default function App() {
       setStaffEntries([]);
       setStaffTotalCost('0.00');
       setUnappliedStaffCost('0.00');
+      setShoppingLists([]);
+      setSelectedShoppingList(null);
+      setShoppingItems([]);
+      setShoppingListTitle('');
+      setShoppingCatererId(null);
+      setShoppingEstimateRefId(null);
+      setShowEstimatePicker(false);
+      setNewShoppingItemName('');
+      setNewShoppingItemType('');
+      setNewShoppingItemQuantity('1');
       setDrafts([]);
     }
   }, []);
@@ -343,6 +472,173 @@ export default function App() {
       }
     },
     [loadEntries, loadStaffSummary],
+  );
+
+  const handleCreateShoppingList = useCallback(async () => {
+    if (!token) {
+      return;
+    }
+    const estimateId = shoppingEstimateRefId;
+    let catererId = shoppingCatererId;
+    if (estimateId) {
+      const linked = estimates.find((row) => row.id === estimateId);
+      if (linked) {
+        catererId = linked.caterer_id;
+      }
+    }
+    setCreatingShoppingList(true);
+    try {
+      const response = await fetch(apiUrl(apiBaseUrl, '/api/xpenz/shopping-lists/'), {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          title: shoppingListTitle.trim(),
+          caterer_id: catererId,
+          estimate_id: estimateId,
+        }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || payload.ok === false || !payload.shopping_list) {
+        throw new Error(payload.error || 'Unable to create shopping list.');
+      }
+      setShoppingListTitle('');
+      setShoppingEstimateRefId(null);
+      if (catererChoices.length === 1) {
+        setShoppingCatererId(catererChoices[0].id);
+      }
+      await loadShoppingLists();
+      setSelectedShoppingList(payload.shopping_list);
+      await loadShoppingListDetail(payload.shopping_list.id);
+    } catch (error) {
+      Alert.alert(
+        'Create list failed',
+        error instanceof Error ? error.message : 'Unable to create shopping list.',
+      );
+    } finally {
+      setCreatingShoppingList(false);
+    }
+  }, [
+    apiBaseUrl,
+    catererChoices,
+    estimates,
+    loadShoppingListDetail,
+    loadShoppingLists,
+    shoppingCatererId,
+    shoppingEstimateRefId,
+    shoppingListTitle,
+    token,
+  ]);
+
+  const openShoppingList = useCallback(
+    async (shoppingList: ShoppingListRow) => {
+      setSelectedShoppingList(shoppingList);
+      try {
+        await loadShoppingListDetail(shoppingList.id);
+      } catch (error) {
+        Alert.alert(
+          'Load error',
+          error instanceof Error ? error.message : 'Unable to load shopping list.',
+        );
+      }
+    },
+    [loadShoppingListDetail],
+  );
+
+  const handleAddShoppingItem = useCallback(async () => {
+    if (!selectedShoppingList || !token) {
+      return;
+    }
+    if (!newShoppingItemName.trim()) {
+      Alert.alert('Missing item', 'Enter the shopping item name.');
+      return;
+    }
+    setAddingShoppingItem(true);
+    try {
+      const response = await fetch(
+        apiUrl(apiBaseUrl, `/api/xpenz/shopping-lists/${selectedShoppingList.id}/items/`),
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            item_name: newShoppingItemName.trim(),
+            item_type: newShoppingItemType.trim(),
+            quantity: newShoppingItemQuantity.trim() || '1',
+          }),
+        },
+      );
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || payload.ok === false) {
+        throw new Error(payload.error || 'Unable to add shopping item.');
+      }
+      setNewShoppingItemName('');
+      setNewShoppingItemType('');
+      setNewShoppingItemQuantity('1');
+      await Promise.all([
+        loadShoppingListDetail(selectedShoppingList.id),
+        loadShoppingLists(),
+      ]);
+    } catch (error) {
+      Alert.alert(
+        'Add item failed',
+        error instanceof Error ? error.message : 'Unable to add shopping item.',
+      );
+    } finally {
+      setAddingShoppingItem(false);
+    }
+  }, [
+    apiBaseUrl,
+    loadShoppingListDetail,
+    loadShoppingLists,
+    newShoppingItemName,
+    newShoppingItemQuantity,
+    newShoppingItemType,
+    selectedShoppingList,
+    token,
+  ]);
+
+  const handleRemoveShoppingItem = useCallback(
+    async (item: ShoppingItem) => {
+      if (!selectedShoppingList || !token || removingShoppingItemId) {
+        return;
+      }
+      setRemovingShoppingItemId(item.id);
+      try {
+        const response = await fetch(
+          apiUrl(
+            apiBaseUrl,
+            `/api/xpenz/shopping-lists/${selectedShoppingList.id}/items/${item.id}/remove/`,
+          ),
+          {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          },
+        );
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok || payload.ok === false) {
+          throw new Error(payload.error || 'Unable to remove item.');
+        }
+        await Promise.all([
+          loadShoppingListDetail(selectedShoppingList.id),
+          loadShoppingLists(),
+        ]);
+      } catch (error) {
+        Alert.alert(
+          'Remove failed',
+          error instanceof Error ? error.message : 'Unable to remove shopping item.',
+        );
+      } finally {
+        setRemovingShoppingItemId(null);
+      }
+    },
+    [apiBaseUrl, loadShoppingListDetail, loadShoppingLists, removingShoppingItemId, selectedShoppingList, token],
   );
 
   const addManualDraft = useCallback(() => {
@@ -712,10 +1008,29 @@ export default function App() {
   if (!selectedEstimate) {
     return (
       <SafeAreaView style={styles.screen}>
-        <View style={styles.headerRow}>
-          <Text style={styles.sectionTitle}>Select Job</Text>
+        <View style={styles.headerRowTop}>
+          <Text style={styles.sectionTitle}>
+            {mainTab === 'jobs'
+              ? 'Select Job'
+              : selectedShoppingList
+                ? selectedShoppingList.title
+                : 'Shopping Lists'}
+          </Text>
           <View style={styles.inlineActions}>
-            <Pressable style={styles.smallButton} onPress={() => loadEstimates()}>
+            <Pressable
+              style={styles.smallButton}
+              onPress={() => {
+                if (mainTab === 'jobs') {
+                  loadEstimates();
+                  return;
+                }
+                if (selectedShoppingList) {
+                  loadShoppingListDetail(selectedShoppingList.id);
+                } else {
+                  loadShoppingLists();
+                }
+              }}
+            >
               <Text style={styles.smallButtonText}>Refresh</Text>
             </Pressable>
             <Pressable style={styles.smallButton} onPress={handleLogout}>
@@ -724,33 +1039,301 @@ export default function App() {
           </View>
         </View>
 
-        {loadingJobs ? (
-          <View style={styles.screenCenter}>
-            <ActivityIndicator size="large" color="#0f766e" />
-          </View>
+        <View style={styles.topTabs}>
+          <Pressable
+            style={[styles.topTabButton, mainTab === 'jobs' && styles.topTabButtonActive]}
+            onPress={() => setMainTab('jobs')}
+          >
+            <Text style={[styles.topTabLabel, mainTab === 'jobs' && styles.topTabLabelActive]}>Jobs</Text>
+          </Pressable>
+          <Pressable
+            style={[styles.topTabButton, mainTab === 'shopping' && styles.topTabButtonActive]}
+            onPress={() => setMainTab('shopping')}
+          >
+            <Text style={[styles.topTabLabel, mainTab === 'shopping' && styles.topTabLabelActive]}>
+              Shopping
+            </Text>
+          </Pressable>
+        </View>
+
+        {mainTab === 'jobs' ? (
+          loadingJobs ? (
+            <View style={styles.screenCenter}>
+              <ActivityIndicator size="large" color="#0f766e" />
+            </View>
+          ) : (
+            <ScrollView contentContainerStyle={styles.jobsListWrap}>
+              {estimates.map((estimate) => (
+                <Pressable
+                  key={estimate.id}
+                  style={styles.jobCard}
+                  onPress={() => handleSelectEstimate(estimate)}
+                >
+                  <Text style={styles.jobTitle}>{estimate.job_name}</Text>
+                  <Text style={styles.subtleText}>
+                    #{estimate.estimate_number ?? 'N/A'} • {formatDate(estimate.event_date)}
+                  </Text>
+                  <Text style={styles.subtleText}>
+                    {estimate.can_view_billing
+                      ? `${estimate.currency} ${estimate.grand_total} • ${estimate.expense_count} saved entries`
+                      : `${estimate.expense_count} saved entries`}
+                  </Text>
+                </Pressable>
+              ))}
+              {!estimates.length && <Text style={styles.subtleText}>No estimates found for this account.</Text>}
+            </ScrollView>
+          )
         ) : (
-          <ScrollView contentContainerStyle={styles.jobsListWrap}>
-            {estimates.map((estimate) => (
-              <Pressable
-                key={estimate.id}
-                style={styles.jobCard}
-                onPress={() => handleSelectEstimate(estimate)}
-              >
-                <Text style={styles.jobTitle}>{estimate.job_name}</Text>
-                <Text style={styles.subtleText}>
-                  #{estimate.estimate_number ?? 'N/A'} • {formatDate(estimate.event_date)}
-                </Text>
-                <Text style={styles.subtleText}>
-                  {estimate.can_view_billing
-                    ? `${estimate.currency} ${estimate.grand_total}`
-                    : 'Billing hidden'}{' '}
-                  • {estimate.expense_count} saved entries
-                </Text>
-              </Pressable>
-            ))}
-            {!estimates.length && <Text style={styles.subtleText}>No estimates found for this account.</Text>}
-          </ScrollView>
+          selectedShoppingList ? (
+            <ScrollView contentContainerStyle={styles.contentWrap}>
+              <View style={styles.sectionCard}>
+                <View style={styles.headerRow}>
+                  <Text style={styles.sectionTitle}>{selectedShoppingList.title}</Text>
+                  <Pressable
+                    style={styles.smallButton}
+                    onPress={() => {
+                      setSelectedShoppingList(null);
+                      setShoppingItems([]);
+                    }}
+                  >
+                    <Text style={styles.smallButtonText}>Back to Lists</Text>
+                  </Pressable>
+                </View>
+                <Text style={styles.subtleText}>{selectedShoppingList.caterer_name}</Text>
+                {selectedShoppingList.estimate_label ? (
+                  <Text style={styles.subtleText}>Linked job: {selectedShoppingList.estimate_label}</Text>
+                ) : (
+                  <Text style={styles.subtleText}>No linked job (standalone list)</Text>
+                )}
+              </View>
+
+              <View style={styles.sectionCard}>
+                <Text style={styles.sectionTitle}>Add Item</Text>
+                <TextInput
+                  style={styles.input}
+                  value={newShoppingItemName}
+                  onChangeText={setNewShoppingItemName}
+                  placeholder="Item (e.g. mushrooms)"
+                />
+                <TextInput
+                  style={styles.input}
+                  value={newShoppingItemType}
+                  onChangeText={setNewShoppingItemType}
+                  placeholder="Item type (optional, e.g. pack, fresh, jar)"
+                />
+                <TextInput
+                  style={styles.input}
+                  value={newShoppingItemQuantity}
+                  onChangeText={setNewShoppingItemQuantity}
+                  keyboardType="decimal-pad"
+                  placeholder="Quantity (default 1)"
+                />
+                <Pressable
+                  style={[styles.primaryButton, addingShoppingItem && styles.buttonDisabled]}
+                  onPress={handleAddShoppingItem}
+                  disabled={addingShoppingItem}
+                >
+                  {addingShoppingItem ? (
+                    <ActivityIndicator color="#ffffff" />
+                  ) : (
+                    <Text style={styles.primaryButtonText}>Add To List</Text>
+                  )}
+                </Pressable>
+              </View>
+
+              <View style={styles.sectionCard}>
+                <Text style={styles.sectionTitle}>Execute List</Text>
+                <Text style={styles.subtleText}>Tap an item or X to remove it when purchased.</Text>
+                {loadingShoppingItems ? (
+                  <ActivityIndicator color="#0f766e" />
+                ) : (
+                  <View style={styles.savedList}>
+                    {shoppingSections.map((section) => (
+                      <View key={section.label} style={styles.shoppingCategoryBlock}>
+                        <Text style={styles.shoppingCategoryTitle}>{section.label}</Text>
+                        {section.items.map((item) => (
+                          <Pressable
+                            key={item.id}
+                            style={[
+                              styles.shoppingItemRow,
+                              removingShoppingItemId === item.id && styles.buttonDisabled,
+                            ]}
+                            onPress={() => handleRemoveShoppingItem(item)}
+                            disabled={removingShoppingItemId === item.id}
+                          >
+                            <View style={styles.shoppingItemTextWrap}>
+                              <Text style={styles.shoppingItemMain}>
+                                {item.item_name}
+                                {item.item_type ? ` (${item.item_type})` : ''}
+                              </Text>
+                              <Text style={styles.subtleText}>Qty: {item.quantity}</Text>
+                            </View>
+                            <Pressable
+                              style={styles.shoppingItemRemove}
+                              onPress={(event) => {
+                                event.stopPropagation();
+                                handleRemoveShoppingItem(item);
+                              }}
+                              disabled={removingShoppingItemId === item.id}
+                            >
+                              <Text style={styles.shoppingItemRemoveText}>✕</Text>
+                            </Pressable>
+                          </Pressable>
+                        ))}
+                      </View>
+                    ))}
+                    {!shoppingItems.length && (
+                      <Text style={styles.subtleText}>No items yet. Add the first shopping item above.</Text>
+                    )}
+                  </View>
+                )}
+              </View>
+            </ScrollView>
+          ) : (
+            <ScrollView contentContainerStyle={styles.contentWrap}>
+              <View style={styles.sectionCard}>
+                <Text style={styles.sectionTitle}>Create Shopping List</Text>
+                <TextInput
+                  style={styles.input}
+                  value={shoppingListTitle}
+                  onChangeText={setShoppingListTitle}
+                  placeholder="List title (optional)"
+                />
+                {catererChoices.length > 1 && !shoppingEstimateRefId ? (
+                  <View style={styles.savedList}>
+                    <Text style={styles.subtleText}>Select caterer</Text>
+                    <View style={styles.inlineActions}>
+                      {catererChoices.map((choice) => (
+                        <Pressable
+                          key={choice.id}
+                          style={[
+                            styles.smallButton,
+                            shoppingCatererId === choice.id && styles.selectedPill,
+                          ]}
+                          onPress={() => setShoppingCatererId(choice.id)}
+                        >
+                          <Text
+                            style={[
+                              styles.smallButtonText,
+                              shoppingCatererId === choice.id && styles.selectedPillText,
+                            ]}
+                          >
+                            {choice.name}
+                          </Text>
+                        </Pressable>
+                      ))}
+                    </View>
+                  </View>
+                ) : null}
+                <View style={styles.inlineActions}>
+                  <Pressable style={styles.secondaryButton} onPress={() => setShowEstimatePicker(true)}>
+                    <Text style={styles.secondaryButtonText}>
+                      {selectedEstimateReference
+                        ? `Linked Job: #${selectedEstimateReference.estimate_number ?? selectedEstimateReference.id}`
+                        : 'Link Job (Optional)'}
+                    </Text>
+                  </Pressable>
+                  {selectedEstimateReference ? (
+                    <Pressable
+                      style={styles.smallButton}
+                      onPress={() => {
+                        setShoppingEstimateRefId(null);
+                      }}
+                    >
+                      <Text style={styles.smallButtonText}>Clear Job</Text>
+                    </Pressable>
+                  ) : null}
+                </View>
+                <Pressable
+                  style={[styles.primaryButton, creatingShoppingList && styles.buttonDisabled]}
+                  onPress={handleCreateShoppingList}
+                  disabled={creatingShoppingList}
+                >
+                  {creatingShoppingList ? (
+                    <ActivityIndicator color="#ffffff" />
+                  ) : (
+                    <Text style={styles.primaryButtonText}>Create Shopping List</Text>
+                  )}
+                </Pressable>
+              </View>
+
+              <View style={styles.sectionCard}>
+                <Text style={styles.sectionTitle}>Open Shopping List</Text>
+                {loadingShoppingLists ? (
+                  <ActivityIndicator color="#0f766e" />
+                ) : (
+                  <View style={styles.savedList}>
+                    {shoppingLists.map((row) => (
+                      <Pressable key={row.id} style={styles.savedCard} onPress={() => openShoppingList(row)}>
+                        <Text style={styles.savedTitle}>{row.title}</Text>
+                        <Text style={styles.subtleText}>
+                          {row.item_count} items
+                          {row.estimate_label ? ` • ${row.estimate_label}` : ''}
+                        </Text>
+                        <Text style={styles.subtleText}>{row.caterer_name}</Text>
+                      </Pressable>
+                    ))}
+                    {!shoppingLists.length ? (
+                      <Text style={styles.subtleText}>No shopping lists yet.</Text>
+                    ) : null}
+                  </View>
+                )}
+              </View>
+            </ScrollView>
+          )
         )}
+
+        <Modal
+          visible={showEstimatePicker}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setShowEstimatePicker(false)}
+        >
+          <View style={styles.modalBackdrop}>
+            <View style={styles.modalCard}>
+              <Text style={styles.sectionTitle}>Select Job Reference</Text>
+              <Text style={styles.subtleText}>Optional. List can be standalone without a job.</Text>
+              <ScrollView style={styles.estimatePickerList}>
+                {estimates.map((estimate) => (
+                  <Pressable
+                    key={estimate.id}
+                    style={[
+                      styles.savedCard,
+                      shoppingEstimateRefId === estimate.id && styles.selectedCard,
+                    ]}
+                    onPress={() => {
+                      setShoppingEstimateRefId(estimate.id);
+                      setShoppingCatererId(estimate.caterer_id);
+                      setShowEstimatePicker(false);
+                    }}
+                  >
+                    <Text style={styles.savedTitle}>{estimate.job_name}</Text>
+                    <Text style={styles.subtleText}>
+                      #{estimate.estimate_number ?? estimate.id} • {estimate.caterer_name}
+                    </Text>
+                  </Pressable>
+                ))}
+                {!estimates.length ? (
+                  <Text style={styles.subtleText}>No estimates available.</Text>
+                ) : null}
+              </ScrollView>
+              <View style={styles.inlineActions}>
+                <Pressable
+                  style={styles.smallButton}
+                  onPress={() => {
+                    setShoppingEstimateRefId(null);
+                    setShowEstimatePicker(false);
+                  }}
+                >
+                  <Text style={styles.smallButtonText}>Clear</Text>
+                </Pressable>
+                <Pressable style={styles.smallButton} onPress={() => setShowEstimatePicker(false)}>
+                  <Text style={styles.smallButtonText}>Close</Text>
+                </Pressable>
+              </View>
+            </View>
+          </View>
+        </Modal>
         <StatusBar style="dark" />
       </SafeAreaView>
     );
@@ -779,9 +1362,7 @@ export default function App() {
             <Text style={styles.subtleText}>{selectedEstimate.event_location || 'No location'}</Text>
             {selectedEstimate.can_view_billing ? (
               <Text style={styles.subtleText}>Estimate total: {formatShekel(selectedEstimate.grand_total || '0.00')}</Text>
-            ) : (
-              <Text style={styles.subtleText}>Estimate total hidden for this user.</Text>
-            )}
+            ) : null}
           </View>
 
           {selectedJobTab === 'expenses' ? (
@@ -964,7 +1545,6 @@ export default function App() {
                         onPress={() => setActiveQrRole(role)}
                       >
                         <Text style={styles.savedTitle}>{role.label}</Text>
-                        <Text style={styles.subtleText}>Rate: {formatShekel(role.hourly_rate)} / hour</Text>
                         <Text style={styles.linkText}>Open QR Code</Text>
                       </Pressable>
                     ))}
@@ -1061,9 +1641,6 @@ export default function App() {
         <View style={styles.modalBackdrop}>
           <View style={styles.modalCard}>
             <Text style={styles.sectionTitle}>{activeQrRole?.label || 'Staff QR'}</Text>
-            <Text style={styles.subtleText}>
-              Rate: {formatShekel(activeQrRole?.hourly_rate || '0.00')} / hour
-            </Text>
             {activeQrRole?.qr_image_url ? (
               <Image source={{ uri: activeQrRole.qr_image_url }} style={styles.qrImage} />
             ) : null}
@@ -1210,11 +1787,47 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: 8,
   },
+  headerRowTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingTop: 6,
+  },
   inlineActions: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
     flexWrap: 'wrap',
+  },
+  topTabs: {
+    flexDirection: 'row',
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 4,
+  },
+  topTabButton: {
+    flex: 1,
+    borderRadius: 10,
+    paddingVertical: 10,
+    alignItems: 'center',
+    backgroundColor: '#f1f5f9',
+    borderWidth: 1,
+    borderColor: '#d1d5db',
+  },
+  topTabButtonActive: {
+    backgroundColor: '#0f766e',
+    borderColor: '#0f766e',
+  },
+  topTabLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#0f172a',
+  },
+  topTabLabelActive: {
+    color: '#ffffff',
   },
   smallButton: {
     borderWidth: 1,
@@ -1309,10 +1922,67 @@ const styles = StyleSheet.create({
     padding: 10,
     gap: 6,
   },
+  selectedCard: {
+    borderColor: '#0f766e',
+    backgroundColor: '#f0fdfa',
+  },
   savedTitle: {
     fontSize: 14,
     fontWeight: '700',
     color: '#0f172a',
+  },
+  shoppingCategoryBlock: {
+    gap: 8,
+  },
+  shoppingCategoryTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#0f172a',
+  },
+  shoppingItemRow: {
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#d1d5db',
+    backgroundColor: '#ffffff',
+    padding: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  shoppingItemTextWrap: {
+    flex: 1,
+    gap: 2,
+  },
+  shoppingItemMain: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#0f172a',
+  },
+  shoppingItemRemove: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    borderWidth: 1,
+    borderColor: '#ef4444',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#fff1f2',
+  },
+  shoppingItemRemoveText: {
+    color: '#b91c1c',
+    fontSize: 16,
+    fontWeight: '700',
+    lineHeight: 18,
+  },
+  selectedPill: {
+    backgroundColor: '#0f766e',
+    borderColor: '#0f766e',
+  },
+  selectedPillText: {
+    color: '#ffffff',
+  },
+  estimatePickerList: {
+    maxHeight: 360,
   },
   roleCard: {
     borderRadius: 12,

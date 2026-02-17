@@ -13,6 +13,8 @@ from .models import (
     CatererUserAccess,
     Estimate,
     EstimateExpenseEntry,
+    ShoppingList,
+    ShoppingListItem,
     EstimateStaffTimeEntry,
 )
 
@@ -303,6 +305,123 @@ class XpenzApiTests(TestCase):
         self.assertTrue(entry1.applied_to_expenses)
         self.assertTrue(entry2.applied_to_expenses)
 
+    def test_shopping_list_create_and_merge_duplicate_items(self):
+        token = self._login_and_get_token("appstaff@example.com")
+        create_response = self.client.post(
+            reverse("xpenz_shopping_lists"),
+            data=json.dumps(
+                {
+                    "caterer_id": self.caterer.id,
+                    "title": "Friday Shopping",
+                    "estimate_id": self.estimate.id,
+                }
+            ),
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        self.assertEqual(create_response.status_code, 201)
+        shopping_list_id = create_response.json()["shopping_list"]["id"]
+
+        first_item = self.client.post(
+            reverse("xpenz_shopping_list_items", args=[shopping_list_id]),
+            data=json.dumps({"item_name": "Mushrooms", "item_type": "pack", "quantity": "2"}),
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        self.assertEqual(first_item.status_code, 201)
+        self.assertFalse(first_item.json()["merged"])
+
+        second_item = self.client.post(
+            reverse("xpenz_shopping_list_items", args=[shopping_list_id]),
+            data=json.dumps({"item_name": "mushrooms", "item_type": "Pack", "quantity": "3"}),
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        self.assertEqual(second_item.status_code, 200)
+        payload = second_item.json()
+        self.assertTrue(payload["merged"])
+        self.assertEqual(payload["item"]["quantity"], "5")
+
+        detail_response = self.client.get(
+            reverse("xpenz_shopping_list_detail", args=[shopping_list_id]),
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        self.assertEqual(detail_response.status_code, 200)
+        detail_payload = detail_response.json()
+        self.assertEqual(detail_payload["shopping_list"]["estimate_id"], self.estimate.id)
+        self.assertEqual(len(detail_payload["items"]), 1)
+        self.assertEqual(detail_payload["items"][0]["item_name"], "Mushrooms")
+
+    def test_shopping_list_remove_item(self):
+        token = self._login_and_get_token("appstaff@example.com")
+        shopping_list = ShoppingList.objects.create(
+            caterer=self.caterer,
+            title="Market run",
+            created_by=self.app_user,
+        )
+        item = ShoppingListItem.objects.create(
+            shopping_list=shopping_list,
+            item_name="Chicken breast",
+            item_type="kg",
+            quantity=Decimal("4.00"),
+            category="MEAT_POULTRY_FISH",
+            created_by=self.app_user,
+        )
+
+        remove_response = self.client.post(
+            reverse("xpenz_shopping_list_remove_item", args=[shopping_list.id, item.id]),
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        self.assertEqual(remove_response.status_code, 200)
+        self.assertFalse(
+            ShoppingListItem.objects.filter(pk=item.id, shopping_list=shopping_list).exists()
+        )
+
+    def test_shopping_list_category_sorting(self):
+        token = self._login_and_get_token("appstaff@example.com")
+        shopping_list = ShoppingList.objects.create(
+            caterer=self.caterer,
+            title="Sorted list",
+            created_by=self.app_user,
+        )
+        # Add out of order; response should return Produce before Meat before Pantry.
+        self.client.post(
+            reverse("xpenz_shopping_list_items", args=[shopping_list.id]),
+            data=json.dumps({"item_name": "salt", "quantity": "1"}),
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        self.client.post(
+            reverse("xpenz_shopping_list_items", args=[shopping_list.id]),
+            data=json.dumps({"item_name": "chicken breast", "quantity": "2"}),
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        self.client.post(
+            reverse("xpenz_shopping_list_items", args=[shopping_list.id]),
+            data=json.dumps({"item_name": "tomato", "quantity": "3"}),
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+
+        detail_response = self.client.get(
+            reverse("xpenz_shopping_list_detail", args=[shopping_list.id]),
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        self.assertEqual(detail_response.status_code, 200)
+        categories = [row["category"] for row in detail_response.json()["items"]]
+        self.assertEqual(categories[:3], ["PRODUCE", "MEAT_POULTRY_FISH", "PANTRY"])
+
+    def test_shopping_list_create_denied_for_other_caterer(self):
+        token = self._login_and_get_token("appstaff@example.com")
+        response = self.client.post(
+            reverse("xpenz_shopping_lists"),
+            data=json.dumps({"caterer_id": self.other_caterer.id, "title": "No access"}),
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        self.assertEqual(response.status_code, 403)
+
     def test_admin_can_create_app_user_from_global_permissions_tab(self):
         self.client.force_login(self.user)
         response = self.client.post(
@@ -326,6 +445,44 @@ class XpenzApiTests(TestCase):
         self.assertTrue(access.can_add_expenses)
         self.assertFalse(access.can_view_job_billing)
         self.assertTrue(access.can_manage_staff)
+
+    def test_admin_can_edit_unapplied_staff_record_before_expense_apply(self):
+        now = timezone.now().replace(microsecond=0)
+        entry = EstimateStaffTimeEntry.objects.create(
+            estimate=self.estimate,
+            role="WAIT",
+            worker_first_name="Joe",
+            hourly_rate=Decimal("40.00"),
+            punched_in_at=now - timedelta(hours=2),
+            punched_out_at=now - timedelta(hours=1),
+            total_hours=Decimal("1.00"),
+            total_cost=Decimal("40.00"),
+        )
+
+        self.client.force_login(self.user)
+        punched_in = now - timedelta(hours=2)
+        punched_out = now - timedelta(minutes=30)
+        response = self.client.post(
+            reverse("admin:client_estimates_estimatestafftimeentry_change", args=[entry.id]),
+            data={
+                "role": "WAIT",
+                "worker_first_name": "Joe Edited",
+                "hourly_rate": "45.00",
+                "punched_in_at_0": punched_in.strftime("%Y-%m-%d"),
+                "punched_in_at_1": punched_in.strftime("%H:%M:%S"),
+                "punched_out_at_0": punched_out.strftime("%Y-%m-%d"),
+                "punched_out_at_1": punched_out.strftime("%H:%M:%S"),
+                "_save": "Save",
+            },
+            follow=False,
+        )
+        self.assertEqual(response.status_code, 302)
+
+        entry.refresh_from_db()
+        self.assertEqual(entry.worker_first_name, "Joe Edited")
+        self.assertEqual(entry.hourly_rate, Decimal("45.00"))
+        self.assertEqual(entry.total_hours, Decimal("1.50"))
+        self.assertEqual(entry.total_cost, Decimal("67.50"))
 
     def test_admin_can_delete_expense_entry_for_owned_estimate(self):
         entry = EstimateExpenseEntry.objects.create(

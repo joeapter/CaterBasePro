@@ -37,6 +37,18 @@ STAFF_ROLE_CHOICES = [
     ("MANAGEMENT", "Management Staff"),
 ]
 
+SHOPPING_CATEGORY_CHOICES = [
+    ("PRODUCE", "Produce"),
+    ("MEAT_POULTRY_FISH", "Meat / Poultry / Fish"),
+    ("DAIRY_EGGS", "Dairy / Eggs"),
+    ("PANTRY", "Pantry"),
+    ("BAKERY", "Bakery"),
+    ("FROZEN", "Frozen"),
+    ("BEVERAGES", "Beverages"),
+    ("DISPOSABLES", "Disposables"),
+    ("OTHER", "Other"),
+]
+
 DOCUMENT_BACKGROUND_CHOICES = [
     ("CLEAN", "Clean white"),
     ("WATERCOLOR_SAGE", "Watercolor sage wash"),
@@ -1221,6 +1233,93 @@ class EstimateStaffTimeEntry(models.Model):
         self.total_cost = (self.total_hours * (self.hourly_rate or Decimal("0.00"))).quantize(
             Decimal("0.01")
         )
+
+
+class ShoppingList(models.Model):
+    caterer = models.ForeignKey(
+        CatererAccount,
+        on_delete=models.CASCADE,
+        related_name="shopping_lists",
+    )
+    estimate = models.ForeignKey(
+        Estimate,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="shopping_lists",
+        help_text="Optional estimate reference used for context only.",
+    )
+    title = models.CharField(max_length=200, blank=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="shopping_lists_created",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-updated_at", "-created_at"]
+        verbose_name = "Shopping list"
+        verbose_name_plural = "Shopping lists"
+
+    def __str__(self):
+        if self.title:
+            return self.title
+        return f"Shopping list #{self.pk}"
+
+
+class ShoppingListItem(models.Model):
+    shopping_list = models.ForeignKey(
+        ShoppingList,
+        on_delete=models.CASCADE,
+        related_name="items",
+    )
+    item_name = models.CharField(max_length=255)
+    item_type = models.CharField(
+        max_length=120,
+        blank=True,
+        help_text="Optional variant, e.g. pack size, dry/fresh, jar, etc.",
+    )
+    quantity = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        default=Decimal("1.00"),
+    )
+    category = models.CharField(
+        max_length=30,
+        choices=SHOPPING_CATEGORY_CHOICES,
+        default="OTHER",
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="shopping_list_items_created",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["category", "item_name", "item_type", "created_at"]
+        verbose_name = "Shopping list item"
+        verbose_name_plural = "Shopping list items"
+
+    def __str__(self):
+        if self.item_type:
+            return f"{self.item_name} ({self.item_type}) x {self.quantity}"
+        return f"{self.item_name} x {self.quantity}"
+
+    def save(self, *args, **kwargs):
+        self.item_name = " ".join((self.item_name or "").split()).strip()
+        self.item_type = " ".join((self.item_type or "").split()).strip()
+        if not self.quantity or self.quantity <= Decimal("0.00"):
+            self.quantity = Decimal("1.00")
+        self.quantity = Decimal(self.quantity).quantize(Decimal("0.01"))
+        super().save(*args, **kwargs)
 
 
 class CatererUserAccess(models.Model):

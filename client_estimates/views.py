@@ -8,6 +8,7 @@ from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth import authenticate, get_user_model, login
 from django.core import signing
+from django.core.exceptions import PermissionDenied
 from django.db.models import Count
 from django.db.models.functions import Coalesce
 from django.core.mail import send_mail
@@ -26,7 +27,10 @@ from .models import (
     Estimate,
     EstimateExpenseEntry,
     EstimateStaffTimeEntry,
+    ShoppingList,
+    ShoppingListItem,
     STAFF_ROLE_CHOICES,
+    SHOPPING_CATEGORY_CHOICES,
     TrialRequest,
     XpenzMobileToken,
 )
@@ -40,6 +44,102 @@ STAFF_ROLE_RATES = {
     "MANAGEMENT": Decimal("60.00"),
 }
 STAFF_PUNCH_TOKEN_SALT = "xpenz-staff-punch"
+SHOPPING_CATEGORY_ORDER = {
+    code: index for index, (code, _label) in enumerate(SHOPPING_CATEGORY_CHOICES)
+}
+
+PRODUCE_KEYWORDS = {
+    "produce",
+    "tomato",
+    "lettuce",
+    "onion",
+    "garlic",
+    "mushroom",
+    "cucumber",
+    "pepper",
+    "carrot",
+    "potato",
+    "spinach",
+    "parsley",
+    "cilantro",
+    "oregano",
+    "basil",
+    "thyme",
+    "mint",
+    "apple",
+    "banana",
+    "lemon",
+    "lime",
+    "orange",
+    "avocado",
+}
+MEAT_POULTRY_FISH_KEYWORDS = {
+    "chicken",
+    "beef",
+    "steak",
+    "lamb",
+    "veal",
+    "turkey",
+    "duck",
+    "fish",
+    "salmon",
+    "tuna",
+    "brisket",
+    "ground",
+    "mince",
+    "meat",
+}
+DAIRY_EGG_KEYWORDS = {
+    "milk",
+    "cheese",
+    "yogurt",
+    "yoghurt",
+    "cream",
+    "butter",
+    "egg",
+    "eggs",
+}
+PANTRY_KEYWORDS = {
+    "rice",
+    "pasta",
+    "flour",
+    "sugar",
+    "salt",
+    "spice",
+    "oil",
+    "vinegar",
+    "beans",
+    "lentils",
+    "quinoa",
+    "canned",
+    "can",
+    "jar",
+    "jars",
+    "pesto",
+    "sauce",
+}
+BAKERY_KEYWORDS = {"bread", "bagel", "challah", "bun", "roll", "pita", "baguette", "cake"}
+FROZEN_KEYWORDS = {"frozen", "ice", "fries"}
+BEVERAGE_KEYWORDS = {"water", "soda", "juice", "wine", "beer", "drink", "cola"}
+DISPOSABLE_KEYWORDS = {
+    "plate",
+    "plates",
+    "cup",
+    "cups",
+    "napkin",
+    "napkins",
+    "fork",
+    "forks",
+    "knife",
+    "knives",
+    "spoon",
+    "spoons",
+    "tray",
+    "trays",
+    "foil",
+    "container",
+    "containers",
+}
 
 
 class TrialSignupForm(forms.Form):
@@ -417,6 +517,88 @@ def _staff_role_rows_for_estimate(request, estimate):
     return rows
 
 
+def _normalize_item_text(value):
+    return " ".join((value or "").strip().split())
+
+
+def _parse_quantity(value):
+    raw = _normalize_item_text(value)
+    if not raw:
+        return Decimal("1.00")
+    try:
+        quantity = Decimal(raw)
+    except (InvalidOperation, TypeError, ValueError):
+        return None
+    if quantity <= Decimal("0.00"):
+        return None
+    return quantity.quantize(Decimal("0.01"))
+
+
+def _infer_shopping_category(item_name):
+    words = set(_normalize_item_text(item_name).lower().replace("-", " ").split())
+    if not words:
+        return "OTHER"
+    if words & PRODUCE_KEYWORDS:
+        return "PRODUCE"
+    if words & MEAT_POULTRY_FISH_KEYWORDS:
+        return "MEAT_POULTRY_FISH"
+    if words & DAIRY_EGG_KEYWORDS:
+        return "DAIRY_EGGS"
+    if words & BAKERY_KEYWORDS:
+        return "BAKERY"
+    if words & FROZEN_KEYWORDS:
+        return "FROZEN"
+    if words & BEVERAGE_KEYWORDS:
+        return "BEVERAGES"
+    if words & DISPOSABLE_KEYWORDS:
+        return "DISPOSABLES"
+    if words & PANTRY_KEYWORDS:
+        return "PANTRY"
+    return "OTHER"
+
+
+def _format_quantity(quantity):
+    quantized = (quantity or Decimal("0.00")).quantize(Decimal("0.01"))
+    as_string = f"{quantized}"
+    if as_string.endswith(".00"):
+        return as_string[:-3]
+    if as_string.endswith("0"):
+        return as_string[:-1]
+    return as_string
+
+
+def _serialize_shopping_list_entry(entry):
+    estimate_label = ""
+    if entry.estimate_id:
+        est_num = f"#{entry.estimate.estimate_number}" if entry.estimate and entry.estimate.estimate_number else ""
+        est_name = entry.estimate.customer_name if entry.estimate else ""
+        estimate_label = " ".join([part for part in [est_num, est_name] if part]).strip()
+    return {
+        "id": entry.id,
+        "title": entry.title or f"Shopping List #{entry.id}",
+        "caterer_id": entry.caterer_id,
+        "caterer_name": entry.caterer.name if entry.caterer_id else "",
+        "estimate_id": entry.estimate_id,
+        "estimate_label": estimate_label,
+        "item_count": getattr(entry, "item_count", 0),
+        "created_by": entry.created_by.get_username() if entry.created_by else "",
+        "created_at": entry.created_at.isoformat() if entry.created_at else "",
+        "updated_at": entry.updated_at.isoformat() if entry.updated_at else "",
+    }
+
+
+def _serialize_shopping_item(entry):
+    return {
+        "id": entry.id,
+        "item_name": entry.item_name,
+        "item_type": entry.item_type,
+        "quantity": _format_quantity(entry.quantity),
+        "category": entry.category,
+        "category_label": entry.get_category_display(),
+        "created_at": entry.created_at.isoformat() if entry.created_at else "",
+    }
+
+
 @csrf_exempt
 def xpenz_mobile_login(request):
     if request.method != "POST":
@@ -523,6 +705,7 @@ def xpenz_estimate_list(request):
                 "event_type": estimate.event_type,
                 "event_date": estimate.event_date.isoformat() if estimate.event_date else "",
                 "event_location": estimate.event_location,
+                "caterer_id": estimate.caterer_id,
                 "caterer_name": estimate.caterer.name,
                 "currency": estimate.currency,
                 "grand_total": str(estimate.grand_total) if can_view_billing else "",
@@ -754,6 +937,263 @@ def xpenz_apply_staff_costs_to_expense(request, estimate_id):
             "entry_count": len(pending_entries),
         }
     )
+
+
+@csrf_exempt
+def xpenz_shopping_lists(request):
+    user = _xpenz_authenticated_user(request)
+    if not user:
+        return _json_error("Authentication required.", status=401)
+
+    access_map = _mobile_access_map_for_user(user)
+    if not user.is_superuser and not access_map:
+        return _json_error("No mobile app access is configured for this user.", status=403)
+
+    if request.method == "GET":
+        rows = ShoppingList.objects.select_related("caterer", "estimate", "created_by").annotate(
+            item_count=Count("items")
+        )
+        if not user.is_superuser:
+            rows = rows.filter(caterer_id__in=list(access_map.keys()))
+        rows = rows.order_by("-updated_at", "-created_at")
+        return JsonResponse(
+            {
+                "ok": True,
+                "lists": [_serialize_shopping_list_entry(row) for row in rows],
+            }
+        )
+
+    if request.method != "POST":
+        return _json_error("Method not allowed.", status=405)
+
+    payload = {}
+    if request.body:
+        try:
+            payload = json.loads(request.body.decode("utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            payload = {}
+    if not isinstance(payload, dict):
+        payload = {}
+
+    raw_title = (
+        payload.get("title")
+        if payload.get("title") is not None
+        else request.POST.get("title")
+    )
+    title = _normalize_item_text(raw_title or "")
+
+    raw_estimate_id = payload.get("estimate_id")
+    if raw_estimate_id is None:
+        raw_estimate_id = request.POST.get("estimate_id")
+    raw_caterer_id = payload.get("caterer_id")
+    if raw_caterer_id is None:
+        raw_caterer_id = request.POST.get("caterer_id")
+
+    estimate = None
+    caterer = None
+
+    if str(raw_estimate_id or "").strip():
+        if not str(raw_estimate_id).isdigit():
+            return _json_error("Invalid estimate id.", status=400)
+        estimate = get_object_or_404(
+            Estimate.objects.select_related("caterer"),
+            pk=int(raw_estimate_id),
+        )
+        access = _mobile_access_for_caterer(user, estimate.caterer_id, access_map=access_map)
+        if not access:
+            return _json_error("You do not have access to this estimate.", status=403)
+        caterer = estimate.caterer
+
+    if caterer is None:
+        if str(raw_caterer_id or "").strip():
+            if not str(raw_caterer_id).isdigit():
+                return _json_error("Invalid caterer id.", status=400)
+            caterer_id = int(raw_caterer_id)
+            access = _mobile_access_for_caterer(user, caterer_id, access_map=access_map)
+            if not access:
+                return _json_error("You do not have access to this caterer.", status=403)
+            caterer = get_object_or_404(CatererAccount, pk=caterer_id)
+        else:
+            if user.is_superuser:
+                return _json_error("`caterer_id` is required for superusers.", status=400)
+            available_ids = list(access_map.keys())
+            if len(available_ids) == 1:
+                caterer = get_object_or_404(CatererAccount, pk=available_ids[0])
+            elif not available_ids:
+                return _json_error("No caterer access found for this user.", status=403)
+            else:
+                return _json_error("`caterer_id` is required when multiple caterers are available.", status=400)
+
+    if not title:
+        if estimate:
+            title = f"{estimate.customer_name} Shopping"
+        else:
+            title = f"{caterer.name} Shopping"
+
+    created = ShoppingList.objects.create(
+        caterer=caterer,
+        estimate=estimate,
+        title=title,
+        created_by=user,
+    )
+    return JsonResponse(
+        {
+            "ok": True,
+            "shopping_list": _serialize_shopping_list_entry(created),
+        },
+        status=201,
+    )
+
+
+def _shopping_list_for_user(user, shopping_list_id, access_map):
+    entry = get_object_or_404(
+        ShoppingList.objects.select_related("caterer", "estimate", "created_by"),
+        pk=shopping_list_id,
+    )
+    access = _mobile_access_for_caterer(user, entry.caterer_id, access_map=access_map)
+    if not access and not user.is_superuser:
+        raise PermissionDenied("You do not have access to this shopping list.")
+    return entry
+
+
+@csrf_exempt
+def xpenz_shopping_list_detail(request, shopping_list_id):
+    user = _xpenz_authenticated_user(request)
+    if not user:
+        return _json_error("Authentication required.", status=401)
+    if request.method != "GET":
+        return _json_error("Method not allowed.", status=405)
+
+    access_map = _mobile_access_map_for_user(user)
+    if not user.is_superuser and not access_map:
+        return _json_error("No mobile app access is configured for this user.", status=403)
+
+    try:
+        shopping_list = _shopping_list_for_user(user, shopping_list_id, access_map)
+    except PermissionDenied:
+        return _json_error("You do not have access to this shopping list.", status=403)
+
+    item_rows = list(shopping_list.items.all())
+    item_rows = sorted(
+        item_rows,
+        key=lambda row: (
+            SHOPPING_CATEGORY_ORDER.get(row.category, 999),
+            (row.item_name or "").lower(),
+            (row.item_type or "").lower(),
+            row.created_at,
+        ),
+    )
+    shopping_list.item_count = len(item_rows)
+
+    return JsonResponse(
+        {
+            "ok": True,
+            "shopping_list": _serialize_shopping_list_entry(shopping_list),
+            "items": [_serialize_shopping_item(row) for row in item_rows],
+        }
+    )
+
+
+@csrf_exempt
+def xpenz_shopping_list_items(request, shopping_list_id):
+    user = _xpenz_authenticated_user(request)
+    if not user:
+        return _json_error("Authentication required.", status=401)
+    if request.method != "POST":
+        return _json_error("Method not allowed.", status=405)
+
+    access_map = _mobile_access_map_for_user(user)
+    if not user.is_superuser and not access_map:
+        return _json_error("No mobile app access is configured for this user.", status=403)
+
+    try:
+        shopping_list = _shopping_list_for_user(user, shopping_list_id, access_map)
+    except PermissionDenied:
+        return _json_error("You do not have access to this shopping list.", status=403)
+
+    payload = {}
+    if request.body:
+        try:
+            payload = json.loads(request.body.decode("utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            payload = {}
+    if not isinstance(payload, dict):
+        payload = {}
+
+    item_name = _normalize_item_text(
+        payload.get("item_name") if payload.get("item_name") is not None else request.POST.get("item_name", "")
+    )
+    item_type = _normalize_item_text(
+        payload.get("item_type") if payload.get("item_type") is not None else request.POST.get("item_type", "")
+    )
+    raw_quantity = payload.get("quantity") if payload.get("quantity") is not None else request.POST.get("quantity")
+    quantity = _parse_quantity(raw_quantity or "")
+    if quantity is None:
+        return _json_error("Quantity must be a positive number.", status=400)
+    if not item_name:
+        return _json_error("`item_name` is required.", status=400)
+
+    category = _infer_shopping_category(item_name)
+    existing = ShoppingListItem.objects.filter(
+        shopping_list=shopping_list,
+        item_name__iexact=item_name,
+        item_type__iexact=item_type,
+    ).first()
+
+    if existing:
+        existing.quantity = (existing.quantity or Decimal("0.00")) + quantity
+        existing.category = category
+        existing.save(update_fields=["quantity", "category", "updated_at"])
+        item = existing
+        merged = True
+    else:
+        item = ShoppingListItem.objects.create(
+            shopping_list=shopping_list,
+            item_name=item_name,
+            item_type=item_type,
+            quantity=quantity,
+            category=category,
+            created_by=user,
+        )
+        merged = False
+
+    ShoppingList.objects.filter(pk=shopping_list.pk).update(updated_at=timezone.now())
+    return JsonResponse(
+        {
+            "ok": True,
+            "shopping_list_id": shopping_list.id,
+            "item": _serialize_shopping_item(item),
+            "merged": merged,
+        },
+        status=201 if not merged else 200,
+    )
+
+
+@csrf_exempt
+def xpenz_shopping_list_remove_item(request, shopping_list_id, item_id):
+    user = _xpenz_authenticated_user(request)
+    if not user:
+        return _json_error("Authentication required.", status=401)
+    if request.method != "POST":
+        return _json_error("Method not allowed.", status=405)
+
+    access_map = _mobile_access_map_for_user(user)
+    if not user.is_superuser and not access_map:
+        return _json_error("No mobile app access is configured for this user.", status=403)
+
+    try:
+        shopping_list = _shopping_list_for_user(user, shopping_list_id, access_map)
+    except PermissionDenied:
+        return _json_error("You do not have access to this shopping list.", status=403)
+
+    item = get_object_or_404(
+        ShoppingListItem,
+        pk=item_id,
+        shopping_list=shopping_list,
+    )
+    item.delete()
+    ShoppingList.objects.filter(pk=shopping_list.pk).update(updated_at=timezone.now())
+    return JsonResponse({"ok": True, "shopping_list_id": shopping_list.id, "item_id": item_id})
 
 
 @csrf_exempt
