@@ -90,6 +90,7 @@ INSTALLED_APPS = [
 
     "client_estimates",  # 👈 USE THIS
     "app_users.apps.AppUsersConfig",
+    "shopping_list_tool.apps.ShoppingListToolConfig",
 ]
 
 MIDDLEWARE = [

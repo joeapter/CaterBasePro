@@ -1,0 +1,41 @@
+{% extends "admin/base_site.html" %}
+{% load i18n admin_urls %}
+
+{% block breadcrumbs %}
+<div class="breadcrumbs">
+  <a href="{% url 'admin:index' %}">{% translate 'Home' %}</a>
+  &rsaquo; {{ opts.app_config.verbose_name }}
+  &rsaquo; {{ title }}
+</div>
+{% endblock %}
+
+{% block content %}
+<div id="content-main">
+  <div class="module aligned">
+    <h2>Bulk Paste Import</h2>
+    <p>
+      Paste one item per line. You can optionally use:
+      <code>Item | Type | Quantity | Unit</code>
+      for each line.
+    </p>
+    <form method="post" novalidate>
+      {% csrf_token %}
+      {% for field in form %}
+      <div class="form-row{% if field.errors %} errors{% endif %}">
+        {{ field.errors }}
+        <div>
+          {{ field.label_tag }}
+          {{ field }}
+          {% if field.help_text %}
+          <div class="help">{{ field.help_text }}</div>
+          {% endif %}
+        </div>
+      </div>
+      {% endfor %}
+      <div class="submit-row">
+        <input type="submit" value="Import Items" class="default" />
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
