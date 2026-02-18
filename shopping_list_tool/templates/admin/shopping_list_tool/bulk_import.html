@@ -42,14 +42,22 @@
   <div class="module aligned" style="margin-top: 20px;">
     <h2>Saved Items</h2>
     <p>
-      These are remembered items from past shopping lists for the selected caterer.
-      Use category dropdown + save to correct auto-sorting when needed.
+      These are remembered items from past shopping lists for the selected organization.
+      Change multiple category dropdowns, then save once to correct auto-sorting.
     </p>
     {% if not selected_caterer %}
     <p class="help">Select an organization above to load saved items.</p>
     {% elif not saved_items %}
     <p class="help">No saved shopping items yet for this organization.</p>
     {% else %}
+    <form method="post" novalidate>
+      {% csrf_token %}
+      <input type="hidden" name="action" value="set_category_bulk" />
+      <input type="hidden" name="caterer" value="{{ selected_caterer.id }}" />
+      {% if selected_shopping_list_id %}
+      <input type="hidden" name="shopping_list" value="{{ selected_shopping_list_id }}" />
+      {% endif %}
+      <input type="hidden" name="row_count" value="{{ saved_items|length }}" />
     <table id="result_list">
       <thead>
         <tr>
@@ -66,23 +74,21 @@
           <td>{{ item.usage_count }}</td>
           <td>{{ item.category_label }}</td>
           <td>
-            <form method="post" style="display: inline-flex; gap: 8px; align-items: center;">
-              {% csrf_token %}
-              <input type="hidden" name="action" value="set_category" />
-              <input type="hidden" name="caterer" value="{{ selected_caterer.id }}" />
-              <input type="hidden" name="item_name" value="{{ item.item_name }}" />
-              <select name="category">
+              <input type="hidden" name="item_name_{{ forloop.counter0 }}" value="{{ item.item_name }}" />
+              <select name="category_{{ forloop.counter0 }}">
                 {% for code, label in category_choices %}
                 <option value="{{ code }}"{% if code == item.category %} selected{% endif %}>{{ label }}</option>
                 {% endfor %}
               </select>
-              <button type="submit" class="button">Save Category</button>
-            </form>
           </td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
+      <div class="submit-row">
+        <input type="submit" value="Save All Category Changes" class="default" />
+      </div>
+    </form>
     {% endif %}
   </div>
 </div>

@@ -774,6 +774,57 @@ class XpenzApiTests(TestCase):
         self.assertEqual(add_response.status_code, 201)
         self.assertEqual(add_response.json()["item"]["category"], "PANTRY")
 
+    def test_admin_bulk_saved_item_category_override_updates_multiple_items(self):
+        source_list = ShoppingList.objects.create(
+            caterer=self.caterer,
+            title="Bulk category source",
+            created_by=self.user,
+        )
+        ShoppingListItem.objects.create(
+            shopping_list=source_list,
+            item_name="Lemon",
+            quantity=Decimal("1.00"),
+            category="PRODUCE",
+            created_by=self.user,
+        )
+        ShoppingListItem.objects.create(
+            shopping_list=source_list,
+            item_name="Chicken Breast",
+            quantity=Decimal("2.00"),
+            category="MEAT_POULTRY_FISH",
+            created_by=self.user,
+        )
+
+        self.client.force_login(self.user)
+        admin_response = self.client.post(
+            reverse("admin:shopping_list_tool_shoppinglistbulkimport_bulk_import"),
+            data={
+                "action": "set_category_bulk",
+                "caterer": self.caterer.id,
+                "row_count": "2",
+                "item_name_0": "Lemon",
+                "category_0": "PANTRY",
+                "item_name_1": "Chicken Breast",
+                "category_1": "PANTRY",
+            },
+            follow=False,
+        )
+        self.assertEqual(admin_response.status_code, 302)
+        self.assertTrue(
+            ShoppingListItem.objects.filter(
+                shopping_list__caterer=self.caterer,
+                item_name__iexact="Lemon",
+                category="PANTRY",
+            ).exists()
+        )
+        self.assertTrue(
+            ShoppingListItem.objects.filter(
+                shopping_list__caterer=self.caterer,
+                item_name__iexact="Chicken Breast",
+                category="PANTRY",
+            ).exists()
+        )
+
     def test_admin_can_create_app_user_from_global_permissions_tab(self):
         self.client.force_login(self.user)
         response = self.client.post(

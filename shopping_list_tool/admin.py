@@ -216,7 +216,7 @@ class ShoppingListBulkImportAdmin(admin.ModelAdmin):
 
         form = (
             ShoppingListBulkImportForm(request.POST)
-            if request.method == "POST" and action != "set_category"
+            if request.method == "POST" and action not in {"set_category", "set_category_bulk"}
             else ShoppingListBulkImportForm()
         )
         form.fields["caterer"].queryset = allowed_caterers
@@ -235,12 +235,27 @@ class ShoppingListBulkImportAdmin(admin.ModelAdmin):
         shopping_list_qs = self._allowed_shopping_lists(request, selected_caterer)
         form.fields["shopping_list"].queryset = shopping_list_qs
 
-        if request.method == "GET":
+        selected_shopping_list = None
+        if request.method == "POST":
+            raw_shopping_list_id = (request.POST.get("shopping_list") or "").strip()
+        else:
             raw_shopping_list_id = (request.GET.get("shopping_list") or "").strip()
-            if raw_shopping_list_id.isdigit():
-                selected_list = shopping_list_qs.filter(pk=int(raw_shopping_list_id)).first()
-                if selected_list:
-                    form.fields["shopping_list"].initial = selected_list
+        if raw_shopping_list_id.isdigit():
+            selected_shopping_list = shopping_list_qs.filter(pk=int(raw_shopping_list_id)).first()
+            if selected_shopping_list:
+                form.fields["shopping_list"].initial = selected_shopping_list
+        selected_shopping_list_id = selected_shopping_list.id if selected_shopping_list else None
+
+        def _redirect_to_current():
+            target = reverse(f"admin:{self._admin_url_name('bulk_import')}")
+            params = []
+            if selected_caterer:
+                params.append(f"caterer={selected_caterer.id}")
+            if selected_shopping_list_id:
+                params.append(f"shopping_list={selected_shopping_list_id}")
+            if params:
+                target = f"{target}?{'&'.join(params)}"
+            return redirect(target)
 
         if request.method == "POST" and action == "set_category":
             item_name = self._normalize(request.POST.get("item_name") or "")
@@ -249,7 +264,7 @@ class ShoppingListBulkImportAdmin(admin.ModelAdmin):
             if not selected_caterer:
                 self.message_user(
                     request,
-                    "Select a caterer before updating item categories.",
+                    "Select an organization before updating item categories.",
                     level=messages.ERROR,
                 )
             elif category not in SHOPPING_CATEGORY_LABELS:
@@ -289,18 +304,63 @@ class ShoppingListBulkImportAdmin(admin.ModelAdmin):
                         level=messages.WARNING,
                     )
 
-            target = reverse(f"admin:{self._admin_url_name('bulk_import')}")
-            params = []
-            if selected_caterer:
-                params.append(f"caterer={selected_caterer.id}")
-            raw_shopping_list_id = (request.POST.get("shopping_list") or "").strip()
-            if raw_shopping_list_id.isdigit():
-                selected_list = shopping_list_qs.filter(pk=int(raw_shopping_list_id)).first()
-                if selected_list:
-                    params.append(f"shopping_list={selected_list.id}")
-            if params:
-                target = f"{target}?{'&'.join(params)}"
-            return redirect(target)
+            return _redirect_to_current()
+
+        if request.method == "POST" and action == "set_category_bulk":
+            if not selected_caterer:
+                self.message_user(
+                    request,
+                    "Select an organization before updating item categories.",
+                    level=messages.ERROR,
+                )
+                return _redirect_to_current()
+
+            row_count_raw = (request.POST.get("row_count") or "").strip()
+            try:
+                row_count = int(row_count_raw)
+            except (TypeError, ValueError):
+                row_count = 0
+            row_count = max(0, row_count)
+
+            updated_rows = 0
+            changed_items = 0
+            for idx in range(row_count):
+                item_name = self._normalize(request.POST.get(f"item_name_{idx}") or "")
+                category = self._normalize(request.POST.get(f"category_{idx}") or "")
+                if not item_name or category not in SHOPPING_CATEGORY_LABELS:
+                    continue
+
+                affected = (
+                    ShoppingListItem.objects.filter(
+                        shopping_list__caterer=selected_caterer,
+                        item_name__iexact=item_name,
+                    )
+                    .exclude(category=category)
+                    .update(
+                        category=category,
+                        updated_at=timezone.now(),
+                    )
+                )
+                if affected:
+                    changed_items += 1
+                    updated_rows += affected
+
+            if changed_items:
+                self.message_user(
+                    request,
+                    (
+                        f"Saved {changed_items} category change(s) "
+                        f"across {updated_rows} item row(s)."
+                    ),
+                    level=messages.SUCCESS,
+                )
+            else:
+                self.message_user(
+                    request,
+                    "No category changes were detected.",
+                    level=messages.INFO,
+                )
+            return _redirect_to_current()
 
         if request.method == "POST" and form.is_valid():
             caterer = form.cleaned_data["caterer"]
@@ -406,6 +466,7 @@ class ShoppingListBulkImportAdmin(admin.ModelAdmin):
             "title": "Shopping List Bulk Paste Import",
             "form": form,
             "selected_caterer": selected_caterer,
+            "selected_shopping_list_id": selected_shopping_list_id,
             "saved_items": saved_items,
             "category_choices": SHOPPING_CATEGORY_CHOICES,
         }
