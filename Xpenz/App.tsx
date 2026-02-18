@@ -1420,42 +1420,44 @@ export default function App() {
               <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
                 <View style={styles.contentTapDismissArea}>
               <View style={styles.sectionCard}>
-                <View style={styles.headerRow}>
+                <View style={styles.listHeaderTopRow}>
                   <Text style={styles.sectionTitle}>{selectedShoppingList.title}</Text>
-                  <View style={styles.stackedActions}>
-                    <Pressable
-                      style={styles.smallButton}
-                      onPress={() => {
-                        setSelectedShoppingList(null);
-                        setShoppingItems([]);
-                        setSelectedCatalogItem(null);
-                        setCatalogItemUnit('');
-                        setShoppingListScreenMode('manage');
-                      }}
-                    >
-                      <Text style={styles.smallButtonText}>Back to Lists</Text>
-                    </Pressable>
-                    <Pressable
-                      style={[
-                        styles.smallButton,
-                        styles.smallAccentButton,
-                      ]}
-                      onPress={() => {
-                        setShoppingListScreenMode((prev) => (prev === 'manage' ? 'list' : 'manage'));
-                      }}
-                    >
-                      <Text style={styles.smallAccentButtonText}>
-                        {shoppingListScreenMode === 'manage' ? 'Shopping List' : 'Manage'}
-                      </Text>
-                    </Pressable>
-                  </View>
+                  <Pressable
+                    style={styles.smallButton}
+                    onPress={() => {
+                      setSelectedShoppingList(null);
+                      setShoppingItems([]);
+                      setSelectedCatalogItem(null);
+                      setCatalogItemUnit('');
+                      setShoppingListScreenMode('manage');
+                    }}
+                  >
+                    <Text style={styles.smallButtonText}>Back to Lists</Text>
+                  </Pressable>
                 </View>
-                <Text style={styles.subtleText}>{selectedShoppingList.caterer_name}</Text>
-                {selectedShoppingList.estimate_label ? (
-                  <Text style={styles.subtleText}>Linked job: {selectedShoppingList.estimate_label}</Text>
-                ) : (
-                  <Text style={styles.subtleText}>No linked job (standalone list)</Text>
-                )}
+                <View style={styles.listHeaderMetaRow}>
+                  <View style={styles.listHeaderMetaText}>
+                    <Text style={styles.subtleText}>{selectedShoppingList.caterer_name}</Text>
+                    {selectedShoppingList.estimate_label ? (
+                      <Text style={styles.subtleText}>Linked job: {selectedShoppingList.estimate_label}</Text>
+                    ) : (
+                      <Text style={styles.subtleText}>No linked job (standalone list)</Text>
+                    )}
+                  </View>
+                  <Pressable
+                    style={[
+                      styles.smallButton,
+                      styles.smallAccentButton,
+                    ]}
+                    onPress={() => {
+                      setShoppingListScreenMode((prev) => (prev === 'manage' ? 'list' : 'manage'));
+                    }}
+                  >
+                    <Text style={styles.smallAccentButtonText}>
+                      {shoppingListScreenMode === 'manage' ? 'Shopping List' : 'Manage'}
+                    </Text>
+                  </Pressable>
+                </View>
               </View>
 
               {shoppingListScreenMode === 'manage' ? (
@@ -2399,9 +2401,21 @@ const styles = StyleSheet.create({
     gap: 8,
     flexWrap: 'wrap',
   },
-  stackedActions: {
-    alignItems: 'flex-end',
+  listHeaderTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     gap: 8,
+  },
+  listHeaderMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  listHeaderMetaText: {
+    flex: 1,
+    gap: 4,
   },
   topTabs: {
     flexDirection: 'row',
