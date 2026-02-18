@@ -20,6 +20,7 @@
     </p>
     <form method="post" novalidate>
       {% csrf_token %}
+      <input type="hidden" name="action" value="bulk_import" />
       {% for field in form %}
       <div class="form-row{% if field.errors %} errors{% endif %}">
         {{ field.errors }}
@@ -36,6 +37,53 @@
         <input type="submit" value="Import Items" class="default" />
       </div>
     </form>
+  </div>
+
+  <div class="module aligned" style="margin-top: 20px;">
+    <h2>Saved Items</h2>
+    <p>
+      These are remembered items from past shopping lists for the selected caterer.
+      Use category dropdown + save to correct auto-sorting when needed.
+    </p>
+    {% if not selected_caterer %}
+    <p class="help">Select an organization above to load saved items.</p>
+    {% elif not saved_items %}
+    <p class="help">No saved shopping items yet for this organization.</p>
+    {% else %}
+    <table id="result_list">
+      <thead>
+        <tr>
+          <th>Item</th>
+          <th>Usage</th>
+          <th>Current Category</th>
+          <th>Set Category</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in saved_items %}
+        <tr>
+          <td>{{ item.item_name }}</td>
+          <td>{{ item.usage_count }}</td>
+          <td>{{ item.category_label }}</td>
+          <td>
+            <form method="post" style="display: inline-flex; gap: 8px; align-items: center;">
+              {% csrf_token %}
+              <input type="hidden" name="action" value="set_category" />
+              <input type="hidden" name="caterer" value="{{ selected_caterer.id }}" />
+              <input type="hidden" name="item_name" value="{{ item.item_name }}" />
+              <select name="category">
+                {% for code, label in category_choices %}
+                <option value="{{ code }}"{% if code == item.category %} selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+              </select>
+              <button type="submit" class="button">Save Category</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
   </div>
 </div>
 {% endblock %}

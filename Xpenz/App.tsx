@@ -13,6 +13,8 @@ import {
   ActivityIndicator,
   Alert,
   Image,
+  InputAccessoryView,
+  Keyboard,
   KeyboardAvoidingView,
   Linking,
   Modal,
@@ -23,6 +25,7 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  TouchableWithoutFeedback,
   View,
 } from 'react-native';
 
@@ -125,6 +128,7 @@ type ShoppingCatalogItem = {
   category_label: string;
   type_options: string[];
   unit_options: string[];
+  last_used_unit: string;
   usage_count: number;
 };
 
@@ -139,6 +143,7 @@ const BASE_URL_KEY = 'xpenz_base_url';
 const DEFAULT_BASE_URL = 'https://www.caterbasepro.com';
 const SHEKEL_SYMBOL = '₪';
 const DEFAULT_SHOPPING_UNIT_OPTIONS = ['Kg', 'Pieces', 'Cans'];
+const NUMERIC_INPUT_ACCESSORY_ID = 'xpenz-numeric-accessory';
 
 function normalizeBaseUrl(value: string) {
   return value.trim().replace(/\/+$/, '');
@@ -225,18 +230,21 @@ export default function App() {
   const [loadingShoppingCatalog, setLoadingShoppingCatalog] = useState(false);
   const [addingShoppingItem, setAddingShoppingItem] = useState(false);
   const [removingShoppingItemId, setRemovingShoppingItemId] = useState<number | null>(null);
+  const [deletingShoppingList, setDeletingShoppingList] = useState(false);
   const [shoppingListTitle, setShoppingListTitle] = useState('');
   const [shoppingCatererId, setShoppingCatererId] = useState<number | null>(null);
   const [shoppingEstimateRefId, setShoppingEstimateRefId] = useState<number | null>(null);
+  const [shoppingListScreenMode, setShoppingListScreenMode] = useState<'manage' | 'list'>('manage');
   const [showEstimatePicker, setShowEstimatePicker] = useState(false);
   const [newShoppingItemName, setNewShoppingItemName] = useState('');
   const [newShoppingItemType, setNewShoppingItemType] = useState('');
-  const [newShoppingItemQuantity, setNewShoppingItemQuantity] = useState('1');
+  const [newShoppingItemQuantity, setNewShoppingItemQuantity] = useState('');
   const [newShoppingItemUnit, setNewShoppingItemUnit] = useState('');
   const [selectedCatalogItem, setSelectedCatalogItem] = useState<ShoppingCatalogItem | null>(null);
   const [catalogItemType, setCatalogItemType] = useState('');
-  const [catalogItemQuantity, setCatalogItemQuantity] = useState('1');
+  const [catalogItemQuantity, setCatalogItemQuantity] = useState('');
   const [catalogItemUnit, setCatalogItemUnit] = useState('');
+  const [openCatalogCategory, setOpenCatalogCategory] = useState<string | null>(null);
 
   const [drafts, setDrafts] = useState<ExpenseDraft[]>([]);
   const [activeRecordingDraftId, setActiveRecordingDraftId] = useState<string | null>(null);
@@ -406,9 +414,19 @@ export default function App() {
           overrideToken,
           overrideBaseUrl,
         );
-        setShoppingCatalogCategories(
-          Array.isArray(payload.categories) ? payload.categories : [],
-        );
+        const categories: ShoppingCatalogCategory[] = Array.isArray(payload.categories)
+          ? payload.categories
+          : [];
+        setShoppingCatalogCategories(categories);
+        setOpenCatalogCategory((prev) => {
+          if (!categories.length) {
+            return null;
+          }
+          if (prev && categories.some((category) => category.category === prev)) {
+            return prev;
+          }
+          return categories[0].category;
+        });
       } finally {
         setLoadingShoppingCatalog(false);
       }
@@ -428,6 +446,20 @@ export default function App() {
     () => estimates.find((estimate) => estimate.id === shoppingEstimateRefId) || null,
     [estimates, shoppingEstimateRefId],
   );
+
+  const shoppingCatalogItemByName = useMemo(() => {
+    const index = new Map<string, ShoppingCatalogItem>();
+    for (const category of shoppingCatalogCategories) {
+      for (const item of category.items) {
+        const key = item.item_name.trim().toLowerCase();
+        if (!key || index.has(key)) {
+          continue;
+        }
+        index.set(key, item);
+      }
+    }
+    return index;
+  }, [shoppingCatalogCategories]);
 
   const shoppingSections = useMemo(() => {
     const grouped = new Map<string, { label: string; items: ShoppingItem[] }>();
@@ -460,6 +492,19 @@ export default function App() {
       ),
     [catalogItemUnit, selectedCatalogItem],
   );
+
+  useEffect(() => {
+    const itemNameKey = newShoppingItemName.trim().toLowerCase();
+    if (!itemNameKey || newShoppingItemUnit.trim()) {
+      return;
+    }
+    const matchedItem = shoppingCatalogItemByName.get(itemNameKey);
+    const rememberedUnit = (matchedItem?.last_used_unit || '').trim();
+    if (!rememberedUnit) {
+      return;
+    }
+    setNewShoppingItemUnit(rememberedUnit);
+  }, [newShoppingItemName, newShoppingItemUnit, shoppingCatalogItemByName]);
 
   useEffect(() => {
     async function bootstrap() {
@@ -607,15 +652,18 @@ export default function App() {
       setShoppingListTitle('');
       setShoppingCatererId(null);
       setShoppingEstimateRefId(null);
+      setShoppingListScreenMode('manage');
+      setDeletingShoppingList(false);
       setShowEstimatePicker(false);
       setNewShoppingItemName('');
       setNewShoppingItemType('');
-      setNewShoppingItemQuantity('1');
+      setNewShoppingItemQuantity('');
       setNewShoppingItemUnit('');
       setSelectedCatalogItem(null);
       setCatalogItemType('');
-      setCatalogItemQuantity('1');
+      setCatalogItemQuantity('');
       setCatalogItemUnit('');
+      setOpenCatalogCategory(null);
       setDrafts([]);
     }
   }, []);
@@ -674,6 +722,7 @@ export default function App() {
       }
       await loadShoppingLists();
       setSelectedShoppingList(payload.shopping_list);
+      setShoppingListScreenMode('manage');
       await Promise.all([
         loadShoppingListDetail(payload.shopping_list.id),
         loadShoppingCatalog(),
@@ -702,6 +751,7 @@ export default function App() {
   const openShoppingList = useCallback(
     async (shoppingList: ShoppingListRow) => {
       setSelectedShoppingList(shoppingList);
+      setShoppingListScreenMode('manage');
       try {
         await Promise.all([
           loadShoppingListDetail(shoppingList.id),
@@ -786,15 +836,15 @@ export default function App() {
     }
     setNewShoppingItemName('');
     setNewShoppingItemType('');
-    setNewShoppingItemQuantity('1');
+    setNewShoppingItemQuantity('');
     setNewShoppingItemUnit('');
   }, [newShoppingItemName, newShoppingItemQuantity, newShoppingItemType, newShoppingItemUnit, submitShoppingItem]);
 
   const openCatalogItemEditor = useCallback((item: ShoppingCatalogItem) => {
     setSelectedCatalogItem(item);
     setCatalogItemType('');
-    setCatalogItemQuantity('1');
-    setCatalogItemUnit('');
+    setCatalogItemQuantity('');
+    setCatalogItemUnit((item.last_used_unit || '').trim());
   }, []);
 
   const handleAddCatalogItem = useCallback(async () => {
@@ -812,7 +862,7 @@ export default function App() {
     }
     setSelectedCatalogItem(null);
     setCatalogItemType('');
-    setCatalogItemQuantity('1');
+    setCatalogItemQuantity('');
     setCatalogItemUnit('');
   }, [catalogItemQuantity, catalogItemType, catalogItemUnit, selectedCatalogItem, submitShoppingItem]);
 
@@ -854,6 +904,65 @@ export default function App() {
     },
     [apiBaseUrl, loadShoppingListDetail, loadShoppingLists, removingShoppingItemId, selectedShoppingList, token],
   );
+
+  const handleDeleteShoppingList = useCallback(() => {
+    if (!selectedShoppingList || !token || deletingShoppingList) {
+      return;
+    }
+    const targetList = selectedShoppingList;
+    Alert.alert(
+      'Delete shopping list?',
+      `Delete "${targetList.title}" and all its items? This cannot be undone.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            setDeletingShoppingList(true);
+            try {
+              const response = await fetch(
+                apiUrl(
+                  apiBaseUrl,
+                  `/api/xpenz/shopping-lists/${targetList.id}/delete/`,
+                ),
+                {
+                  method: 'POST',
+                  headers: {
+                    Authorization: `Bearer ${token}`,
+                  },
+                },
+              );
+              const payload = await response.json().catch(() => ({}));
+              if (!response.ok || payload.ok === false) {
+                throw new Error(payload.error || 'Unable to delete shopping list.');
+              }
+              setSelectedShoppingList(null);
+              setShoppingItems([]);
+              setSelectedCatalogItem(null);
+              setCatalogItemUnit('');
+              setOpenCatalogCategory(null);
+              await Promise.all([loadShoppingLists(), loadShoppingCatalog()]);
+            } catch (error) {
+              Alert.alert(
+                'Delete failed',
+                error instanceof Error ? error.message : 'Unable to delete shopping list.',
+              );
+            } finally {
+              setDeletingShoppingList(false);
+            }
+          },
+        },
+      ],
+    );
+  }, [
+    apiBaseUrl,
+    deletingShoppingList,
+    loadShoppingCatalog,
+    loadShoppingLists,
+    selectedShoppingList,
+    token,
+  ]);
 
   const addManualDraft = useCallback(() => {
     setDrafts((prev) => [
@@ -1302,21 +1411,56 @@ export default function App() {
           )
         ) : (
           selectedShoppingList ? (
-            <ScrollView contentContainerStyle={styles.contentWrap}>
+            <ScrollView
+              contentContainerStyle={styles.contentWrap}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="on-drag"
+            >
+              <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+                <View style={styles.contentTapDismissArea}>
               <View style={styles.sectionCard}>
                 <View style={styles.headerRow}>
                   <Text style={styles.sectionTitle}>{selectedShoppingList.title}</Text>
-                  <Pressable
-                    style={styles.smallButton}
-                    onPress={() => {
-                      setSelectedShoppingList(null);
-                      setShoppingItems([]);
-                      setSelectedCatalogItem(null);
-                      setCatalogItemUnit('');
-                    }}
-                  >
-                    <Text style={styles.smallButtonText}>Back to Lists</Text>
-                  </Pressable>
+                  <View style={styles.inlineActions}>
+                    <Pressable
+                      style={styles.smallButton}
+                      onPress={() => {
+                        setSelectedShoppingList(null);
+                        setShoppingItems([]);
+                        setSelectedCatalogItem(null);
+                        setCatalogItemUnit('');
+                        setShoppingListScreenMode('manage');
+                      }}
+                    >
+                      <Text style={styles.smallButtonText}>Back to Lists</Text>
+                    </Pressable>
+                    <Pressable
+                      style={[
+                        styles.smallButton,
+                        styles.smallAccentButton,
+                      ]}
+                      onPress={() => {
+                        setShoppingListScreenMode((prev) => (prev === 'manage' ? 'list' : 'manage'));
+                      }}
+                    >
+                      <Text style={styles.smallAccentButtonText}>
+                        {shoppingListScreenMode === 'manage' ? 'List' : 'Manage'}
+                      </Text>
+                    </Pressable>
+                    <Pressable
+                      style={[
+                        styles.smallButton,
+                        styles.smallDangerButton,
+                        deletingShoppingList && styles.buttonDisabled,
+                      ]}
+                      onPress={handleDeleteShoppingList}
+                      disabled={deletingShoppingList}
+                    >
+                      <Text style={styles.smallDangerButtonText}>
+                        {deletingShoppingList ? 'Deleting...' : 'Delete List'}
+                      </Text>
+                    </Pressable>
+                  </View>
                 </View>
                 <Text style={styles.subtleText}>{selectedShoppingList.caterer_name}</Text>
                 {selectedShoppingList.estimate_label ? (
@@ -1326,6 +1470,7 @@ export default function App() {
                 )}
               </View>
 
+              {shoppingListScreenMode === 'manage' ? (
               <View style={styles.sectionCard}>
                 <Text style={styles.sectionTitle}>Add Item</Text>
                 <TextInput
@@ -1345,6 +1490,9 @@ export default function App() {
                   value={newShoppingItemQuantity}
                   onChangeText={setNewShoppingItemQuantity}
                   keyboardType="decimal-pad"
+                  inputAccessoryViewID={
+                    Platform.OS === 'ios' ? NUMERIC_INPUT_ACCESSORY_ID : undefined
+                  }
                   placeholder="Quantity (default 1)"
                 />
                 <TextInput
@@ -1400,18 +1548,45 @@ export default function App() {
                   <View style={styles.savedList}>
                     {shoppingCatalogCategories.map((category) => (
                       <View key={category.category} style={styles.catalogCategoryBlock}>
-                        <Text style={styles.catalogCategoryTitle}>{category.category_label}</Text>
-                        <View style={styles.catalogItemWrap}>
-                          {category.items.map((item) => (
-                            <Pressable
-                              key={`${category.category}-${item.item_name}`}
-                              style={styles.catalogItemPill}
-                              onPress={() => openCatalogItemEditor(item)}
-                            >
-                              <Text style={styles.catalogItemPillText}>{item.item_name}</Text>
-                            </Pressable>
-                          ))}
-                        </View>
+                        <Pressable
+                          style={[
+                            styles.catalogCategoryToggle,
+                            openCatalogCategory === category.category && styles.catalogCategoryToggleActive,
+                          ]}
+                          onPress={() => setOpenCatalogCategory(category.category)}
+                        >
+                          <Text
+                            style={[
+                              styles.catalogCategoryTitle,
+                              openCatalogCategory === category.category &&
+                                styles.catalogCategoryTitleActive,
+                            ]}
+                          >
+                            {category.category_label} ({category.items.length})
+                          </Text>
+                          <Text
+                            style={[
+                              styles.catalogCategoryToggleIcon,
+                              openCatalogCategory === category.category &&
+                                styles.catalogCategoryToggleIconActive,
+                            ]}
+                          >
+                            {openCatalogCategory === category.category ? '−' : '+'}
+                          </Text>
+                        </Pressable>
+                        {openCatalogCategory === category.category ? (
+                          <View style={styles.catalogItemWrap}>
+                            {category.items.map((item) => (
+                              <Pressable
+                                key={`${category.category}-${item.item_name}`}
+                                style={styles.catalogItemPill}
+                                onPress={() => openCatalogItemEditor(item)}
+                              >
+                                <Text style={styles.catalogItemPillText}>{item.item_name}</Text>
+                              </Pressable>
+                            ))}
+                          </View>
+                        ) : null}
                       </View>
                     ))}
                     {!shoppingCatalogCategories.length && (
@@ -1422,9 +1597,12 @@ export default function App() {
                   </View>
                 )}
               </View>
+              ) : null}
 
               <View style={styles.sectionCard}>
-                <Text style={styles.sectionTitle}>Execute List</Text>
+                <Text style={styles.sectionTitle}>
+                  {shoppingListScreenMode === 'list' ? 'Shopping List' : 'Execute List'}
+                </Text>
                 <Text style={styles.subtleText}>Tap X to remove an item when purchased.</Text>
                 {loadingShoppingItems ? (
                   <ActivityIndicator color="#0f766e" />
@@ -1474,9 +1652,15 @@ export default function App() {
                   </View>
                 )}
               </View>
+                </View>
+              </TouchableWithoutFeedback>
             </ScrollView>
           ) : (
-            <ScrollView contentContainerStyle={styles.contentWrap}>
+            <ScrollView
+              contentContainerStyle={styles.contentWrap}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="on-drag"
+            >
               <View style={styles.sectionCard}>
                 <Text style={styles.sectionTitle}>Create Shopping List</Text>
                 <TextInput
@@ -1630,7 +1814,8 @@ export default function App() {
           }}
         >
           <View style={styles.modalBackdrop}>
-            <View style={styles.modalCard}>
+            <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+              <View style={styles.modalCard}>
               <Text style={styles.sectionTitle}>{selectedCatalogItem?.item_name || 'Add Item'}</Text>
               <Text style={styles.subtleText}>Select type, quantity, and unit for this list.</Text>
               {selectedCatalogItem?.type_options?.length ? (
@@ -1671,6 +1856,9 @@ export default function App() {
                 value={catalogItemQuantity}
                 onChangeText={setCatalogItemQuantity}
                 keyboardType="decimal-pad"
+                inputAccessoryViewID={
+                  Platform.OS === 'ios' ? NUMERIC_INPUT_ACCESSORY_ID : undefined
+                }
                 placeholder="Quantity (default 1)"
               />
               <TextInput
@@ -1722,9 +1910,19 @@ export default function App() {
                   <Text style={styles.smallButtonText}>Cancel</Text>
                 </Pressable>
               </View>
-            </View>
+              </View>
+            </TouchableWithoutFeedback>
           </View>
         </Modal>
+        {Platform.OS === 'ios' ? (
+          <InputAccessoryView nativeID={NUMERIC_INPUT_ACCESSORY_ID}>
+            <View style={styles.inputAccessoryBar}>
+              <Pressable style={styles.smallButton} onPress={() => Keyboard.dismiss()}>
+                <Text style={styles.smallButtonText}>Done</Text>
+              </Pressable>
+            </View>
+          </InputAccessoryView>
+        ) : null}
         <StatusBar style="dark" />
       </SafeAreaView>
     );
@@ -2081,6 +2279,9 @@ const styles = StyleSheet.create({
     gap: 14,
     paddingBottom: 96,
   },
+  contentTapDismissArea: {
+    gap: 14,
+  },
   loginCard: {
     margin: 18,
     marginTop: 56,
@@ -2233,6 +2434,18 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
   },
+  smallAccentButton: {
+    borderRadius: 10,
+    borderColor: '#0f766e',
+    backgroundColor: '#ecfeff',
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+  },
+  smallAccentButtonText: {
+    color: '#0f766e',
+    fontSize: 12,
+    fontWeight: '700',
+  },
   smallDangerButton: {
     borderRadius: 10,
     backgroundColor: '#b91c1c',
@@ -2333,10 +2546,37 @@ const styles = StyleSheet.create({
   catalogCategoryBlock: {
     gap: 8,
   },
+  catalogCategoryToggle: {
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#cbd5e1',
+    backgroundColor: '#f8fafc',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  catalogCategoryToggleActive: {
+    borderColor: '#0f766e',
+    backgroundColor: '#ecfeff',
+  },
   catalogCategoryTitle: {
     fontSize: 13,
     fontWeight: '700',
     color: '#0f172a',
+  },
+  catalogCategoryTitleActive: {
+    color: '#0f766e',
+  },
+  catalogCategoryToggleIcon: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#475569',
+    lineHeight: 18,
+  },
+  catalogCategoryToggleIconActive: {
+    color: '#0f766e',
   },
   catalogItemWrap: {
     flexDirection: 'row',
@@ -2465,6 +2705,14 @@ const styles = StyleSheet.create({
     backgroundColor: '#ffffff',
     padding: 16,
     gap: 10,
+  },
+  inputAccessoryBar: {
+    borderTopWidth: 1,
+    borderTopColor: '#d1d5db',
+    backgroundColor: '#f8fafc',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    alignItems: 'flex-end',
   },
   qrImage: {
     width: '100%',

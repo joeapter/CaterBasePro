@@ -8,16 +8,28 @@ from django.shortcuts import redirect, render
 from django.urls import path, reverse
 from django.utils import timezone
 
-from client_estimates.models import CatererAccount, ShoppingList, ShoppingListItem
-from client_estimates.views import _infer_shopping_category
+from client_estimates.models import (
+    SHOPPING_CATEGORY_CHOICES,
+    CatererAccount,
+    ShoppingList,
+    ShoppingListItem,
+)
+from client_estimates.views import _resolve_shopping_category
 
 from .models import ShoppingListBulkImport
+
+SHOPPING_CATEGORY_ORDER = {
+    code: index for index, (code, _label) in enumerate(SHOPPING_CATEGORY_CHOICES)
+}
+SHOPPING_CATEGORY_LABELS = {
+    code: label for code, label in SHOPPING_CATEGORY_CHOICES
+}
 
 
 class ShoppingListBulkImportForm(forms.Form):
     caterer = forms.ModelChoiceField(
         queryset=CatererAccount.objects.none(),
-        label="Caterer",
+        label="Organization",
     )
     shopping_list = forms.ModelChoiceField(
         queryset=ShoppingList.objects.none(),
@@ -139,14 +151,72 @@ class ShoppingListBulkImportAdmin(admin.ModelAdmin):
             "item_unit": item_unit,
         }
 
+    def _saved_items_for_caterer(self, caterer):
+        if not caterer:
+            return []
+
+        rows = ShoppingListItem.objects.filter(shopping_list__caterer=caterer)
+        grouped = {}
+        for row in rows:
+            item_name = self._normalize(row.item_name)
+            if not item_name:
+                continue
+            key = item_name.lower()
+            if key not in grouped:
+                grouped[key] = {
+                    "item_name": item_name,
+                    "usage_count": 0,
+                    "category_counts": {},
+                }
+            bucket = grouped[key]
+            bucket["usage_count"] += 1
+            category_code = row.category or "OTHER"
+            bucket["category_counts"][category_code] = (
+                bucket["category_counts"].get(category_code, 0) + 1
+            )
+
+        items = []
+        for bucket in grouped.values():
+            category_counts = bucket["category_counts"]
+            category_code = "OTHER"
+            if category_counts:
+                category_code = sorted(
+                    category_counts.items(),
+                    key=lambda part: (
+                        -part[1],
+                        SHOPPING_CATEGORY_ORDER.get(part[0], 999),
+                        part[0],
+                    ),
+                )[0][0]
+            items.append(
+                {
+                    "item_name": bucket["item_name"],
+                    "usage_count": bucket["usage_count"],
+                    "category": category_code,
+                    "category_label": SHOPPING_CATEGORY_LABELS.get(category_code, "Other"),
+                }
+            )
+
+        items.sort(
+            key=lambda row: (
+                SHOPPING_CATEGORY_ORDER.get(row["category"], 999),
+                row["item_name"].lower(),
+            )
+        )
+        return items
+
     def bulk_import_view(self, request):
         allowed_caterers = self._allowed_caterers(request).order_by("name")
         if not request.user.is_superuser and not allowed_caterers.exists():
             raise PermissionDenied("No caterer account is available for this user.")
 
+        action = ""
+        if request.method == "POST":
+            action = self._normalize(request.POST.get("action") or "bulk_import").lower()
+
         form = (
             ShoppingListBulkImportForm(request.POST)
-            if request.method == "POST"
+            if request.method == "POST" and action != "set_category"
             else ShoppingListBulkImportForm()
         )
         form.fields["caterer"].queryset = allowed_caterers
@@ -172,11 +242,71 @@ class ShoppingListBulkImportAdmin(admin.ModelAdmin):
                 if selected_list:
                     form.fields["shopping_list"].initial = selected_list
 
+        if request.method == "POST" and action == "set_category":
+            item_name = self._normalize(request.POST.get("item_name") or "")
+            category = self._normalize(request.POST.get("category") or "")
+
+            if not selected_caterer:
+                self.message_user(
+                    request,
+                    "Select a caterer before updating item categories.",
+                    level=messages.ERROR,
+                )
+            elif category not in SHOPPING_CATEGORY_LABELS:
+                self.message_user(
+                    request,
+                    "Invalid category selected.",
+                    level=messages.ERROR,
+                )
+            elif not item_name:
+                self.message_user(
+                    request,
+                    "Item name is required for category update.",
+                    level=messages.ERROR,
+                )
+            else:
+                updated_count = ShoppingListItem.objects.filter(
+                    shopping_list__caterer=selected_caterer,
+                    item_name__iexact=item_name,
+                ).update(
+                    category=category,
+                    updated_at=timezone.now(),
+                )
+                if updated_count:
+                    self.message_user(
+                        request,
+                        (
+                            f"Updated '{item_name}' to "
+                            f"{SHOPPING_CATEGORY_LABELS.get(category, category)} "
+                            f"across {updated_count} saved row(s)."
+                        ),
+                        level=messages.SUCCESS,
+                    )
+                else:
+                    self.message_user(
+                        request,
+                        f"No saved rows found for '{item_name}'.",
+                        level=messages.WARNING,
+                    )
+
+            target = reverse(f"admin:{self._admin_url_name('bulk_import')}")
+            params = []
+            if selected_caterer:
+                params.append(f"caterer={selected_caterer.id}")
+            raw_shopping_list_id = (request.POST.get("shopping_list") or "").strip()
+            if raw_shopping_list_id.isdigit():
+                selected_list = shopping_list_qs.filter(pk=int(raw_shopping_list_id)).first()
+                if selected_list:
+                    params.append(f"shopping_list={selected_list.id}")
+            if params:
+                target = f"{target}?{'&'.join(params)}"
+            return redirect(target)
+
         if request.method == "POST" and form.is_valid():
             caterer = form.cleaned_data["caterer"]
             shopping_list = form.cleaned_data["shopping_list"]
             if shopping_list and shopping_list.caterer_id != caterer.id:
-                form.add_error("shopping_list", "Selected list does not belong to this caterer.")
+                form.add_error("shopping_list", "Selected list does not belong to this organization.")
             else:
                 new_list_title = self._normalize(form.cleaned_data.get("new_list_title") or "")
                 raw_lines = (form.cleaned_data.get("items_text") or "").splitlines()
@@ -219,7 +349,7 @@ class ShoppingListBulkImportAdmin(admin.ModelAdmin):
                         item_type = parsed["item_type"] or default_item_type
                         item_unit = parsed["item_unit"] or default_item_unit
                         quantity = parsed["quantity"] or default_quantity
-                        category = _infer_shopping_category(item_name)
+                        category = _resolve_shopping_category(caterer.id, item_name)
 
                         existing = ShoppingListItem.objects.filter(
                             shopping_list=shopping_list,
@@ -269,11 +399,15 @@ class ShoppingListBulkImportAdmin(admin.ModelAdmin):
                         f"{target}?caterer={caterer.id}&shopping_list={shopping_list.id}"
                     )
 
+        saved_items = self._saved_items_for_caterer(selected_caterer)
         context = {
             **self.admin_site.each_context(request),
             "opts": self.model._meta,
             "title": "Shopping List Bulk Paste Import",
             "form": form,
+            "selected_caterer": selected_caterer,
+            "saved_items": saved_items,
+            "category_choices": SHOPPING_CATEGORY_CHOICES,
         }
         return render(request, "admin/shopping_list_tool/bulk_import.html", context)
 

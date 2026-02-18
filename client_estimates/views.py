@@ -578,6 +578,37 @@ def _infer_shopping_category(item_name):
     return "OTHER"
 
 
+def _historical_shopping_category(caterer_id, item_name):
+    normalized_item_name = _normalize_item_text(item_name)
+    if not caterer_id or not normalized_item_name:
+        return ""
+
+    counts = {}
+    rows = ShoppingListItem.objects.filter(
+        shopping_list__caterer_id=caterer_id,
+        item_name__iexact=normalized_item_name,
+    ).values_list("category", flat=True)
+    for code in rows:
+        if not code:
+            continue
+        counts[code] = counts.get(code, 0) + 1
+
+    if not counts:
+        return ""
+
+    return sorted(
+        counts.items(),
+        key=lambda part: (-part[1], SHOPPING_CATEGORY_ORDER.get(part[0], 999), part[0]),
+    )[0][0]
+
+
+def _resolve_shopping_category(caterer_id, item_name):
+    saved_category = _historical_shopping_category(caterer_id, item_name)
+    if saved_category:
+        return saved_category
+    return _infer_shopping_category(item_name)
+
+
 def _format_quantity(quantity):
     quantized = (quantity or Decimal("0.00")).quantize(Decimal("0.01"))
     as_string = f"{quantized}"
@@ -632,7 +663,7 @@ def _build_shopping_catalog_queryset(user, access_map):
     rows = ShoppingListItem.objects.select_related("shopping_list", "shopping_list__caterer")
     if not user.is_superuser:
         rows = rows.filter(shopping_list__caterer_id__in=list(access_map.keys()))
-    return rows
+    return rows.order_by("-updated_at", "-created_at", "-id")
 
 
 def _shopping_catalog_payload(rows):
@@ -649,6 +680,7 @@ def _shopping_catalog_payload(rows):
                 "category_counts": {},
                 "type_options": set(),
                 "unit_options": set(),
+                "last_used_unit": "",
             }
         bucket = grouped[key]
         bucket["usage_count"] += 1
@@ -662,6 +694,8 @@ def _shopping_catalog_payload(rows):
         item_unit = _normalize_item_text(row.item_unit)
         if item_unit:
             bucket["unit_options"].add(item_unit)
+            if not bucket["last_used_unit"]:
+                bucket["last_used_unit"] = item_unit
 
     items = []
     for bucket in grouped.values():
@@ -684,6 +718,7 @@ def _shopping_catalog_payload(rows):
                     DEFAULT_SHOPPING_UNIT_OPTIONS,
                     sorted(bucket["unit_options"], key=lambda value: value.lower()),
                 ),
+                "last_used_unit": bucket["last_used_unit"],
             }
         )
 
@@ -1230,6 +1265,34 @@ def xpenz_shopping_list_detail(request, shopping_list_id):
 
 
 @csrf_exempt
+def xpenz_shopping_list_delete(request, shopping_list_id):
+    user = _xpenz_authenticated_user(request)
+    if not user:
+        return _json_error("Authentication required.", status=401)
+    if request.method not in {"POST", "DELETE"}:
+        return _json_error("Method not allowed.", status=405)
+
+    access_map = _mobile_access_map_for_user(user)
+    if not user.is_superuser and not access_map:
+        return _json_error("No mobile app access is configured for this user.", status=403)
+
+    try:
+        shopping_list = _shopping_list_for_user(user, shopping_list_id, access_map)
+    except PermissionDenied:
+        return _json_error("You do not have access to this shopping list.", status=403)
+
+    shopping_list_title = shopping_list.title or f"Shopping List #{shopping_list.id}"
+    shopping_list.delete()
+    return JsonResponse(
+        {
+            "ok": True,
+            "shopping_list_id": shopping_list_id,
+            "title": shopping_list_title,
+        }
+    )
+
+
+@csrf_exempt
 def xpenz_shopping_list_changes(request, shopping_list_id):
     user = _xpenz_authenticated_user(request)
     if not user:
@@ -1341,7 +1404,7 @@ def xpenz_shopping_list_items(request, shopping_list_id):
     if not item_name:
         return _json_error("`item_name` is required.", status=400)
 
-    category = _infer_shopping_category(item_name)
+    category = _resolve_shopping_category(shopping_list.caterer_id, item_name)
     execution_started_by_other = bool(
         shopping_list.execution_started_at
         and shopping_list.execution_started_by_id

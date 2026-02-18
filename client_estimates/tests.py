@@ -552,6 +552,30 @@ class XpenzApiTests(TestCase):
         self.assertIsNotNone(row)
         self.assertEqual(row["item_count"], 0)
 
+    def test_shopping_list_delete_removes_list_and_items(self):
+        token = self._login_and_get_token("appstaff@example.com")
+        shopping_list = ShoppingList.objects.create(
+            caterer=self.caterer,
+            title="Delete me",
+            created_by=self.app_user,
+        )
+        item = ShoppingListItem.objects.create(
+            shopping_list=shopping_list,
+            item_name="Tomato",
+            quantity=Decimal("2.00"),
+            category="PRODUCE",
+            created_by=self.app_user,
+        )
+
+        delete_response = self.client.post(
+            reverse("xpenz_shopping_list_delete", args=[shopping_list.id]),
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        self.assertEqual(delete_response.status_code, 200)
+        self.assertTrue(delete_response.json()["ok"])
+        self.assertFalse(ShoppingList.objects.filter(id=shopping_list.id).exists())
+        self.assertFalse(ShoppingListItem.objects.filter(id=item.id).exists())
+
     def test_shopping_list_category_sorting(self):
         token = self._login_and_get_token("appstaff@example.com")
         shopping_list = ShoppingList.objects.create(
@@ -699,6 +723,56 @@ class XpenzApiTests(TestCase):
         self.assertEqual(apples["usage_count"], 2)
         self.assertEqual(apples["type_options"], ["Green", "Red"])
         self.assertEqual(apples["unit_options"], ["Kg", "Pieces", "Cans"])
+        self.assertEqual(apples["last_used_unit"], "Kg")
+
+    def test_admin_saved_item_category_override_is_used_for_future_auto_sort(self):
+        source_list = ShoppingList.objects.create(
+            caterer=self.caterer,
+            title="Source list",
+            created_by=self.user,
+        )
+        ShoppingListItem.objects.create(
+            shopping_list=source_list,
+            item_name="Lemon",
+            quantity=Decimal("1.00"),
+            category="PRODUCE",
+            created_by=self.user,
+        )
+
+        self.client.force_login(self.user)
+        admin_response = self.client.post(
+            reverse("admin:shopping_list_tool_shoppinglistbulkimport_bulk_import"),
+            data={
+                "action": "set_category",
+                "caterer": self.caterer.id,
+                "item_name": "Lemon",
+                "category": "PANTRY",
+            },
+            follow=False,
+        )
+        self.assertEqual(admin_response.status_code, 302)
+        self.assertTrue(
+            ShoppingListItem.objects.filter(
+                shopping_list__caterer=self.caterer,
+                item_name__iexact="Lemon",
+                category="PANTRY",
+            ).exists()
+        )
+
+        token = self._login_and_get_token("appstaff@example.com")
+        target_list = ShoppingList.objects.create(
+            caterer=self.caterer,
+            title="Target list",
+            created_by=self.app_user,
+        )
+        add_response = self.client.post(
+            reverse("xpenz_shopping_list_items", args=[target_list.id]),
+            data=json.dumps({"item_name": "Lemon", "quantity": "2"}),
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        self.assertEqual(add_response.status_code, 201)
+        self.assertEqual(add_response.json()["item"]["category"], "PANTRY")
 
     def test_admin_can_create_app_user_from_global_permissions_tab(self):
         self.client.force_login(self.user)

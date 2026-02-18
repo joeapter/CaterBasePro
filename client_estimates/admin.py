@@ -541,7 +541,14 @@ class ShoppingListAdmin(admin.ModelAdmin):
 
 @admin.register(ShoppingListItem)
 class ShoppingListItemAdmin(admin.ModelAdmin):
+    @admin.display(description="Organization", ordering="shopping_list__caterer__name")
+    def organization(self, obj):
+        if obj.shopping_list_id and obj.shopping_list.caterer_id:
+            return obj.shopping_list.caterer.name
+        return "-"
+
     list_display = (
+        "organization",
         "shopping_list",
         "item_name",
         "item_type",
@@ -556,10 +563,10 @@ class ShoppingListItemAdmin(admin.ModelAdmin):
         "created_at",
     )
     list_filter = (
+        "shopping_list__caterer",
         "category",
         "is_completed",
         "collaboration_note",
-        "shopping_list__caterer",
         "created_at",
     )
     search_fields = (
