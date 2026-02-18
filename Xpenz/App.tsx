@@ -230,7 +230,7 @@ export default function App() {
   const [loadingShoppingCatalog, setLoadingShoppingCatalog] = useState(false);
   const [addingShoppingItem, setAddingShoppingItem] = useState(false);
   const [removingShoppingItemId, setRemovingShoppingItemId] = useState<number | null>(null);
-  const [deletingShoppingList, setDeletingShoppingList] = useState(false);
+  const [deletingShoppingListId, setDeletingShoppingListId] = useState<number | null>(null);
   const [shoppingListTitle, setShoppingListTitle] = useState('');
   const [shoppingCatererId, setShoppingCatererId] = useState<number | null>(null);
   const [shoppingEstimateRefId, setShoppingEstimateRefId] = useState<number | null>(null);
@@ -653,7 +653,7 @@ export default function App() {
       setShoppingCatererId(null);
       setShoppingEstimateRefId(null);
       setShoppingListScreenMode('manage');
-      setDeletingShoppingList(false);
+      setDeletingShoppingListId(null);
       setShowEstimatePicker(false);
       setNewShoppingItemName('');
       setNewShoppingItemType('');
@@ -905,11 +905,10 @@ export default function App() {
     [apiBaseUrl, loadShoppingListDetail, loadShoppingLists, removingShoppingItemId, selectedShoppingList, token],
   );
 
-  const handleDeleteShoppingList = useCallback(() => {
-    if (!selectedShoppingList || !token || deletingShoppingList) {
+  const handleDeleteShoppingList = useCallback((targetList: ShoppingListRow) => {
+    if (!token || deletingShoppingListId) {
       return;
     }
-    const targetList = selectedShoppingList;
     Alert.alert(
       'Delete shopping list?',
       `Delete "${targetList.title}" and all its items? This cannot be undone.`,
@@ -919,7 +918,7 @@ export default function App() {
           text: 'Delete',
           style: 'destructive',
           onPress: async () => {
-            setDeletingShoppingList(true);
+            setDeletingShoppingListId(targetList.id);
             try {
               const response = await fetch(
                 apiUrl(
@@ -937,19 +936,22 @@ export default function App() {
               if (!response.ok || payload.ok === false) {
                 throw new Error(payload.error || 'Unable to delete shopping list.');
               }
-              setSelectedShoppingList(null);
-              setShoppingItems([]);
-              setSelectedCatalogItem(null);
-              setCatalogItemUnit('');
-              setOpenCatalogCategory(null);
-              await Promise.all([loadShoppingLists(), loadShoppingCatalog()]);
+              if (selectedShoppingList?.id === targetList.id) {
+                setSelectedShoppingList(null);
+                setShoppingItems([]);
+                setSelectedCatalogItem(null);
+                setCatalogItemUnit('');
+                setOpenCatalogCategory(null);
+                setShoppingListScreenMode('manage');
+              }
+              await loadShoppingLists();
             } catch (error) {
               Alert.alert(
                 'Delete failed',
                 error instanceof Error ? error.message : 'Unable to delete shopping list.',
               );
             } finally {
-              setDeletingShoppingList(false);
+              setDeletingShoppingListId(null);
             }
           },
         },
@@ -957,8 +959,7 @@ export default function App() {
     );
   }, [
     apiBaseUrl,
-    deletingShoppingList,
-    loadShoppingCatalog,
+    deletingShoppingListId,
     loadShoppingLists,
     selectedShoppingList,
     token,
@@ -1421,7 +1422,7 @@ export default function App() {
               <View style={styles.sectionCard}>
                 <View style={styles.headerRow}>
                   <Text style={styles.sectionTitle}>{selectedShoppingList.title}</Text>
-                  <View style={styles.inlineActions}>
+                  <View style={styles.stackedActions}>
                     <Pressable
                       style={styles.smallButton}
                       onPress={() => {
@@ -1444,20 +1445,7 @@ export default function App() {
                       }}
                     >
                       <Text style={styles.smallAccentButtonText}>
-                        {shoppingListScreenMode === 'manage' ? 'List' : 'Manage'}
-                      </Text>
-                    </Pressable>
-                    <Pressable
-                      style={[
-                        styles.smallButton,
-                        styles.smallDangerButton,
-                        deletingShoppingList && styles.buttonDisabled,
-                      ]}
-                      onPress={handleDeleteShoppingList}
-                      disabled={deletingShoppingList}
-                    >
-                      <Text style={styles.smallDangerButtonText}>
-                        {deletingShoppingList ? 'Deleting...' : 'Delete List'}
+                        {shoppingListScreenMode === 'manage' ? 'Shopping List' : 'Manage'}
                       </Text>
                     </Pressable>
                   </View>
@@ -1734,14 +1722,32 @@ export default function App() {
                 ) : (
                   <View style={styles.savedList}>
                     {shoppingLists.map((row) => (
-                      <Pressable key={row.id} style={styles.savedCard} onPress={() => openShoppingList(row)}>
-                        <Text style={styles.savedTitle}>{row.title}</Text>
-                        <Text style={styles.subtleText}>
-                          {row.item_count} items
-                          {row.estimate_label ? ` • ${row.estimate_label}` : ''}
-                        </Text>
-                        <Text style={styles.subtleText}>{row.caterer_name}</Text>
-                      </Pressable>
+                      <View key={row.id} style={styles.savedCard}>
+                        <View style={styles.listRowHeader}>
+                          <Pressable style={styles.listRowOpenArea} onPress={() => openShoppingList(row)}>
+                            <Text style={styles.savedTitle}>{row.title}</Text>
+                          </Pressable>
+                          <Pressable
+                            style={[
+                              styles.listDeleteButton,
+                              deletingShoppingListId === row.id && styles.buttonDisabled,
+                            ]}
+                            onPress={() => handleDeleteShoppingList(row)}
+                            disabled={deletingShoppingListId === row.id}
+                          >
+                            <Text style={styles.listDeleteButtonText}>
+                              {deletingShoppingListId === row.id ? '...' : '✕'}
+                            </Text>
+                          </Pressable>
+                        </View>
+                        <Pressable style={styles.listRowOpenArea} onPress={() => openShoppingList(row)}>
+                          <Text style={styles.subtleText}>
+                            {row.item_count} items
+                            {row.estimate_label ? ` • ${row.estimate_label}` : ''}
+                          </Text>
+                          <Text style={styles.subtleText}>{row.caterer_name}</Text>
+                        </Pressable>
+                      </View>
                     ))}
                     {!shoppingLists.length ? (
                       <Text style={styles.subtleText}>No shopping lists yet.</Text>
@@ -2393,6 +2399,10 @@ const styles = StyleSheet.create({
     gap: 8,
     flexWrap: 'wrap',
   },
+  stackedActions: {
+    alignItems: 'flex-end',
+    gap: 8,
+  },
   topTabs: {
     flexDirection: 'row',
     gap: 8,
@@ -2525,6 +2535,32 @@ const styles = StyleSheet.create({
     backgroundColor: '#f8fafc',
     padding: 10,
     gap: 6,
+  },
+  listRowHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  listRowOpenArea: {
+    flex: 1,
+    gap: 2,
+  },
+  listDeleteButton: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    borderWidth: 1,
+    borderColor: '#ef4444',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#fff1f2',
+  },
+  listDeleteButtonText: {
+    color: '#b91c1c',
+    fontSize: 14,
+    fontWeight: '700',
+    lineHeight: 16,
   },
   selectedCard: {
     borderColor: '#0f766e',
