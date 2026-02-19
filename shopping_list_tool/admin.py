@@ -101,7 +101,7 @@ class ShoppingListBulkImportAdmin(admin.ModelAdmin):
         return qs.filter(owner=request.user)
 
     def _allowed_shopping_lists(self, request, caterer=None):
-        qs = ShoppingList.objects.select_related("caterer")
+        qs = ShoppingList.objects.select_related("caterer").filter(deleted_at__isnull=True)
         if request.user.is_superuser:
             if caterer:
                 qs = qs.filter(caterer=caterer)

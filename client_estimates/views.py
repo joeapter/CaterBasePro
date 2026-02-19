@@ -633,6 +633,7 @@ def _serialize_shopping_list_entry(entry):
         "estimate_id": entry.estimate_id,
         "estimate_label": estimate_label,
         "item_count": getattr(entry, "item_count", 0),
+        "is_deleted": bool(entry.deleted_at),
         "execution_started_at": entry.execution_started_at.isoformat() if entry.execution_started_at else "",
         "execution_started_by": (
             entry.execution_started_by.get_username()
@@ -1110,6 +1111,8 @@ def xpenz_shopping_lists(request):
             "estimate",
             "created_by",
             "execution_started_by",
+        ).filter(
+            deleted_at__isnull=True,
         ).annotate(
             item_count=Count("items", filter=Q(items__is_completed=False))
         )
@@ -1251,6 +1254,8 @@ def xpenz_shopping_list_detail(request, shopping_list_id):
         shopping_list = _shopping_list_for_user(user, shopping_list_id, access_map)
     except PermissionDenied:
         return _json_error("You do not have access to this shopping list.", status=403)
+    if shopping_list.deleted_at:
+        return _json_error("Shopping list not found.", status=404)
 
     item_rows = _active_shopping_items_sorted(shopping_list)
     shopping_list.item_count = len(item_rows)
@@ -1282,12 +1287,18 @@ def xpenz_shopping_list_delete(request, shopping_list_id):
         return _json_error("You do not have access to this shopping list.", status=403)
 
     shopping_list_title = shopping_list.title or f"Shopping List #{shopping_list.id}"
-    shopping_list.delete()
+    was_deleted = bool(shopping_list.deleted_at)
+    if not was_deleted:
+        now = timezone.now()
+        shopping_list.deleted_at = now
+        shopping_list.updated_at = now
+        shopping_list.save(update_fields=["deleted_at", "updated_at"])
     return JsonResponse(
         {
             "ok": True,
             "shopping_list_id": shopping_list_id,
             "title": shopping_list_title,
+            "already_deleted": was_deleted,
         }
     )
 
@@ -1333,6 +1344,24 @@ def xpenz_shopping_list_changes(request, shopping_list_id):
         except PermissionDenied:
             return _json_error("You do not have access to this shopping list.", status=403)
 
+        if shopping_list.deleted_at:
+            cursor_dt = (
+                shopping_list.updated_at
+                or shopping_list.deleted_at
+                or shopping_list.created_at
+                or timezone.now()
+            )
+            return JsonResponse(
+                {
+                    "ok": True,
+                    "changed": True,
+                    "deleted": True,
+                    "cursor": cursor_dt.isoformat(),
+                    "shopping_list": _serialize_shopping_list_entry(shopping_list),
+                    "items": [],
+                }
+            )
+
         cursor_dt = (
             shopping_list.updated_at
             or shopping_list.created_at
@@ -1355,6 +1384,7 @@ def xpenz_shopping_list_changes(request, shopping_list_id):
         {
             "ok": True,
             "changed": changed,
+            "deleted": False,
             "cursor": cursor_value,
             "shopping_list": _serialize_shopping_list_entry(shopping_list),
             "items": [_serialize_shopping_item(row) for row in item_rows],
@@ -1378,6 +1408,8 @@ def xpenz_shopping_list_items(request, shopping_list_id):
         shopping_list = _shopping_list_for_user(user, shopping_list_id, access_map)
     except PermissionDenied:
         return _json_error("You do not have access to this shopping list.", status=403)
+    if shopping_list.deleted_at:
+        return _json_error("Shopping list not found.", status=404)
 
     payload = {}
     if request.body:
@@ -1479,6 +1511,8 @@ def xpenz_shopping_list_remove_item(request, shopping_list_id, item_id):
         shopping_list = _shopping_list_for_user(user, shopping_list_id, access_map)
     except PermissionDenied:
         return _json_error("You do not have access to this shopping list.", status=403)
+    if shopping_list.deleted_at:
+        return _json_error("Shopping list not found.", status=404)
 
     item = get_object_or_404(
         ShoppingListItem,

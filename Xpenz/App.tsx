@@ -105,6 +105,7 @@ type ShoppingListRow = {
   estimate_id: number | null;
   estimate_label: string;
   item_count: number;
+  is_deleted?: boolean;
   created_by: string;
   created_at: string;
   updated_at: string;
@@ -136,6 +137,10 @@ type ShoppingCatalogCategory = {
   category: string;
   category_label: string;
   items: ShoppingCatalogItem[];
+};
+
+type ApiRequestError = Error & {
+  status?: number;
 };
 
 const TOKEN_KEY = 'xpenz_token';
@@ -272,7 +277,9 @@ export default function App() {
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || payload.ok === false) {
-        throw new Error(payload.error || `Request failed (${response.status})`);
+        const error = new Error(payload.error || `Request failed (${response.status})`) as ApiRequestError;
+        error.status = response.status;
+        throw error;
       }
       return payload;
     },
@@ -562,6 +569,15 @@ export default function App() {
           if (cancelled) {
             return;
           }
+          if (payload.deleted || payload.shopping_list?.is_deleted) {
+            setSelectedShoppingList(null);
+            setShoppingItems([]);
+            setSelectedCatalogItem(null);
+            setCatalogItemUnit('');
+            setShoppingListScreenMode('manage');
+            await Promise.all([loadShoppingLists(), loadShoppingCatalog()]);
+            return;
+          }
           if (payload.shopping_list) {
             setSelectedShoppingList(payload.shopping_list);
             setShoppingLists((prev) =>
@@ -576,8 +592,18 @@ export default function App() {
           } else if (payload.shopping_list?.updated_at) {
             cursor = payload.shopping_list.updated_at;
           }
-        } catch {
+        } catch (error) {
           if (cancelled) {
+            return;
+          }
+          const status = (error as ApiRequestError | undefined)?.status;
+          if (status === 404) {
+            setSelectedShoppingList(null);
+            setShoppingItems([]);
+            setSelectedCatalogItem(null);
+            setCatalogItemUnit('');
+            setShoppingListScreenMode('manage');
+            await Promise.all([loadShoppingLists(), loadShoppingCatalog()]);
             return;
           }
           await new Promise((resolve) => setTimeout(resolve, 1200));
@@ -589,7 +615,15 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [loadShoppingListChanges, mainTab, selectedEstimate, selectedShoppingList?.id, token]);
+  }, [
+    loadShoppingCatalog,
+    loadShoppingListChanges,
+    loadShoppingLists,
+    mainTab,
+    selectedEstimate,
+    selectedShoppingList?.id,
+    token,
+  ]);
 
   const handleLogin = useCallback(async () => {
     const cleanBase = normalizeBaseUrl(apiBaseUrl);
@@ -911,7 +945,7 @@ export default function App() {
     }
     Alert.alert(
       'Delete shopping list?',
-      `Delete "${targetList.title}" and all its items? This cannot be undone.`,
+      `Delete "${targetList.title}"? This removes the list, but keeps item history in saved items.`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -944,7 +978,7 @@ export default function App() {
                 setOpenCatalogCategory(null);
                 setShoppingListScreenMode('manage');
               }
-              await loadShoppingLists();
+              await Promise.all([loadShoppingLists(), loadShoppingCatalog()]);
             } catch (error) {
               Alert.alert(
                 'Delete failed',
@@ -960,6 +994,7 @@ export default function App() {
   }, [
     apiBaseUrl,
     deletingShoppingListId,
+    loadShoppingCatalog,
     loadShoppingLists,
     selectedShoppingList,
     token,

@@ -1261,6 +1261,11 @@ class ShoppingList(models.Model):
         null=True,
         blank=True,
     )
+    deleted_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Soft-delete marker. Keeps historical items for catalog memory.",
+    )
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,

@@ -552,7 +552,7 @@ class XpenzApiTests(TestCase):
         self.assertIsNotNone(row)
         self.assertEqual(row["item_count"], 0)
 
-    def test_shopping_list_delete_removes_list_and_items(self):
+    def test_shopping_list_delete_hides_list_and_keeps_items_for_catalog(self):
         token = self._login_and_get_token("appstaff@example.com")
         shopping_list = ShoppingList.objects.create(
             caterer=self.caterer,
@@ -573,8 +573,36 @@ class XpenzApiTests(TestCase):
         )
         self.assertEqual(delete_response.status_code, 200)
         self.assertTrue(delete_response.json()["ok"])
-        self.assertFalse(ShoppingList.objects.filter(id=shopping_list.id).exists())
-        self.assertFalse(ShoppingListItem.objects.filter(id=item.id).exists())
+        shopping_list.refresh_from_db()
+        self.assertIsNotNone(shopping_list.deleted_at)
+        self.assertTrue(ShoppingListItem.objects.filter(id=item.id).exists())
+
+        detail_response = self.client.get(
+            reverse("xpenz_shopping_list_detail", args=[shopping_list.id]),
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        self.assertEqual(detail_response.status_code, 404)
+
+        list_response = self.client.get(
+            reverse("xpenz_shopping_lists"),
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        self.assertEqual(list_response.status_code, 200)
+        self.assertFalse(
+            any(row["id"] == shopping_list.id for row in list_response.json()["lists"])
+        )
+
+        catalog_response = self.client.get(
+            reverse("xpenz_shopping_catalog"),
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        self.assertEqual(catalog_response.status_code, 200)
+        self.assertTrue(
+            any(
+                row["item_name"].lower() == "tomato"
+                for row in catalog_response.json()["items"]
+            )
+        )
 
     def test_shopping_list_category_sorting(self):
         token = self._login_and_get_token("appstaff@example.com")
