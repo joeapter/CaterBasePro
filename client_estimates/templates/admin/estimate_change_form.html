@@ -346,7 +346,7 @@
 
     {% if original %}
         <section class="estimate-step-section" data-step="6">
-            {% include "admin/partials/estimate_additional_info.html" with expense_entries=expense_entries expense_total=expense_total expense_delete_url_name=expense_delete_url_name estimate=original only %}
+            {% include "admin/partials/estimate_additional_info.html" with expense_entries=expense_entries expense_total=expense_total expense_delete_url_name=expense_delete_url_name staff_entries_manage_url=staff_entries_manage_url estimate=original only %}
         </section>
     {% endif %}
 
@@ -651,11 +651,21 @@
                     wants: serviceWrapper.dataset.defaultWants === "true",
                     dish: serviceWrapper.dataset.defaultDish || "",
                     hours: serviceWrapper.dataset.defaultHours || "",
+                    waiters: serviceWrapper.dataset.defaultWaiters || "",
                     tip: serviceWrapper.dataset.defaultTip || "",
                 };
                 const parseNumber = (val) => {
                     const num = parseFloat(val);
                     return isNaN(num) ? null : num;
+                };
+                const parseInteger = (val) => {
+                    const raw = val.trim();
+                    if (!raw) return null;
+                    const num = Number(raw);
+                    if (!Number.isFinite(num) || num < 0 || !Number.isInteger(num)) {
+                        return null;
+                    }
+                    return num;
                 };
                 const persist = () => {
                     serviceField.value = JSON.stringify(serviceState);
@@ -667,6 +677,7 @@
                     const wantsInput = row.querySelector(".meal-service-toggle");
                     const priceInput = row.querySelector('input[data-field="real_dishes_price_per_person"]');
                     const hoursInput = row.querySelector('input[data-field="staff_hours"]');
+                    const waitersInput = row.querySelector('input[data-field="wait_staff_count"]');
                     const tipInput = row.querySelector('input[data-field="staff_tip_per_waiter"]');
 
                     const syncFromState = () => {
@@ -678,6 +689,9 @@
                         if (data.staff_hours !== undefined) {
                             hoursInput.value = data.staff_hours;
                         }
+                        if (data.wait_staff_count !== undefined) {
+                            waitersInput.value = data.wait_staff_count;
+                        }
                         if (data.staff_tip_per_waiter !== undefined) {
                             tipInput.value = data.staff_tip_per_waiter;
                         }
@@ -688,10 +702,12 @@
                         const hasWants = wantsInput.checked;
                         const dishVal = parseNumber(priceInput.value.trim());
                         const hoursVal = parseNumber(hoursInput.value.trim());
+                        const waitersVal = parseInteger(waitersInput.value);
                         const tipVal = parseNumber(tipInput.value.trim());
                         if (hasWants) next.wants_real_dishes = true;
                         if (dishVal !== null) next.real_dishes_price_per_person = dishVal;
                         if (hoursVal !== null) next.staff_hours = hoursVal;
+                        if (waitersVal !== null) next.wait_staff_count = waitersVal;
                         if (tipVal !== null) next.staff_tip_per_waiter = tipVal;
 
                         if (Object.keys(next).length) {
@@ -703,7 +719,7 @@
                     };
 
                     wantsInput.addEventListener("change", updateRow);
-                    [priceInput, hoursInput, tipInput].forEach(input => {
+                    [priceInput, hoursInput, waitersInput, tipInput].forEach(input => {
                         input.addEventListener("input", updateRow);
                     });
 
@@ -718,20 +734,24 @@
                         const wantsInput = row.querySelector(".meal-service-toggle");
                         const priceInput = row.querySelector('input[data-field="real_dishes_price_per_person"]');
                         const hoursInput = row.querySelector('input[data-field="staff_hours"]');
+                        const waitersInput = row.querySelector('input[data-field="wait_staff_count"]');
                         const tipInput = row.querySelector('input[data-field="staff_tip_per_waiter"]');
 
                         wantsInput.checked = defaults.wants;
                         priceInput.value = defaults.dish;
                         hoursInput.value = defaults.hours;
+                        waitersInput.value = defaults.waiters;
                         tipInput.value = defaults.tip;
 
                         const next = {};
                         if (defaults.wants) next.wants_real_dishes = true;
                         const dishVal = parseNumber(defaults.dish);
                         const hoursVal = parseNumber(defaults.hours);
+                        const waitersVal = parseInteger(defaults.waiters);
                         const tipVal = parseNumber(defaults.tip);
                         if (dishVal !== null) next.real_dishes_price_per_person = dishVal;
                         if (hoursVal !== null) next.staff_hours = hoursVal;
+                        if (waitersVal !== null) next.wait_staff_count = waitersVal;
                         if (tipVal !== null) next.staff_tip_per_waiter = tipVal;
                         if (Object.keys(next).length) {
                             serviceState[meal] = next;
@@ -750,6 +770,7 @@
                         row.querySelector(".meal-service-toggle").checked = false;
                         row.querySelector('input[data-field="real_dishes_price_per_person"]').value = "";
                         row.querySelector('input[data-field="staff_hours"]').value = "";
+                        row.querySelector('input[data-field="wait_staff_count"]').value = "";
                         row.querySelector('input[data-field="staff_tip_per_waiter"]').value = "";
                     });
                     persist();

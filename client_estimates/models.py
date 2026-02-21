@@ -654,6 +654,24 @@ class Estimate(models.Model):
             return default
         return num.quantize(Decimal("0.01"))
 
+    @staticmethod
+    def _clean_int(value, default=None):
+        """
+        Safely coerce incoming JSON/POST values into a non-negative integer.
+        """
+        if value in (None, ""):
+            return default
+        try:
+            num = Decimal(str(value))
+        except Exception:
+            return default
+        if num < 0:
+            return default
+        whole = num.to_integral_value()
+        if num != whole:
+            return default
+        return int(whole)
+
     def _normalize_meal_plan(self):
         plan = [name.strip() for name in (self.meal_plan or []) if name and name.strip()]
         if not plan:
@@ -704,7 +722,7 @@ class Estimate(models.Model):
         plan = self.get_meal_plan()
         detail_map = self.meal_service_details or {}
         guest_counts = self.meal_guest_counts()
-        waiters = self.total_waiter_count()
+        default_waiters = self.total_waiter_count()
         hourly_rate = self._get_staff_hourly_rate()
         base_tip = self._get_staff_tip_per_waiter()
         fx_rate = (self.exchange_rate or Decimal("1.00")) if apply_exchange else Decimal("1.00")
@@ -725,6 +743,9 @@ class Estimate(models.Model):
                 dish_price = Decimal("0.00")
             staff_hours = self._clean_decimal(raw.get("staff_hours"), Decimal("0.00"))
             tip_per_waiter = self._clean_decimal(raw.get("staff_tip_per_waiter"), base_tip)
+            wait_staff_count = self._clean_int(raw.get("wait_staff_count"), default_waiters)
+            if wait_staff_count is None:
+                wait_staff_count = default_waiters
             guests = guest_counts.get(meal_name, {}).get("adults", Decimal("0.00"))
 
             dish_total = Decimal("0.00")
@@ -733,9 +754,11 @@ class Estimate(models.Model):
 
             labor_total = Decimal("0.00")
             tip_total = Decimal("0.00")
-            if waiters:
-                labor_total = (hourly_rate * (staff_hours or Decimal("0.00")) * waiters)
-                tip_total = (tip_per_waiter or Decimal("0.00")) * waiters
+            if wait_staff_count:
+                labor_total = (
+                    hourly_rate * (staff_hours or Decimal("0.00")) * wait_staff_count
+                )
+                tip_total = (tip_per_waiter or Decimal("0.00")) * wait_staff_count
 
             if fx_rate != Decimal("1.00"):
                 if wants_dishes:
@@ -753,6 +776,7 @@ class Estimate(models.Model):
                     "real_dishes_price_per_person": (dish_price or Decimal("0.00")).quantize(Decimal("0.01")),
                     "dishes_total": dish_total.quantize(Decimal("0.01")),
                     "staff_hours": (staff_hours or Decimal("0.00")).quantize(Decimal("0.01")),
+                    "wait_staff_count": wait_staff_count,
                     "staff_tip_per_waiter": (tip_per_waiter or Decimal("0.00")).quantize(Decimal("0.01")),
                     "staff_pay_total": labor_total.quantize(Decimal("0.01")),
                     "staff_tip_total": tip_total.quantize(Decimal("0.01")),

@@ -738,7 +738,16 @@
                 <h2>{% translate 'Staffing Details' %}</h2>
                 <table class="info-table">
                     <tbody>
-                        <tr><th>{% translate 'Wait staff' %}</th><td>{{ staff_context.waiters }}</td></tr>
+                        <tr>
+                            <th>{% translate 'Wait staff' %}</th>
+                            <td>
+                                {% if staff_context.waiters_varies %}
+                                    {% translate 'Varies by meal' %}
+                                {% else %}
+                                    {{ staff_context.waiters }}
+                                {% endif %}
+                            </td>
+                        </tr>
                         <tr><th>{% translate 'Estimated hours' %}</th><td>{{ staff_context.hours }}</td></tr>
                         <tr><th>{% translate 'Hourly rate' %}</th><td>{{ staff_context.hourly_rate }} {{ estimate.currency }}</td></tr>
                         <tr><th>{% translate 'Labor total' %}</th><td>{{ staff_context.labor_total }} {{ estimate.currency }}</td></tr>
@@ -760,6 +769,7 @@
                         <thead>
                             <tr>
                                 <th style="text-align:left;">{% translate 'Meal' %}</th>
+                                <th style="text-align:right;">{% translate 'Wait staff' %}</th>
                                 <th style="text-align:right;">{% translate 'Hours' %}</th>
                                 <th style="text-align:right;">{% translate 'Labor' %}</th>
                                 <th style="text-align:right;">{% translate 'Tip' %}</th>
@@ -769,6 +779,7 @@
                             {% for row in staff_context.per_meal %}
                                 <tr>
                                     <td style="text-align:left;">{{ row.meal }}</td>
+                                    <td style="text-align:right;">{{ row.wait_staff_count }}</td>
                                     <td style="text-align:right;">{{ row.staff_hours }}</td>
                                     <td style="text-align:right;">{{ row.staff_pay_total }} {{ estimate.currency }}</td>
                                     <td style="text-align:right;">{{ row.staff_tip_total }} {{ estimate.currency }}</td>
@@ -786,10 +797,11 @@
                 <table class="summary-table summary-table--tight">
                     <thead>
                         <tr>
-                            <th style="text-align:left; width:30%;">{% translate 'Meal' %}</th>
-                            <th style="text-align:center; width:10%;">{% translate 'Real dishes' %}</th>
-                            <th style="text-align:right; width:15%;">{% translate 'Dishes / guest' %}</th>
-                            <th style="text-align:right; width:15%;">{% translate 'Staff hours' %}</th>
+                            <th style="text-align:left; width:25%;">{% translate 'Meal' %}</th>
+                            <th style="text-align:center; width:9%;">{% translate 'Real dishes' %}</th>
+                            <th style="text-align:right; width:13%;">{% translate 'Dishes / guest' %}</th>
+                            <th style="text-align:right; width:12%;">{% translate 'Staff hours' %}</th>
+                            <th style="text-align:right; width:11%;">{% translate 'Wait staff' %}</th>
                             <th style="text-align:right; width:15%;">{% translate 'Tip / waiter' %}</th>
                             <th style="text-align:right; width:15%;">{% translate 'Totals' %}</th>
                         </tr>
@@ -801,6 +813,7 @@
                                 <td style="text-align:center;">{{ row.wants_real_dishes|yesno:"Yes,No" }}</td>
                                 <td style="text-align:right;">{{ row.real_dishes_price_per_person }} {{ estimate.currency }}</td>
                                 <td style="text-align:right;">{{ row.staff_hours }}</td>
+                                <td style="text-align:right;">{{ row.wait_staff_count }}</td>
                                 <td style="text-align:right;">{{ row.staff_tip_per_waiter }} {{ estimate.currency }}</td>
                                 <td style="text-align:right;">
                                     <div class="totals-line">

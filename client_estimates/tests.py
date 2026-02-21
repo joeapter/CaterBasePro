@@ -252,6 +252,51 @@ class XpenzApiTests(TestCase):
         self.assertEqual(payload["entry"]["expense_text"], "Parking")
         self.assertEqual(payload["entry"]["expense_amount"], "28.50")
 
+    def test_per_meal_wait_staff_count_overrides_staff_total(self):
+        estimate = self.estimate
+        estimate.staff_hourly_rate = Decimal("50.00")
+        estimate.staff_tip_per_waiter = Decimal("80.00")
+        estimate.meal_plan = ["Friday Night", "Shabbos Day"]
+        estimate.meal_service_details = {
+            "Friday Night": {
+                "staff_hours": "2",
+                "wait_staff_count": 1,
+                "staff_tip_per_waiter": "80",
+            },
+            "Shabbos Day": {
+                "staff_hours": "4",
+                "wait_staff_count": 3,
+                "staff_tip_per_waiter": "80",
+            },
+        }
+        estimate.save()
+        estimate.refresh_from_db()
+
+        self.assertEqual(estimate.staff_total, Decimal("1020.00"))
+        rows = estimate.per_meal_service_summary(apply_exchange=False)
+        by_meal = {row["meal"]: row for row in rows}
+        self.assertEqual(by_meal["Friday Night"]["wait_staff_count"], 1)
+        self.assertEqual(by_meal["Shabbos Day"]["wait_staff_count"], 3)
+
+    def test_per_meal_wait_staff_count_falls_back_to_default_waiters(self):
+        estimate = self.estimate
+        estimate.staff_hourly_rate = Decimal("50.00")
+        estimate.staff_tip_per_waiter = Decimal("10.00")
+        estimate.meal_plan = ["Friday Night"]
+        estimate.meal_service_details = {
+            "Friday Night": {
+                "staff_hours": "2",
+                "staff_tip_per_waiter": "10",
+            }
+        }
+        estimate.save()
+        estimate.refresh_from_db()
+
+        rows = estimate.per_meal_service_summary(apply_exchange=False)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["wait_staff_count"], estimate.total_waiter_count())
+        self.assertEqual(estimate.staff_total, Decimal("220.00"))
+
     def test_staff_summary_returns_qr_links(self):
         token = self._login_and_get_token("appstaff@example.com")
         response = self.client.get(

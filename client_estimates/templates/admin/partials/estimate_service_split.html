@@ -1,11 +1,12 @@
 {% if form.meal_names|length > 1 %}
     {% with default_dish_price=form.instance.real_dishes_price_per_person|default:form.instance.caterer.real_dishes_price_per_person %}
-    {% with default_hours=form.instance.staff_hours default_tip=form.instance.staff_tip_per_waiter|default:form.instance.caterer.staff_tip_per_waiter %}
+    {% with default_hours=form.instance.staff_hours default_tip=form.instance.staff_tip_per_waiter|default:form.instance.caterer.staff_tip_per_waiter default_waiters=form.instance.total_waiter_count %}
     <div class="meal-service-card meal-service-wrapper"
          data-default-wants="{{ form.instance.wants_real_dishes|yesno:'true,false' }}"
          data-default-dish="{{ default_dish_price|default_if_none:'' }}"
          data-default-hours="{{ default_hours|default_if_none:'' }}"
-         data-default-tip="{{ default_tip|default_if_none:'' }}">
+         data-default-tip="{{ default_tip|default_if_none:'' }}"
+         data-default-waiters="{{ default_waiters|default_if_none:'' }}">
         <div class="meal-service-card__header">
             <div>
                 <h3 style="margin:0;">Per-meal logistics</h3>
@@ -23,6 +24,7 @@
                     <th>Real dishes?</th>
                     <th>Price per guest</th>
                     <th>Staff hours</th>
+                    <th>Wait staff qty</th>
                     <th>Tip per waiter</th>
                 </tr>
             </thead>
@@ -38,6 +40,9 @@
                         </td>
                         <td>
                             <input type="number" step="0.25" class="meal-service-input" data-field="staff_hours" placeholder="{{ default_hours|default_if_none:'0.00' }}">
+                        </td>
+                        <td>
+                            <input type="number" step="1" min="0" class="meal-service-input" data-field="wait_staff_count" placeholder="{{ default_waiters|default_if_none:'0' }}">
                         </td>
                         <td>
                             <input type="number" step="0.01" class="meal-service-input" data-field="staff_tip_per_waiter" placeholder="{{ default_tip|default_if_none:'0.00' }}">

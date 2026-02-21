@@ -111,6 +111,7 @@
                         <th style="text-align:center; padding:6px;">Real dishes</th>
                         <th style="text-align:right; padding:6px;">Dishes / guest</th>
                         <th style="text-align:right; padding:6px;">Staff hrs</th>
+                        <th style="text-align:right; padding:6px;">Wait staff</th>
                         <th style="text-align:right; padding:6px;">Tip / waiter</th>
                         <th style="text-align:right; padding:6px;">Staff total</th>
                         <th style="text-align:right; padding:6px;">Dishes total</th>
@@ -123,6 +124,7 @@
                             <td style="padding:6px; text-align:center;">{{ row.wants_real_dishes|yesno:"Yes,No" }}</td>
                             <td style="padding:6px; text-align:right;">{{ row.real_dishes_price_per_person }} {{ form.instance.currency }}</td>
                             <td style="padding:6px; text-align:right;">{{ row.staff_hours }}</td>
+                            <td style="padding:6px; text-align:right;">{{ row.wait_staff_count }}</td>
                             <td style="padding:6px; text-align:right;">{{ row.staff_tip_per_waiter }} {{ form.instance.currency }}</td>
                             <td style="padding:6px; text-align:right;">{{ row.staff_pay_total|add:row.staff_tip_total }} {{ form.instance.currency }}</td>
                             <td style="padding:6px; text-align:right;">{{ row.dishes_total }} {{ form.instance.currency }}</td>

@@ -1512,10 +1512,13 @@ class EstimateAdmin(admin.ModelAdmin):
                 staff_hours = sum((row["staff_hours"] for row in per_meal_service_rows), Decimal("0.00")).quantize(Decimal("0.01"))
                 staff_pay = sum((row["staff_pay_total"] for row in per_meal_service_rows), Decimal("0.00")).quantize(Decimal("0.01"))
                 staff_tip = sum((row["staff_tip_total"] for row in per_meal_service_rows), Decimal("0.00")).quantize(Decimal("0.01"))
+                waiter_set = {row["wait_staff_count"] for row in per_meal_service_rows}
+                waiter_value = waiter_set.pop() if len(waiter_set) == 1 else None
                 tip_set = {row["staff_tip_per_waiter"] for row in per_meal_service_rows}
                 tip_value = tip_set.pop() if len(tip_set) == 1 else None
                 staff_context = {
-                    "waiters": waiters,
+                    "waiters": waiter_value if waiter_value is not None else waiters,
+                    "waiters_varies": waiter_value is None,
                     "hours": staff_hours,
                     "hourly_rate": rate,
                     "labor_total": staff_pay,
@@ -1532,6 +1535,7 @@ class EstimateAdmin(admin.ModelAdmin):
                 staff_tip = (tip * waiters).quantize(Decimal("0.01"))
                 staff_context = {
                     "waiters": waiters,
+                    "waiters_varies": False,
                     "hours": staff_hours,
                     "hourly_rate": rate,
                     "labor_total": staff_pay,
@@ -1661,6 +1665,7 @@ class EstimateAdmin(admin.ModelAdmin):
             staff_tip = (tip * waiters).quantize(Decimal("0.01"))
             staff_context = {
                 "waiters": waiters,
+                "waiters_varies": False,
                 "hours": staff_hours,
                 "hourly_rate": rate,
                 "labor_total": staff_pay,
