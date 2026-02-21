@@ -416,6 +416,64 @@
                 page-break-inside: auto;
                 break-inside: auto;
             }
+            .estimate-sheet.estimate-sheet--compact-extras {
+                padding: 8mm 10mm 10mm;
+            }
+            .estimate-sheet.estimate-sheet--compact-extras .sheet-header {
+                grid-template-columns: minmax(0, 1fr) minmax(90px, 160px) minmax(0, 1fr);
+                padding: 2.5mm 3mm 2mm;
+                gap: 3mm;
+                margin: 0 auto 2mm;
+            }
+            .estimate-sheet.estimate-sheet--compact-extras .sheet-header-left h1 {
+                font-size: 15px;
+                letter-spacing: .08em;
+            }
+            .estimate-sheet.estimate-sheet--compact-extras .estimate-number {
+                font-size: 13px;
+                letter-spacing: .08em;
+                margin-bottom: 3px;
+            }
+            .estimate-sheet.estimate-sheet--compact-extras .meta-table {
+                font-size: 10px;
+            }
+            .estimate-sheet.estimate-sheet--compact-extras .sheet-logo img {
+                max-height: 58px;
+                max-width: 150px;
+            }
+            .estimate-sheet.estimate-sheet--compact-extras section {
+                margin-bottom: 9px;
+            }
+            .estimate-sheet.estimate-sheet--compact-extras h2 {
+                font-size: 15px;
+                margin: 0 0 4px;
+                letter-spacing: .08em;
+            }
+            .estimate-sheet.estimate-sheet--compact-extras h4 {
+                margin: 8px 0 4px !important;
+                font-size: 12px;
+            }
+            .estimate-sheet.estimate-sheet--compact-extras .info-table,
+            .estimate-sheet.estimate-sheet--compact-extras .summary-table {
+                font-size: 12px;
+            }
+            .estimate-sheet.estimate-sheet--compact-extras .info-table th,
+            .estimate-sheet.estimate-sheet--compact-extras .info-table td,
+            .estimate-sheet.estimate-sheet--compact-extras .summary-table th,
+            .estimate-sheet.estimate-sheet--compact-extras .summary-table td {
+                padding: 5px 6px;
+                line-height: 1.2;
+            }
+            .estimate-sheet.estimate-sheet--compact-extras .summary-table--tight th,
+            .estimate-sheet.estimate-sheet--compact-extras .summary-table--tight td {
+                font-size: 11px;
+                padding: 4px 4px;
+            }
+            .estimate-sheet.estimate-sheet--compact-extras .muted,
+            .estimate-sheet.estimate-sheet--compact-extras .no-items {
+                font-size: 11px;
+                line-height: 1.2;
+            }
         }
     </style>
 </head>
@@ -609,7 +667,7 @@
 {% endif %}
 
 {% if extras_rows or extra_lines or tablecloth_rows or show_plasticware or staff_context or per_meal_service_rows or meal_sections %}
-    <div class="estimate-sheet {{ sheet_surface_class|default:'' }} {{ sheet_background_class|default:'' }}">
+    <div class="estimate-sheet {{ sheet_surface_class|default:'' }} {{ sheet_background_class|default:'' }}{% if meal_sections|length > 2 and not flat_mode %} estimate-sheet--compact-extras{% endif %}">
         <header class="sheet-header">
             <div class="sheet-header-left">
                 <h1>{{ estimate.caterer.name }}</h1>
