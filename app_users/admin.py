@@ -79,6 +79,14 @@ class AppUserAdmin(admin.ModelAdmin):
         ]
         return custom + urls
 
+    def _has_caterer_access(self, request):
+        user = getattr(request, "user", None)
+        if not getattr(user, "is_authenticated", False):
+            return False
+        if user.is_superuser:
+            return True
+        return CatererAccount.objects.filter(owner=user).exists()
+
     def _allowed_caterers(self, request):
         qs = CatererAccount.objects.all()
         if request.user.is_superuser:
@@ -158,9 +166,7 @@ class AppUserAdmin(admin.ModelAdmin):
         return render(request, "admin/app_users/create_app_user.html", context)
 
     def has_module_permission(self, request):
-        if request.user.is_superuser:
-            return True
-        return CatererAccount.objects.filter(owner=request.user).exists()
+        return self._has_caterer_access(request)
 
     def get_queryset(self, request):
         qs = super().get_queryset(request).select_related("caterer", "user")
@@ -177,27 +183,31 @@ class AppUserAdmin(admin.ModelAdmin):
         return form
 
     def has_view_permission(self, request, obj=None):
+        if not self._has_caterer_access(request):
+            return False
         if request.user.is_superuser:
             return True
         if obj is None:
-            return CatererAccount.objects.filter(owner=request.user).exists()
+            return True
         return obj.caterer.owner == request.user
 
     def has_change_permission(self, request, obj=None):
+        if not self._has_caterer_access(request):
+            return False
         if request.user.is_superuser:
             return True
         if obj is None:
-            return CatererAccount.objects.filter(owner=request.user).exists()
+            return True
         return obj.caterer.owner == request.user
 
     def has_delete_permission(self, request, obj=None):
+        if not self._has_caterer_access(request):
+            return False
         if request.user.is_superuser:
             return True
         if obj is None:
-            return CatererAccount.objects.filter(owner=request.user).exists()
+            return True
         return obj.caterer.owner == request.user
 
     def has_add_permission(self, request):
-        if request.user.is_superuser:
-            return True
-        return CatererAccount.objects.filter(owner=request.user).exists()
+        return self._has_caterer_access(request)

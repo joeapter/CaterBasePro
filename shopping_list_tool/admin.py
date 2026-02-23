@@ -94,6 +94,14 @@ class ShoppingListBulkImportAdmin(admin.ModelAdmin):
         opts = self.model._meta
         return f"{opts.app_label}_{opts.model_name}_{suffix}"
 
+    def _has_caterer_access(self, request):
+        user = getattr(request, "user", None)
+        if not getattr(user, "is_authenticated", False):
+            return False
+        if user.is_superuser:
+            return True
+        return CatererAccount.objects.filter(owner=user).exists()
+
     def _allowed_caterers(self, request):
         qs = CatererAccount.objects.all()
         if request.user.is_superuser:
@@ -473,14 +481,10 @@ class ShoppingListBulkImportAdmin(admin.ModelAdmin):
         return render(request, "admin/shopping_list_tool/bulk_import.html", context)
 
     def has_module_permission(self, request):
-        if request.user.is_superuser:
-            return True
-        return CatererAccount.objects.filter(owner=request.user).exists()
+        return self._has_caterer_access(request)
 
     def has_view_permission(self, request, obj=None):
-        if request.user.is_superuser:
-            return True
-        return CatererAccount.objects.filter(owner=request.user).exists()
+        return self._has_caterer_access(request)
 
     def has_change_permission(self, request, obj=None):
         return self.has_view_permission(request, obj=obj)
