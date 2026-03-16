@@ -297,6 +297,62 @@ class XpenzApiTests(TestCase):
         self.assertEqual(rows[0]["wait_staff_count"], estimate.total_waiter_count())
         self.assertEqual(estimate.staff_total, Decimal("220.00"))
 
+    def test_client_tipped_at_event_excludes_suggested_tip_from_staff_total(self):
+        estimate = self.estimate
+        estimate.staff_hourly_rate = Decimal("50.00")
+        estimate.staff_tip_per_waiter = Decimal("20.00")
+        estimate.staff_hours = Decimal("2.00")
+        estimate.staff_count_override = 2
+        estimate.client_tipped_at_event = True
+        estimate.meal_service_details = {}
+        estimate.save()
+        estimate.refresh_from_db()
+
+        self.assertEqual(estimate.staff_total, Decimal("200.00"))
+
+    def test_client_tipped_at_event_excludes_per_meal_suggested_tip(self):
+        estimate = self.estimate
+        estimate.staff_hourly_rate = Decimal("50.00")
+        estimate.staff_tip_per_waiter = Decimal("80.00")
+        estimate.client_tipped_at_event = True
+        estimate.meal_plan = ["Friday Night", "Shabbos Day"]
+        estimate.meal_service_details = {
+            "Friday Night": {
+                "staff_hours": "2",
+                "wait_staff_count": 1,
+                "staff_tip_per_waiter": "80",
+            },
+            "Shabbos Day": {
+                "staff_hours": "4",
+                "wait_staff_count": 3,
+                "staff_tip_per_waiter": "80",
+            },
+        }
+        estimate.save()
+        estimate.refresh_from_db()
+
+        self.assertEqual(estimate.staff_total, Decimal("700.00"))
+        rows = estimate.per_meal_service_summary(apply_exchange=False)
+        self.assertTrue(rows)
+        for row in rows:
+            self.assertEqual(row["staff_tip_total"], Decimal("0.00"))
+            self.assertEqual(row["staff_tip_per_waiter"], Decimal("0.00"))
+
+    def test_print_pdf_shows_client_tipped_note(self):
+        estimate = self.estimate
+        estimate.staff_hourly_rate = Decimal("50.00")
+        estimate.staff_tip_per_waiter = Decimal("20.00")
+        estimate.staff_count_override = 2
+        estimate.client_tipped_at_event = True
+        estimate.save()
+
+        self.client.force_login(self.user)
+        response = self.client.get(
+            reverse("admin:client_estimates_estimate_print", args=[estimate.id])
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "- Client tipped at event.")
+
     def test_staff_summary_returns_qr_links(self):
         token = self._login_and_get_token("appstaff@example.com")
         response = self.client.get(

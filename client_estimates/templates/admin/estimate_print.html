@@ -812,7 +812,9 @@
                         <tr>
                             <th>{% translate 'Suggested tip' %}</th>
                             <td>
-                                {% if staff_context.tip_varies %}
+                                {% if estimate.client_tipped_at_event %}
+                                    - Client tipped at event.
+                                {% elif staff_context.tip_varies %}
                                     {{ staff_context.tip_total }} {{ estimate.currency }} ({% translate 'varies by meal' %})
                                 {% else %}
                                     {{ staff_context.tip_total }} {{ estimate.currency }} ({{ staff_context.tip_per_waiter }} {{ estimate.currency }} {% translate 'per waiter' %})
@@ -840,7 +842,13 @@
                                     <td style="text-align:right;">{{ row.wait_staff_count }}</td>
                                     <td style="text-align:right;">{{ row.staff_hours }}</td>
                                     <td style="text-align:right;">{{ row.staff_pay_total }} {{ estimate.currency }}</td>
-                                    <td style="text-align:right;">{{ row.staff_tip_total }} {{ estimate.currency }}</td>
+                                    <td style="text-align:right;">
+                                        {% if estimate.client_tipped_at_event %}
+                                            -
+                                        {% else %}
+                                            {{ row.staff_tip_total }} {{ estimate.currency }}
+                                        {% endif %}
+                                    </td>
                                 </tr>
                             {% endfor %}
                         </tbody>
@@ -872,7 +880,13 @@
                                 <td style="text-align:right;">{{ row.real_dishes_price_per_person }} {{ estimate.currency }}</td>
                                 <td style="text-align:right;">{{ row.staff_hours }}</td>
                                 <td style="text-align:right;">{{ row.wait_staff_count }}</td>
-                                <td style="text-align:right;">{{ row.staff_tip_per_waiter }} {{ estimate.currency }}</td>
+                                <td style="text-align:right;">
+                                    {% if estimate.client_tipped_at_event %}
+                                        -
+                                    {% else %}
+                                        {{ row.staff_tip_per_waiter }} {{ estimate.currency }}
+                                    {% endif %}
+                                </td>
                                 <td style="text-align:right;">
                                     <div class="totals-line">
                                         {% translate 'Staff' %}:

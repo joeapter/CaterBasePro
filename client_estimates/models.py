@@ -475,6 +475,10 @@ class Estimate(models.Model):
     staff_tip_per_waiter = models.DecimalField(
         max_digits=8, decimal_places=2, null=True, blank=True
     )
+    client_tipped_at_event = models.BooleanField(
+        default=False,
+        help_text="Exclude suggested waiter tip from totals when client tips directly at the event.",
+    )
 
     meal_plan = models.JSONField(
         default=list,
@@ -758,7 +762,8 @@ class Estimate(models.Model):
                 labor_total = (
                     hourly_rate * (staff_hours or Decimal("0.00")) * wait_staff_count
                 )
-                tip_total = (tip_per_waiter or Decimal("0.00")) * wait_staff_count
+                if not self.client_tipped_at_event:
+                    tip_total = (tip_per_waiter or Decimal("0.00")) * wait_staff_count
 
             if fx_rate != Decimal("1.00"):
                 if wants_dishes:
@@ -777,7 +782,11 @@ class Estimate(models.Model):
                     "dishes_total": dish_total.quantize(Decimal("0.01")),
                     "staff_hours": (staff_hours or Decimal("0.00")).quantize(Decimal("0.01")),
                     "wait_staff_count": wait_staff_count,
-                    "staff_tip_per_waiter": (tip_per_waiter or Decimal("0.00")).quantize(Decimal("0.01")),
+                    "staff_tip_per_waiter": (
+                        Decimal("0.00")
+                        if self.client_tipped_at_event
+                        else (tip_per_waiter or Decimal("0.00"))
+                    ).quantize(Decimal("0.01")),
                     "staff_pay_total": labor_total.quantize(Decimal("0.01")),
                     "staff_tip_total": tip_total.quantize(Decimal("0.01")),
                     "guest_count": guests,
@@ -824,7 +833,7 @@ class Estimate(models.Model):
         rate = self._get_staff_hourly_rate()
         tip = self._get_staff_tip_per_waiter()
         staff_pay = rate * hours * waiters
-        staff_tip = tip * waiters
+        staff_tip = Decimal("0.00") if self.client_tipped_at_event else tip * waiters
         return (staff_pay + staff_tip).quantize(Decimal("0.01"))
 
     def calc_dishes_total(self) -> Decimal:

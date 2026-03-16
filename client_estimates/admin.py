@@ -1092,6 +1092,7 @@ class EstimateAdmin(admin.ModelAdmin):
                     "staff_count_override",
                     "staff_hourly_rate",
                     "staff_tip_per_waiter",
+                    "client_tipped_at_event",
                     "notes_internal",
                     "notes_for_customer",
                     "deposit_percentage",
@@ -1522,24 +1523,26 @@ class EstimateAdmin(admin.ModelAdmin):
                     "hours": staff_hours,
                     "hourly_rate": rate,
                     "labor_total": staff_pay,
-                    "tip_per_waiter": tip_value,
+                    "tip_per_waiter": Decimal("0.00") if estimate.client_tipped_at_event else tip_value,
                     "tip_total": staff_tip,
                     "grand": staff_pay + staff_tip,
-                    "tip_varies": tip_value is None,
+                    "tip_varies": False if estimate.client_tipped_at_event else tip_value is None,
                     "per_meal": per_meal_service_rows,
                 }
             else:
                 staff_hours = estimate.staff_hours or Decimal("0.00")
                 tip = estimate._get_staff_tip_per_waiter()
                 staff_pay = (rate * staff_hours * waiters).quantize(Decimal("0.01"))
-                staff_tip = (tip * waiters).quantize(Decimal("0.01"))
+                staff_tip = Decimal("0.00")
+                if not estimate.client_tipped_at_event:
+                    staff_tip = (tip * waiters).quantize(Decimal("0.01"))
                 staff_context = {
                     "waiters": waiters,
                     "waiters_varies": False,
                     "hours": staff_hours,
                     "hourly_rate": rate,
                     "labor_total": staff_pay,
-                    "tip_per_waiter": tip,
+                    "tip_per_waiter": Decimal("0.00") if estimate.client_tipped_at_event else tip,
                     "tip_total": staff_tip,
                     "grand": staff_pay + staff_tip,
                     "tip_varies": False,
@@ -1662,14 +1665,16 @@ class EstimateAdmin(admin.ModelAdmin):
             rate = estimate._get_staff_hourly_rate()
             tip = estimate._get_staff_tip_per_waiter()
             staff_pay = (rate * staff_hours * waiters).quantize(Decimal("0.01"))
-            staff_tip = (tip * waiters).quantize(Decimal("0.01"))
+            staff_tip = Decimal("0.00")
+            if not estimate.client_tipped_at_event:
+                staff_tip = (tip * waiters).quantize(Decimal("0.01"))
             staff_context = {
                 "waiters": waiters,
                 "waiters_varies": False,
                 "hours": staff_hours,
                 "hourly_rate": rate,
                 "labor_total": staff_pay,
-                "tip_per_waiter": tip,
+                "tip_per_waiter": Decimal("0.00") if estimate.client_tipped_at_event else tip,
                 "tip_total": staff_tip,
                 "grand": staff_pay + staff_tip,
             }
