@@ -1457,11 +1457,11 @@ class XpenzMobileToken(models.Model):
     last_used_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
-        verbose_name = "Xpenz mobile token"
-        verbose_name_plural = "Xpenz mobile tokens"
+        verbose_name = "X Planner mobile token"
+        verbose_name_plural = "X Planner mobile tokens"
 
     def __str__(self):
-        return f"Xpenz token for {self.user}"
+        return f"X Planner token for {self.user}"
 
     @staticmethod
     def generate_key():

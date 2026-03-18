@@ -1314,7 +1314,7 @@ export default function App() {
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
           <View style={styles.loginCard}>
-            <Text style={styles.appTitle}>Xpenz</Text>
+            <Text style={styles.appTitle}>X Planner</Text>
             <Text style={styles.subtleText}>Internal expense capture for estimates</Text>
 
             <Text style={styles.label}>API Base URL</Text>

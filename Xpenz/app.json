@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "Xpenz",
+    "name": "X Planner",
     "slug": "xpenz",
     "scheme": "xpenz",
     "version": "1.0.0",
@@ -47,8 +47,8 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "Allow Xpenz to access receipt photos for estimate expenses.",
-          "cameraPermission": "Allow Xpenz to use the camera to capture receipt images."
+          "photosPermission": "Allow X Planner to access receipt photos for estimate expenses.",
+          "cameraPermission": "Allow X Planner to use the camera to capture receipt images."
         }
       ],
       "expo-asset"

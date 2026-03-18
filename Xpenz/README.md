@@ -1,4 +1,4 @@
-# Xpenz iOS App (Expo)
+# X Planner iOS App (Expo)
 
 Internal expense capture app for CaterBase Pro estimates.
 
