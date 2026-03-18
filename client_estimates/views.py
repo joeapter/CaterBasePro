@@ -28,8 +28,11 @@ from .models import (
     CatererAccount,
     CatererUserAccess,
     Estimate,
+    EstimatePlannerEntry,
     EstimateExpenseEntry,
     EstimateStaffTimeEntry,
+    PlannerFieldMemory,
+    PLANNER_SECTION_CHOICES,
     ShoppingList,
     ShoppingListItem,
     STAFF_ROLE_CHOICES,
@@ -51,6 +54,60 @@ SHOPPING_CATEGORY_ORDER = {
     code: index for index, (code, _label) in enumerate(SHOPPING_CATEGORY_CHOICES)
 }
 SHOPPING_CATEGORY_LABELS = {code: label for code, label in SHOPPING_CATEGORY_CHOICES}
+PLANNER_SECTION_LABELS = {code: label for code, label in PLANNER_SECTION_CHOICES}
+
+PLANNER_GROUP_LABELS = {
+    ("DECOR", "table_cloths"): "Table Cloths",
+    ("DECOR", "chad_paami"): "Chad Paami",
+    ("DECOR", "centerpieces"): "Centerpieces",
+    ("DECOR", "features"): "Features",
+    ("RENTALS", "furniture"): "Furniture",
+    ("RENTALS", "addon_features"): "Addon Features",
+    ("ORDERS", "bread_order"): "Bread Order",
+    ("ORDERS", "dishes_order"): "Dishes Order",
+    ("ORDERS", "tablecloth_order"): "Tablecloth Order",
+    ("PRINTING", "sign"): "Sign",
+    ("PRINTING", "invitations"): "Invitations",
+    ("PRINTING", "placecards"): "Placecards",
+    ("PRINTING", "menus"): "Menus",
+    ("PRINTING", "signing_boards"): "Signing Boards",
+    ("STAFFING", "staffing"): "Staffing",
+    ("SPECIAL_REQUESTS", "special_requests"): "Special Requests",
+}
+
+PLANNER_ITEM_LABELS = {
+    ("DECOR", "centerpieces", "floral"): "Floral",
+    ("DECOR", "centerpieces", "balloon"): "Balloon",
+    ("DECOR", "centerpieces", "lanterns"): "Lanterns",
+    ("DECOR", "features", "balloon_feature"): "Balloon Feature",
+    ("DECOR", "features", "floral_feature"): "Floral Feature",
+    ("DECOR", "features", "other"): "Other",
+    ("RENTALS", "furniture", "tables"): "Tables",
+    ("RENTALS", "furniture", "chairs"): "Chairs",
+    ("RENTALS", "furniture", "bars"): "Bars",
+    ("RENTALS", "furniture", "couches"): "Couches",
+    ("RENTALS", "addon_features", "chocolate_fountain_rental"): "Chocolate Fountain Rental",
+    ("RENTALS", "addon_features", "projector_screen_speaker_rental"): "Projector + Screen + Speaker Rental",
+}
+
+PLANNER_FIELD_LABELS = {
+    "color": "Color",
+    "colors": "Colors",
+    "fabric": "Fabric",
+    "qty": "Qty",
+    "style": "Style",
+    "price": "Price",
+    "price_per_table": "Price Per Table",
+    "type": "Type",
+    "shape": "Shape",
+    "seat_qty": "Seat Qty",
+    "table_qty": "Table Qty",
+    "size": "Size",
+    "qty_staff_needed": "Qty Of Staff Needed",
+    "who_hired": "Who Has Been Hired",
+    "notes": "Notes",
+    "supplier": "Supplier",
+}
 
 PRODUCE_KEYWORDS = {
     "produce",
@@ -658,6 +715,117 @@ def _serialize_shopping_item(entry):
         "collaboration_note": (entry.collaboration_note or "").lower(),
         "created_at": entry.created_at.isoformat() if entry.created_at else "",
     }
+
+
+def _humanize_code(value):
+    raw = (value or "").strip().replace("_", " ").replace("-", " ")
+    if not raw:
+        return ""
+    return " ".join(part.capitalize() for part in raw.split())
+
+
+def _planner_group_label(section, group_code):
+    return PLANNER_GROUP_LABELS.get((section, group_code), _humanize_code(group_code))
+
+
+def _planner_item_label(section, group_code, item_code):
+    if not item_code:
+        return ""
+    return PLANNER_ITEM_LABELS.get((section, group_code, item_code), _humanize_code(item_code))
+
+
+def _planner_field_label(field_code):
+    if field_code in PLANNER_FIELD_LABELS:
+        return PLANNER_FIELD_LABELS[field_code]
+    return _humanize_code(field_code)
+
+
+def _serialize_planner_entry(entry):
+    data_rows = []
+    for key, value in (entry.data or {}).items():
+        data_rows.append(
+            {
+                "field_code": key,
+                "field_label": _planner_field_label(key),
+                "value": value,
+            }
+        )
+    data_rows.sort(key=lambda row: row["field_label"].lower())
+    return {
+        "id": entry.id,
+        "estimate_id": entry.estimate_id,
+        "section": entry.section,
+        "section_label": PLANNER_SECTION_LABELS.get(entry.section, entry.section),
+        "group_code": entry.group_code,
+        "group_label": _planner_group_label(entry.section, entry.group_code),
+        "item_code": entry.item_code,
+        "item_label": _planner_item_label(entry.section, entry.group_code, entry.item_code),
+        "data": entry.data or {},
+        "data_rows": data_rows,
+        "notes": entry.notes or "",
+        "is_checked": bool(entry.is_checked),
+        "sort_order": entry.sort_order or 0,
+        "created_at": entry.created_at.isoformat() if entry.created_at else "",
+        "updated_at": entry.updated_at.isoformat() if entry.updated_at else "",
+    }
+
+
+def _planner_memory_payload(memory_rows):
+    grouped = {}
+    for row in memory_rows:
+        key = (row.section, row.group_code or "", row.item_code or "", row.field_code or "")
+        grouped.setdefault(key, []).append(row.value)
+
+    payload = []
+    for (section, group_code, item_code, field_code), values in grouped.items():
+        payload.append(
+            {
+                "section": section,
+                "group_code": group_code,
+                "item_code": item_code,
+                "field_code": field_code,
+                "values": _merge_option_values(values),
+            }
+        )
+    payload.sort(
+        key=lambda row: (
+            row["section"],
+            row["group_code"],
+            row["item_code"],
+            row["field_code"],
+        )
+    )
+    return payload
+
+
+def _record_planner_memory(estimate, section, group_code, item_code, data):
+    if not estimate.caterer_id or not isinstance(data, dict):
+        return
+    for raw_field, raw_value in data.items():
+        field_code = _normalize_item_text(raw_field)
+        value = _normalize_item_text(raw_value)
+        if not field_code or not value:
+            continue
+        field_code = field_code.replace(" ", "_").lower()
+        obj, created = PlannerFieldMemory.objects.get_or_create(
+            caterer_id=estimate.caterer_id,
+            section=section,
+            group_code=_normalize_item_text(group_code).replace(" ", "_").lower(),
+            item_code=_normalize_item_text(item_code).replace(" ", "_").lower(),
+            field_code=field_code,
+            value_key=value.lower(),
+            defaults={"value": value, "usage_count": 1},
+        )
+        if created:
+            continue
+        changed_fields = []
+        if obj.value != value:
+            obj.value = value
+            changed_fields.append("value")
+        obj.usage_count = (obj.usage_count or 0) + 1
+        changed_fields.append("usage_count")
+        changed_fields.append("last_used_at")
+        obj.save(update_fields=changed_fields)
 
 
 def _build_shopping_catalog_queryset(user, access_map):
@@ -1555,6 +1723,136 @@ def xpenz_shopping_catalog(request):
             "items": payload["items"],
             "categories": payload["categories"],
         }
+    )
+
+
+@csrf_exempt
+def xpenz_estimate_planner(request, estimate_id):
+    user = _xpenz_authenticated_user(request)
+    if not user:
+        return _json_error("Authentication required.", status=401)
+
+    access_map = _mobile_access_map_for_user(user)
+    if not user.is_superuser and not access_map:
+        return _json_error("No mobile app access is configured for this user.", status=403)
+
+    estimate = get_object_or_404(
+        Estimate.objects.select_related("caterer", "caterer__owner"),
+        pk=estimate_id,
+    )
+    if not _can_access_estimate(user, estimate, access_map=access_map):
+        return _json_error("You do not have access to this estimate.", status=403)
+
+    if request.method == "GET":
+        entries = list(
+            estimate.planner_entries.select_related("created_by", "updated_by").order_by(
+                "section", "sort_order", "created_at"
+            )
+        )
+        memory_rows = list(
+            PlannerFieldMemory.objects.filter(caterer_id=estimate.caterer_id).order_by(
+                "-usage_count", "-last_used_at", "value"
+            )[:2000]
+        )
+        return JsonResponse(
+            {
+                "ok": True,
+                "estimate_id": estimate.id,
+                "entries": [_serialize_planner_entry(row) for row in entries],
+                "memory": _planner_memory_payload(memory_rows),
+            }
+        )
+
+    if request.method != "POST":
+        return _json_error("Method not allowed.", status=405)
+
+    payload = {}
+    if request.body:
+        try:
+            payload = json.loads(request.body.decode("utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            payload = {}
+    if not isinstance(payload, dict):
+        payload = {}
+
+    action = _normalize_item_text(payload.get("action") or "upsert").lower()
+    if action == "delete":
+        raw_entry_id = payload.get("entry_id")
+        if not str(raw_entry_id or "").isdigit():
+            return _json_error("Invalid entry id.", status=400)
+        entry = get_object_or_404(
+            EstimatePlannerEntry,
+            pk=int(raw_entry_id),
+            estimate_id=estimate.id,
+        )
+        entry.delete()
+        return JsonResponse({"ok": True, "deleted_entry_id": int(raw_entry_id)})
+
+    raw_section = _normalize_item_text(payload.get("section")).upper()
+    if raw_section not in PLANNER_SECTION_LABELS:
+        return _json_error("Invalid planner section.", status=400)
+    group_code = _normalize_item_text(payload.get("group_code", ""))
+    item_code = _normalize_item_text(payload.get("item_code", ""))
+    notes = _normalize_item_text(payload.get("notes", ""))
+    sort_order = 0
+    try:
+        sort_order = int(payload.get("sort_order") or 0)
+    except (TypeError, ValueError):
+        sort_order = 0
+    sort_order = max(sort_order, 0)
+    is_checked = _to_bool(payload.get("is_checked"))
+
+    data = payload.get("data")
+    if not isinstance(data, dict):
+        data = {}
+    cleaned_data = {}
+    for raw_key, raw_value in data.items():
+        key = _normalize_item_text(raw_key)
+        value = _normalize_item_text(raw_value)
+        if not key or not value:
+            continue
+        cleaned_data[key] = value
+
+    raw_entry_id = payload.get("entry_id")
+    entry = None
+    if str(raw_entry_id or "").isdigit():
+        entry = EstimatePlannerEntry.objects.filter(
+            pk=int(raw_entry_id),
+            estimate_id=estimate.id,
+        ).first()
+        if not entry:
+            return _json_error("Planner entry not found.", status=404)
+    if not entry:
+        entry = EstimatePlannerEntry(
+            estimate=estimate,
+            caterer=estimate.caterer,
+            created_by=user,
+        )
+
+    entry.section = raw_section
+    entry.group_code = group_code
+    entry.item_code = item_code
+    entry.data = cleaned_data
+    entry.notes = notes
+    entry.is_checked = is_checked
+    entry.sort_order = sort_order
+    entry.updated_by = user
+    entry.save()
+
+    _record_planner_memory(
+        estimate=estimate,
+        section=entry.section,
+        group_code=entry.group_code,
+        item_code=entry.item_code,
+        data=entry.data,
+    )
+
+    return JsonResponse(
+        {
+            "ok": True,
+            "entry": _serialize_planner_entry(entry),
+        },
+        status=201 if not raw_entry_id else 200,
     )
 
 

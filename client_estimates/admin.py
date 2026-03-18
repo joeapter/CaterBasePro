@@ -36,6 +36,8 @@ from .models import (
     TrialRequest,
     EstimateExpenseEntry,
     EstimateStaffTimeEntry,
+    EstimatePlannerEntry,
+    PLANNER_SECTION_CHOICES,
     ShoppingList,
     ShoppingListItem,
     XpenzMobileToken,
@@ -66,6 +68,80 @@ def parse_meal_plan(raw_value):
     else:
         names = [line.strip() for line in str(raw_value).replace(",", "\n").splitlines()]
     return [name for name in names if name]
+
+
+PLANNER_SECTION_LABELS = {code: label for code, label in PLANNER_SECTION_CHOICES}
+PLANNER_GROUP_LABELS = {
+    ("DECOR", "table_cloths"): "Table Cloths",
+    ("DECOR", "chad_paami"): "Chad Paami",
+    ("DECOR", "centerpieces"): "Centerpieces",
+    ("DECOR", "features"): "Features",
+    ("RENTALS", "furniture"): "Furniture",
+    ("RENTALS", "addon_features"): "Addon Features",
+    ("ORDERS", "bread_order"): "Bread Order",
+    ("ORDERS", "dishes_order"): "Dishes Order",
+    ("ORDERS", "tablecloth_order"): "Tablecloth Order",
+    ("PRINTING", "sign"): "Sign",
+    ("PRINTING", "invitations"): "Invitations",
+    ("PRINTING", "placecards"): "Placecards",
+    ("PRINTING", "menus"): "Menus",
+    ("PRINTING", "signing_boards"): "Signing Boards",
+    ("STAFFING", "staffing"): "Staffing",
+    ("SPECIAL_REQUESTS", "special_requests"): "Special Requests",
+}
+PLANNER_ITEM_LABELS = {
+    ("DECOR", "centerpieces", "floral"): "Floral",
+    ("DECOR", "centerpieces", "balloon"): "Balloon",
+    ("DECOR", "centerpieces", "lanterns"): "Lanterns",
+    ("DECOR", "features", "balloon_feature"): "Balloon Feature",
+    ("DECOR", "features", "floral_feature"): "Floral Feature",
+    ("DECOR", "features", "other"): "Other",
+    ("RENTALS", "furniture", "tables"): "Tables",
+    ("RENTALS", "furniture", "chairs"): "Chairs",
+    ("RENTALS", "furniture", "bars"): "Bars",
+    ("RENTALS", "furniture", "couches"): "Couches",
+    ("RENTALS", "addon_features", "chocolate_fountain_rental"): "Chocolate Fountain Rental",
+    ("RENTALS", "addon_features", "projector_screen_speaker_rental"): "Projector + Screen + Speaker Rental",
+}
+PLANNER_FIELD_LABELS = {
+    "color": "Color",
+    "colors": "Colors",
+    "fabric": "Fabric",
+    "qty": "Qty",
+    "style": "Style",
+    "price": "Price",
+    "price_per_table": "Price Per Table",
+    "type": "Type",
+    "shape": "Shape",
+    "seat_qty": "Seat Qty",
+    "table_qty": "Table Qty",
+    "size": "Size",
+    "qty_staff_needed": "Qty Of Staff Needed",
+    "who_hired": "Who Has Been Hired",
+    "notes": "Notes",
+    "supplier": "Supplier",
+}
+
+
+def _humanize_planner_code(value):
+    raw = (value or "").replace("_", " ").replace("-", " ").strip()
+    if not raw:
+        return ""
+    return " ".join(part.capitalize() for part in raw.split())
+
+
+def _planner_group_label(section, group_code):
+    return PLANNER_GROUP_LABELS.get((section, group_code), _humanize_planner_code(group_code))
+
+
+def _planner_item_label(section, group_code, item_code):
+    if not item_code:
+        return ""
+    return PLANNER_ITEM_LABELS.get((section, group_code, item_code), _humanize_planner_code(item_code))
+
+
+def _planner_field_label(field_code):
+    return PLANNER_FIELD_LABELS.get(field_code, _humanize_planner_code(field_code))
 
 # ==========================
 # CATERER ACCOUNT ADMIN
@@ -506,6 +582,43 @@ class EstimateStaffTimeEntryAdmin(admin.ModelAdmin):
             obj.total_hours = Decimal("0.00")
             obj.total_cost = Decimal("0.00")
         super().save_model(request, obj, form, change)
+
+
+@admin.register(EstimatePlannerEntry)
+class EstimatePlannerEntryAdmin(admin.ModelAdmin):
+    list_display = (
+        "estimate",
+        "section",
+        "group_code",
+        "item_code",
+        "is_checked",
+        "sort_order",
+        "updated_at",
+    )
+    list_filter = ("section", "caterer", "is_checked")
+    search_fields = ("estimate__customer_name", "group_code", "item_code", "notes")
+    readonly_fields = ("created_at", "updated_at", "created_by", "updated_by")
+
+    def get_queryset(self, request):
+        qs = super().get_queryset(request).select_related("estimate", "caterer")
+        if request.user.is_superuser:
+            return qs
+        return qs.filter(caterer__owner=request.user)
+
+    def save_model(self, request, obj, form, change):
+        if not obj.created_by_id:
+            obj.created_by = request.user
+        obj.updated_by = request.user
+        if obj.estimate_id and not obj.caterer_id:
+            obj.caterer = obj.estimate.caterer
+        super().save_model(request, obj, form, change)
+
+    def has_delete_permission(self, request, obj=None):
+        if request.user.is_superuser:
+            return True
+        if obj is None:
+            return True
+        return obj.caterer.owner == request.user
 
 
 @admin.register(ShoppingList)
@@ -1400,6 +1513,11 @@ class EstimateAdmin(admin.ModelAdmin):
                 name=self._admin_url_name("print_flat"),
             ),
             path(
+                "<int:estimate_id>/planner-print/",
+                self.admin_site.admin_view(self.print_planner),
+                name=self._admin_url_name("planner_print"),
+            ),
+            path(
                 "<int:estimate_id>/workflow/",
                 self.admin_site.admin_view(self.workflow_view),
                 name=self._admin_url_name("workflow"),
@@ -1461,6 +1579,69 @@ class EstimateAdmin(admin.ModelAdmin):
         entry.delete()
         self.message_user(request, "Expense entry removed.", level=messages.SUCCESS)
         return JsonResponse({"ok": True})
+
+    def _planner_sections_for_estimate(self, estimate):
+        entries = list(
+            estimate.planner_entries.order_by("section", "sort_order", "created_at")
+        )
+        grouped = {}
+        section_order = {code: idx for idx, (code, _label) in enumerate(PLANNER_SECTION_CHOICES)}
+
+        for entry in entries:
+            data_rows = []
+            for field_code, value in (entry.data or {}).items():
+                data_rows.append(
+                    {
+                        "field_code": field_code,
+                        "field_label": _planner_field_label(field_code),
+                        "value": value,
+                    }
+                )
+            data_rows.sort(key=lambda row: row["field_label"].lower())
+            grouped.setdefault(entry.section, []).append(
+                {
+                    "id": entry.id,
+                    "section": entry.section,
+                    "section_label": PLANNER_SECTION_LABELS.get(entry.section, entry.section),
+                    "group_code": entry.group_code,
+                    "group_label": _planner_group_label(entry.section, entry.group_code),
+                    "item_code": entry.item_code,
+                    "item_label": _planner_item_label(entry.section, entry.group_code, entry.item_code),
+                    "data_rows": data_rows,
+                    "notes": entry.notes,
+                    "is_checked": bool(entry.is_checked),
+                    "sort_order": entry.sort_order,
+                }
+            )
+
+        sections = []
+        for section_code, section_label in PLANNER_SECTION_CHOICES:
+            rows = grouped.get(section_code, [])
+            if not rows:
+                continue
+            sections.append(
+                {
+                    "code": section_code,
+                    "label": section_label,
+                    "items": rows,
+                }
+            )
+        sections.sort(key=lambda row: section_order.get(row["code"], 999))
+        return sections
+
+    def print_planner(self, request, estimate_id):
+        estimate = self._get_estimate(estimate_id)
+        if not request.user.is_superuser and estimate.caterer.owner != request.user:
+            raise PermissionDenied("You do not have access to this estimate.")
+
+        planner_sections = self._planner_sections_for_estimate(estimate)
+        context = {
+            "estimate": estimate,
+            "planner_sections": planner_sections,
+            "title": f"Planning Checklist for {estimate.customer_name}",
+            "auto_print": request.GET.get("print") == "1",
+        }
+        return render(request, "admin/estimate_planner_print.html", context)
 
     def print_estimate(self, request, estimate_id):
         estimate = self._get_estimate(estimate_id)
@@ -2098,6 +2279,8 @@ class EstimateAdmin(admin.ModelAdmin):
         expense_entries = []
         expense_total = Decimal("0.00")
         staff_entries_manage_url = ""
+        planner_sections = []
+        planner_print_url = ""
         if obj and obj.pk:
             expense_entries = list(
                 obj.expense_entries.select_related("created_by").order_by("-created_at")
@@ -2110,6 +2293,8 @@ class EstimateAdmin(admin.ModelAdmin):
                 reverse("admin:client_estimates_estimatestafftimeentry_changelist")
                 + f"?estimate__id__exact={obj.pk}&applied_to_expenses__exact=0"
             )
+            planner_sections = self._planner_sections_for_estimate(obj)
+            planner_print_url = self._admin_reverse("planner_print", args=[obj.pk])
         context = {
             **self.admin_site.each_context(request),
             "title": title % self.opts.verbose_name,
@@ -2129,6 +2314,8 @@ class EstimateAdmin(admin.ModelAdmin):
             "expense_total": expense_total,
             "expense_delete_url_name": f"admin:{self._admin_url_name('expense_delete')}",
             "staff_entries_manage_url": staff_entries_manage_url,
+            "planner_sections": planner_sections,
+            "planner_print_url": planner_print_url,
         }
 
         if (

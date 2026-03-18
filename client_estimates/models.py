@@ -49,6 +49,15 @@ SHOPPING_CATEGORY_CHOICES = [
     ("OTHER", "Other"),
 ]
 
+PLANNER_SECTION_CHOICES = [
+    ("DECOR", "Decor"),
+    ("RENTALS", "Rentals"),
+    ("ORDERS", "Orders"),
+    ("SPECIAL_REQUESTS", "Special Requests"),
+    ("PRINTING", "Printing"),
+    ("STAFFING", "Staffing"),
+]
+
 DOCUMENT_BACKGROUND_CHOICES = [
     ("CLEAN", "Clean white"),
     ("WATERCOLOR_SAGE", "Watercolor sage wash"),
@@ -1413,6 +1422,145 @@ class ShoppingListItem(models.Model):
         if not self.quantity or self.quantity <= Decimal("0.00"):
             self.quantity = Decimal("1.00")
         self.quantity = Decimal(self.quantity).quantize(Decimal("0.01"))
+        super().save(*args, **kwargs)
+
+
+def _normalize_planner_code(value):
+    normalized = slugify((value or "").strip().replace("/", " "))
+    return normalized.replace("-", "_")
+
+
+class EstimatePlannerEntry(models.Model):
+    estimate = models.ForeignKey(
+        Estimate,
+        on_delete=models.CASCADE,
+        related_name="planner_entries",
+    )
+    caterer = models.ForeignKey(
+        CatererAccount,
+        on_delete=models.CASCADE,
+        related_name="planner_entries",
+    )
+    section = models.CharField(
+        max_length=30,
+        choices=PLANNER_SECTION_CHOICES,
+        default="DECOR",
+    )
+    group_code = models.CharField(
+        max_length=80,
+        blank=True,
+        help_text="Planner subgroup code (e.g. table_cloths, furniture).",
+    )
+    item_code = models.CharField(
+        max_length=80,
+        blank=True,
+        help_text="Optional item type code inside a subgroup (e.g. floral, chairs).",
+    )
+    data = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Field-value payload for this planner line.",
+    )
+    notes = models.TextField(blank=True)
+    is_checked = models.BooleanField(
+        default=False,
+        help_text="Checklist marker used in planning board and PDFs.",
+    )
+    sort_order = models.PositiveIntegerField(default=0)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="planner_entries_created",
+    )
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="planner_entries_updated",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["section", "sort_order", "created_at"]
+        verbose_name = "Estimate planner entry"
+        verbose_name_plural = "Estimate planner entries"
+
+    def __str__(self):
+        label = self.group_code or "planner"
+        if self.item_code:
+            label = f"{label}/{self.item_code}"
+        return f"{self.estimate_id} - {self.section} - {label}"
+
+    def save(self, *args, **kwargs):
+        self.group_code = _normalize_planner_code(self.group_code or "")
+        self.item_code = _normalize_planner_code(self.item_code or "")
+        cleaned = {}
+        if isinstance(self.data, dict):
+            for raw_key, raw_value in self.data.items():
+                key = " ".join(str(raw_key or "").split()).strip()
+                if not key:
+                    continue
+                if raw_value is None:
+                    continue
+                value = " ".join(str(raw_value).split()).strip()
+                if value == "":
+                    continue
+                cleaned[key] = value
+        self.data = cleaned
+        self.notes = " ".join((self.notes or "").split()).strip()
+        if not self.caterer_id and self.estimate_id:
+            self.caterer_id = self.estimate.caterer_id
+        super().save(*args, **kwargs)
+
+
+class PlannerFieldMemory(models.Model):
+    caterer = models.ForeignKey(
+        CatererAccount,
+        on_delete=models.CASCADE,
+        related_name="planner_field_memory",
+    )
+    section = models.CharField(
+        max_length=30,
+        choices=PLANNER_SECTION_CHOICES,
+        default="DECOR",
+    )
+    group_code = models.CharField(max_length=80, blank=True)
+    item_code = models.CharField(max_length=80, blank=True)
+    field_code = models.CharField(max_length=120)
+    value = models.CharField(max_length=255)
+    value_key = models.CharField(max_length=255, db_index=True)
+    usage_count = models.PositiveIntegerField(default=1)
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_used_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["section", "group_code", "item_code", "field_code", "value"]
+        unique_together = (
+            "caterer",
+            "section",
+            "group_code",
+            "item_code",
+            "field_code",
+            "value_key",
+        )
+        verbose_name = "Planner field memory"
+        verbose_name_plural = "Planner field memory"
+
+    def __str__(self):
+        return f"{self.caterer.name} / {self.section} / {self.field_code}: {self.value}"
+
+    def save(self, *args, **kwargs):
+        self.group_code = _normalize_planner_code(self.group_code or "")
+        self.item_code = _normalize_planner_code(self.item_code or "")
+        self.field_code = _normalize_planner_code(self.field_code or "")
+        self.value = " ".join((self.value or "").split()).strip()
+        self.value_key = (self.value or "").lower()
+        if self.usage_count < 1:
+            self.usage_count = 1
         super().save(*args, **kwargs)
 
 

@@ -139,6 +139,73 @@ type ShoppingCatalogCategory = {
   items: ShoppingCatalogItem[];
 };
 
+type PlannerSectionCode =
+  | 'DECOR'
+  | 'RENTALS'
+  | 'ORDERS'
+  | 'SPECIAL_REQUESTS'
+  | 'PRINTING'
+  | 'STAFFING';
+
+type PlannerEntryRow = {
+  id: number;
+  estimate_id: number;
+  section: PlannerSectionCode;
+  section_label: string;
+  group_code: string;
+  group_label: string;
+  item_code: string;
+  item_label: string;
+  data: Record<string, string>;
+  data_rows: Array<{ field_code: string; field_label: string; value: string }>;
+  notes: string;
+  is_checked: boolean;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+};
+
+type PlannerMemoryBucket = {
+  section: PlannerSectionCode;
+  group_code: string;
+  item_code: string;
+  field_code: string;
+  values: string[];
+};
+
+type PlannerFieldConfig = {
+  code: string;
+  label: string;
+  placeholder?: string;
+  keyboardType?: 'default' | 'decimal-pad';
+  multiline?: boolean;
+};
+
+type PlannerItemOption = {
+  code: string;
+  label: string;
+};
+
+type PlannerGroupConfig = {
+  code: string;
+  label: string;
+  fields: PlannerFieldConfig[];
+  itemOptions?: PlannerItemOption[];
+};
+
+type PlannerSectionConfig = {
+  code: PlannerSectionCode;
+  label: string;
+  icon: string;
+  groups: PlannerGroupConfig[];
+};
+
+type PlannerCustomField = {
+  id: string;
+  label: string;
+  value: string;
+};
+
 type ApiRequestError = Error & {
   status?: number;
 };
@@ -149,6 +216,208 @@ const DEFAULT_BASE_URL = 'https://www.caterbasepro.com';
 const SHEKEL_SYMBOL = '₪';
 const DEFAULT_SHOPPING_UNIT_OPTIONS = ['Kg', 'Pieces', 'Cans'];
 const NUMERIC_INPUT_ACCESSORY_ID = 'xpenz-numeric-accessory';
+const PLANNER_SECTION_CHOICES: PlannerSectionConfig[] = [
+  {
+    code: 'DECOR',
+    label: 'Decor',
+    icon: '🎀',
+    groups: [
+      {
+        code: 'table_cloths',
+        label: 'Table Cloths',
+        fields: [
+          { code: 'color', label: 'Color', placeholder: 'Color' },
+          { code: 'fabric', label: 'Fabric', placeholder: 'Fabric' },
+          { code: 'qty', label: 'Qty', keyboardType: 'decimal-pad', placeholder: 'Qty' },
+        ],
+      },
+      {
+        code: 'chad_paami',
+        label: 'Chad Paami',
+        fields: [
+          { code: 'color', label: 'Color', placeholder: 'Color' },
+          { code: 'style', label: 'Style', placeholder: 'Style' },
+        ],
+      },
+      {
+        code: 'centerpieces',
+        label: 'Centerpieces',
+        itemOptions: [
+          { code: 'floral', label: 'Floral' },
+          { code: 'balloon', label: 'Balloon' },
+          { code: 'lanterns', label: 'Lanterns' },
+        ],
+        fields: [
+          { code: 'colors', label: 'Colors', placeholder: 'Colors' },
+          { code: 'style', label: 'Style', placeholder: 'Style' },
+          { code: 'price_per_table', label: 'Price per table', keyboardType: 'decimal-pad', placeholder: '0.00' },
+        ],
+      },
+      {
+        code: 'features',
+        label: 'Features',
+        itemOptions: [
+          { code: 'balloon_feature', label: 'Balloon Feature' },
+          { code: 'floral_feature', label: 'Floral Feature' },
+          { code: 'other', label: 'Other' },
+        ],
+        fields: [
+          { code: 'type', label: 'Type', placeholder: 'Type' },
+          { code: 'price', label: 'Price', keyboardType: 'decimal-pad', placeholder: '0.00' },
+        ],
+      },
+    ],
+  },
+  {
+    code: 'RENTALS',
+    label: 'Rentals',
+    icon: '🪑',
+    groups: [
+      {
+        code: 'furniture',
+        label: 'Furniture',
+        itemOptions: [
+          { code: 'tables', label: 'Tables' },
+          { code: 'chairs', label: 'Chairs' },
+          { code: 'bars', label: 'Bars' },
+          { code: 'couches', label: 'Couches' },
+        ],
+        fields: [
+          { code: 'shape', label: 'Shape', placeholder: 'Shape' },
+          { code: 'seat_qty', label: 'Seat Qty', keyboardType: 'decimal-pad', placeholder: 'Seat Qty' },
+          { code: 'table_qty', label: 'Table Qty', keyboardType: 'decimal-pad', placeholder: 'Table Qty' },
+          { code: 'type', label: 'Type', placeholder: 'Type' },
+          { code: 'color', label: 'Color', placeholder: 'Color' },
+          { code: 'size', label: 'Size', placeholder: 'Size' },
+          { code: 'qty', label: 'Qty', keyboardType: 'decimal-pad', placeholder: 'Qty' },
+        ],
+      },
+      {
+        code: 'addon_features',
+        label: 'Addon Features',
+        itemOptions: [
+          { code: 'chocolate_fountain_rental', label: 'Chocolate Fountain Rental' },
+          { code: 'projector_screen_speaker_rental', label: 'Projector + Screen + Speaker Rental' },
+        ],
+        fields: [
+          { code: 'qty', label: 'Qty', keyboardType: 'decimal-pad', placeholder: 'Qty' },
+          { code: 'notes', label: 'Notes', placeholder: 'Notes', multiline: true },
+        ],
+      },
+    ],
+  },
+  {
+    code: 'ORDERS',
+    label: 'Orders',
+    icon: '📦',
+    groups: [
+      {
+        code: 'bread_order',
+        label: 'Bread Order',
+        fields: [
+          { code: 'qty', label: 'Qty', keyboardType: 'decimal-pad', placeholder: 'Qty' },
+          { code: 'supplier', label: 'Supplier', placeholder: 'Supplier' },
+          { code: 'notes', label: 'Notes', placeholder: 'Notes', multiline: true },
+        ],
+      },
+      {
+        code: 'dishes_order',
+        label: 'Dishes Order',
+        fields: [
+          { code: 'qty', label: 'Qty', keyboardType: 'decimal-pad', placeholder: 'Qty' },
+          { code: 'supplier', label: 'Supplier', placeholder: 'Supplier' },
+          { code: 'notes', label: 'Notes', placeholder: 'Notes', multiline: true },
+        ],
+      },
+      {
+        code: 'tablecloth_order',
+        label: 'Tablecloth Order',
+        fields: [
+          { code: 'qty', label: 'Qty', keyboardType: 'decimal-pad', placeholder: 'Qty' },
+          { code: 'supplier', label: 'Supplier', placeholder: 'Supplier' },
+          { code: 'notes', label: 'Notes', placeholder: 'Notes', multiline: true },
+        ],
+      },
+    ],
+  },
+  {
+    code: 'SPECIAL_REQUESTS',
+    label: 'Special Requests',
+    icon: '📝',
+    groups: [
+      {
+        code: 'special_requests',
+        label: 'Special Requests',
+        fields: [{ code: 'notes', label: 'Notes', placeholder: 'Notes', multiline: true }],
+      },
+    ],
+  },
+  {
+    code: 'PRINTING',
+    label: 'Printing',
+    icon: '🖨️',
+    groups: [
+      {
+        code: 'sign',
+        label: 'Sign',
+        fields: [
+          { code: 'type', label: 'Type', placeholder: 'Type' },
+          { code: 'size', label: 'Size', placeholder: 'Size' },
+          { code: 'qty', label: 'Qty', keyboardType: 'decimal-pad', placeholder: 'Qty' },
+        ],
+      },
+      {
+        code: 'invitations',
+        label: 'Invitations',
+        fields: [
+          { code: 'type', label: 'Type', placeholder: 'Type' },
+          { code: 'qty', label: 'Qty', keyboardType: 'decimal-pad', placeholder: 'Qty' },
+        ],
+      },
+      {
+        code: 'placecards',
+        label: 'Placecards',
+        fields: [
+          { code: 'type', label: 'Type', placeholder: 'Type' },
+          { code: 'qty', label: 'Qty', keyboardType: 'decimal-pad', placeholder: 'Qty' },
+        ],
+      },
+      {
+        code: 'menus',
+        label: 'Menus',
+        fields: [
+          { code: 'type', label: 'Type', placeholder: 'Type' },
+          { code: 'qty', label: 'Qty', keyboardType: 'decimal-pad', placeholder: 'Qty' },
+        ],
+      },
+      {
+        code: 'signing_boards',
+        label: 'Signing Boards',
+        fields: [
+          { code: 'type', label: 'Type', placeholder: 'Type' },
+          { code: 'size', label: 'Size', placeholder: 'Size' },
+          { code: 'qty', label: 'Qty', keyboardType: 'decimal-pad', placeholder: 'Qty' },
+        ],
+      },
+    ],
+  },
+  {
+    code: 'STAFFING',
+    label: 'Staffing',
+    icon: '👥',
+    groups: [
+      {
+        code: 'staffing',
+        label: 'Staffing',
+        fields: [
+          { code: 'qty_staff_needed', label: 'Qty Of Staff Needed', keyboardType: 'decimal-pad', placeholder: 'Qty' },
+          { code: 'who_hired', label: 'Who has been hired', placeholder: 'Names of hired staff' },
+          { code: 'notes', label: 'Notes', placeholder: 'Notes', multiline: true },
+        ],
+      },
+    ],
+  },
+];
 
 function normalizeBaseUrl(value: string) {
   return value.trim().replace(/\/+$/, '');
@@ -198,6 +467,24 @@ function mergeOptionValues(...groups: Array<Array<string> | undefined>) {
   return merged;
 }
 
+function plannerConfigForSection(section: PlannerSectionCode | null) {
+  if (!section) return null;
+  return PLANNER_SECTION_CHOICES.find((row) => row.code === section) || null;
+}
+
+function plannerGroupConfig(section: PlannerSectionCode | null, groupCode: string) {
+  const sectionConfig = plannerConfigForSection(section);
+  if (!sectionConfig) return null;
+  return sectionConfig.groups.find((group) => group.code === groupCode) || null;
+}
+
+function plannerItemLabel(section: PlannerSectionCode | null, groupCode: string, itemCode: string) {
+  const group = plannerGroupConfig(section, groupCode);
+  if (!group || !itemCode) return '';
+  const match = group.itemOptions?.find((option) => option.code === itemCode);
+  return match ? match.label : itemCode.replace(/[_-]+/g, ' ');
+}
+
 export default function App() {
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const recorderState = useAudioRecorderState(recorder, 300);
@@ -213,7 +500,7 @@ export default function App() {
   const [password, setPassword] = useState('');
 
   const [token, setToken] = useState('');
-  const [mainTab, setMainTab] = useState<'jobs' | 'shopping'>('jobs');
+  const [mainTab, setMainTab] = useState<'jobs' | 'shopping' | 'planner'>('jobs');
   const [estimates, setEstimates] = useState<EstimateRow[]>([]);
   const [selectedEstimate, setSelectedEstimate] = useState<EstimateRow | null>(null);
   const [selectedJobTab, setSelectedJobTab] = useState<'expenses' | 'staff'>('expenses');
@@ -250,6 +537,21 @@ export default function App() {
   const [catalogItemQuantity, setCatalogItemQuantity] = useState('');
   const [catalogItemUnit, setCatalogItemUnit] = useState('');
   const [openCatalogCategory, setOpenCatalogCategory] = useState<string | null>(null);
+  const [selectedPlannerEstimate, setSelectedPlannerEstimate] = useState<EstimateRow | null>(null);
+  const [plannerSection, setPlannerSection] = useState<PlannerSectionCode | null>(null);
+  const [plannerEntries, setPlannerEntries] = useState<PlannerEntryRow[]>([]);
+  const [plannerMemory, setPlannerMemory] = useState<PlannerMemoryBucket[]>([]);
+  const [loadingPlanner, setLoadingPlanner] = useState(false);
+  const [savingPlanner, setSavingPlanner] = useState(false);
+  const [plannerSearchText, setPlannerSearchText] = useState('');
+  const [plannerEditorVisible, setPlannerEditorVisible] = useState(false);
+  const [plannerEditingEntryId, setPlannerEditingEntryId] = useState<number | null>(null);
+  const [plannerEditorGroupCode, setPlannerEditorGroupCode] = useState('');
+  const [plannerEditorItemCode, setPlannerEditorItemCode] = useState('');
+  const [plannerEditorValues, setPlannerEditorValues] = useState<Record<string, string>>({});
+  const [plannerEditorNotes, setPlannerEditorNotes] = useState('');
+  const [plannerEditorChecked, setPlannerEditorChecked] = useState(false);
+  const [plannerCustomFields, setPlannerCustomFields] = useState<PlannerCustomField[]>([]);
 
   const [drafts, setDrafts] = useState<ExpenseDraft[]>([]);
   const [activeRecordingDraftId, setActiveRecordingDraftId] = useState<string | null>(null);
@@ -441,6 +743,25 @@ export default function App() {
     [authFetchJson],
   );
 
+  const loadPlannerData = useCallback(
+    async (estimateId: number, overrideToken?: string, overrideBaseUrl?: string) => {
+      setLoadingPlanner(true);
+      try {
+        const payload = await authFetchJson(
+          `/api/xpenz/estimates/${estimateId}/planner/`,
+          { method: 'GET' },
+          overrideToken,
+          overrideBaseUrl,
+        );
+        setPlannerEntries(Array.isArray(payload.entries) ? payload.entries : []);
+        setPlannerMemory(Array.isArray(payload.memory) ? payload.memory : []);
+      } finally {
+        setLoadingPlanner(false);
+      }
+    },
+    [authFetchJson],
+  );
+
   const catererChoices = useMemo(() => {
     const map = new Map<number, string>();
     for (const estimate of estimates) {
@@ -499,6 +820,37 @@ export default function App() {
       ),
     [catalogItemUnit, selectedCatalogItem],
   );
+
+  const plannerMemoryMap = useMemo(() => {
+    const map = new Map<string, string[]>();
+    for (const bucket of plannerMemory) {
+      const exact = `${bucket.section}|${bucket.group_code || ''}|${bucket.item_code || ''}|${bucket.field_code || ''}`;
+      map.set(exact, bucket.values || []);
+    }
+    return map;
+  }, [plannerMemory]);
+
+  const plannerEntriesForSection = useMemo(() => {
+    if (!plannerSection) return [];
+    const search = plannerSearchText.trim().toLowerCase();
+    return plannerEntries.filter((entry) => {
+      if (entry.section !== plannerSection) {
+        return false;
+      }
+      if (!search) {
+        return true;
+      }
+      const haystack = [
+        entry.group_label,
+        entry.item_label,
+        entry.notes,
+        ...Object.values(entry.data || {}),
+      ]
+        .join(' ')
+        .toLowerCase();
+      return haystack.includes(search);
+    });
+  }, [plannerEntries, plannerSearchText, plannerSection]);
 
   useEffect(() => {
     const itemNameKey = newShoppingItemName.trim().toLowerCase();
@@ -698,6 +1050,19 @@ export default function App() {
       setCatalogItemQuantity('');
       setCatalogItemUnit('');
       setOpenCatalogCategory(null);
+      setSelectedPlannerEstimate(null);
+      setPlannerSection(null);
+      setPlannerEntries([]);
+      setPlannerMemory([]);
+      setPlannerSearchText('');
+      setPlannerEditorVisible(false);
+      setPlannerEditingEntryId(null);
+      setPlannerEditorGroupCode('');
+      setPlannerEditorItemCode('');
+      setPlannerEditorValues({});
+      setPlannerEditorNotes('');
+      setPlannerEditorChecked(false);
+      setPlannerCustomFields([]);
       setDrafts([]);
     }
   }, []);
@@ -1000,6 +1365,261 @@ export default function App() {
     token,
   ]);
 
+  const plannerSuggestionsForField = useCallback(
+    (
+      section: PlannerSectionCode,
+      groupCode: string,
+      itemCode: string,
+      fieldCode: string,
+      currentValue = '',
+    ) => {
+      const exactKey = `${section}|${groupCode || ''}|${itemCode || ''}|${fieldCode}`;
+      const groupKey = `${section}|${groupCode || ''}||${fieldCode}`;
+      const sectionKey = `${section}|||${fieldCode}`;
+      return mergeOptionValues(
+        plannerMemoryMap.get(exactKey),
+        plannerMemoryMap.get(groupKey),
+        plannerMemoryMap.get(sectionKey),
+        [currentValue],
+      );
+    },
+    [plannerMemoryMap],
+  );
+
+  const closePlannerEditor = useCallback(() => {
+    setPlannerEditorVisible(false);
+    setPlannerEditingEntryId(null);
+    setPlannerEditorGroupCode('');
+    setPlannerEditorItemCode('');
+    setPlannerEditorValues({});
+    setPlannerEditorNotes('');
+    setPlannerEditorChecked(false);
+    setPlannerCustomFields([]);
+  }, []);
+
+  const openPlannerEditor = useCallback(
+    (entry?: PlannerEntryRow) => {
+      const activeSection = (entry?.section || plannerSection) as PlannerSectionCode | null;
+      if (!activeSection) {
+        return;
+      }
+      const sectionConfig = plannerConfigForSection(activeSection);
+      if (!sectionConfig) {
+        return;
+      }
+      const nextGroupCode = entry?.group_code || sectionConfig.groups[0]?.code || '';
+      const groupConfig = plannerGroupConfig(activeSection, nextGroupCode);
+      const nextItemCode =
+        entry?.item_code || groupConfig?.itemOptions?.[0]?.code || '';
+      const rawValues = (entry?.data || {}) as Record<string, string>;
+      const presetFieldCodes = new Set((groupConfig?.fields || []).map((field) => field.code));
+      const presetValues: Record<string, string> = {};
+      for (const field of groupConfig?.fields || []) {
+        presetValues[field.code] = rawValues[field.code] || '';
+      }
+      const customRows: PlannerCustomField[] = [];
+      for (const [key, value] of Object.entries(rawValues)) {
+        if (presetFieldCodes.has(key)) continue;
+        customRows.push({
+          id: localId(),
+          label: key,
+          value: value || '',
+        });
+      }
+      setPlannerEditingEntryId(entry?.id || null);
+      setPlannerEditorGroupCode(nextGroupCode);
+      setPlannerEditorItemCode(nextItemCode);
+      setPlannerEditorValues(presetValues);
+      setPlannerEditorNotes(entry?.notes || '');
+      setPlannerEditorChecked(entry?.is_checked || false);
+      setPlannerCustomFields(customRows);
+      setPlannerEditorVisible(true);
+    },
+    [plannerSection],
+  );
+
+  const handleSelectPlannerEstimate = useCallback(
+    async (estimate: EstimateRow) => {
+      setSelectedPlannerEstimate(estimate);
+      setPlannerSection(null);
+      setPlannerSearchText('');
+      try {
+        await loadPlannerData(estimate.id);
+      } catch (error) {
+        Alert.alert(
+          'Load error',
+          error instanceof Error ? error.message : 'Unable to load planner board.',
+        );
+      }
+    },
+    [loadPlannerData],
+  );
+
+  const savePlannerEntry = useCallback(async () => {
+    if (!selectedPlannerEstimate || !plannerSection || !token || !plannerEditorGroupCode) {
+      return;
+    }
+    const groupConfig = plannerGroupConfig(plannerSection, plannerEditorGroupCode);
+    const payloadData: Record<string, string> = {};
+    for (const field of groupConfig?.fields || []) {
+      const value = (plannerEditorValues[field.code] || '').trim();
+      if (!value) continue;
+      payloadData[field.code] = value;
+    }
+    for (const row of plannerCustomFields) {
+      const key = row.label.trim();
+      const value = row.value.trim();
+      if (!key || !value) continue;
+      payloadData[key] = value;
+    }
+
+    setSavingPlanner(true);
+    try {
+      const response = await fetch(
+        apiUrl(apiBaseUrl, `/api/xpenz/estimates/${selectedPlannerEstimate.id}/planner/`),
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            action: 'upsert',
+            entry_id: plannerEditingEntryId || undefined,
+            section: plannerSection,
+            group_code: plannerEditorGroupCode,
+            item_code: plannerEditorItemCode,
+            data: payloadData,
+            notes: plannerEditorNotes.trim(),
+            is_checked: plannerEditorChecked,
+            sort_order: plannerEditingEntryId ? undefined : plannerEntriesForSection.length,
+          }),
+        },
+      );
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || payload.ok === false) {
+        throw new Error(payload.error || 'Unable to save planner item.');
+      }
+      await loadPlannerData(selectedPlannerEstimate.id);
+      closePlannerEditor();
+    } catch (error) {
+      Alert.alert('Save failed', error instanceof Error ? error.message : 'Unable to save planner item.');
+    } finally {
+      setSavingPlanner(false);
+    }
+  }, [
+    apiBaseUrl,
+    closePlannerEditor,
+    loadPlannerData,
+    plannerCustomFields,
+    plannerEditorChecked,
+    plannerEditingEntryId,
+    plannerEditorGroupCode,
+    plannerEditorItemCode,
+    plannerEditorNotes,
+    plannerEditorValues,
+    plannerEntriesForSection.length,
+    plannerSection,
+    selectedPlannerEstimate,
+    token,
+  ]);
+
+  const deletePlannerEntry = useCallback(
+    async (entry: PlannerEntryRow) => {
+      if (!selectedPlannerEstimate || !token) {
+        return;
+      }
+      Alert.alert(
+        'Delete planner item?',
+        'This row will be removed from the planning checklist.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Delete',
+            style: 'destructive',
+            onPress: async () => {
+              setSavingPlanner(true);
+              try {
+                const response = await fetch(
+                  apiUrl(apiBaseUrl, `/api/xpenz/estimates/${selectedPlannerEstimate.id}/planner/`),
+                  {
+                    method: 'POST',
+                    headers: {
+                      Authorization: `Bearer ${token}`,
+                      'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                      action: 'delete',
+                      entry_id: entry.id,
+                    }),
+                  },
+                );
+                const payload = await response.json().catch(() => ({}));
+                if (!response.ok || payload.ok === false) {
+                  throw new Error(payload.error || 'Unable to delete planner item.');
+                }
+                await loadPlannerData(selectedPlannerEstimate.id);
+              } catch (error) {
+                Alert.alert(
+                  'Delete failed',
+                  error instanceof Error ? error.message : 'Unable to delete planner item.',
+                );
+              } finally {
+                setSavingPlanner(false);
+              }
+            },
+          },
+        ],
+      );
+    },
+    [apiBaseUrl, loadPlannerData, selectedPlannerEstimate, token],
+  );
+
+  const togglePlannerChecked = useCallback(
+    async (entry: PlannerEntryRow) => {
+      if (!selectedPlannerEstimate || !token) {
+        return;
+      }
+      setSavingPlanner(true);
+      try {
+        const response = await fetch(
+          apiUrl(apiBaseUrl, `/api/xpenz/estimates/${selectedPlannerEstimate.id}/planner/`),
+          {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${token}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              action: 'upsert',
+              entry_id: entry.id,
+              section: entry.section,
+              group_code: entry.group_code,
+              item_code: entry.item_code,
+              data: entry.data || {},
+              notes: entry.notes || '',
+              is_checked: !entry.is_checked,
+              sort_order: entry.sort_order || 0,
+            }),
+          },
+        );
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok || payload.ok === false) {
+          throw new Error(payload.error || 'Unable to update checklist item.');
+        }
+        await loadPlannerData(selectedPlannerEstimate.id);
+      } catch (error) {
+        Alert.alert(
+          'Update failed',
+          error instanceof Error ? error.message : 'Unable to update checklist item.',
+        );
+      } finally {
+        setSavingPlanner(false);
+      }
+    },
+    [apiBaseUrl, loadPlannerData, selectedPlannerEstimate, token],
+  );
+
   const addManualDraft = useCallback(() => {
     setDrafts((prev) => [
       {
@@ -1296,6 +1916,34 @@ export default function App() {
     return 0;
   }, [recorderState.durationMillis, recordingStartedAt]);
 
+  const activePlannerSectionConfig = useMemo(
+    () => plannerConfigForSection(plannerSection),
+    [plannerSection],
+  );
+
+  const activePlannerEditorGroup = useMemo(
+    () => plannerGroupConfig(plannerSection, plannerEditorGroupCode),
+    [plannerSection, plannerEditorGroupCode],
+  );
+
+  const plannerProgressBySection = useMemo(() => {
+    const counters = new Map<PlannerSectionCode, { total: number; completed: number }>();
+    for (const section of PLANNER_SECTION_CHOICES) {
+      counters.set(section.code, { total: 0, completed: 0 });
+    }
+    for (const entry of plannerEntries) {
+      const bucket = counters.get(entry.section);
+      if (!bucket) {
+        continue;
+      }
+      bucket.total += 1;
+      if (entry.is_checked) {
+        bucket.completed += 1;
+      }
+    }
+    return counters;
+  }, [plannerEntries]);
+
   if (booting) {
     return (
       <SafeAreaView style={styles.screenCenter}>
@@ -1371,9 +2019,15 @@ export default function App() {
           <Text style={styles.sectionTitle}>
             {mainTab === 'jobs'
               ? 'Select Job'
-              : selectedShoppingList
-                ? selectedShoppingList.title
-                : 'Shopping Lists'}
+              : mainTab === 'shopping'
+                ? selectedShoppingList
+                  ? selectedShoppingList.title
+                  : 'Shopping Lists'
+                : selectedPlannerEstimate
+                  ? plannerSection
+                    ? activePlannerSectionConfig?.label || 'Planner'
+                    : `${selectedPlannerEstimate.job_name} Planner`
+                  : 'Planner Jobs'}
           </Text>
           <View style={styles.inlineActions}>
             <Pressable
@@ -1383,13 +2037,21 @@ export default function App() {
                   loadEstimates();
                   return;
                 }
-                if (selectedShoppingList) {
+                if (mainTab === 'shopping' && selectedShoppingList) {
                   Promise.all([
                     loadShoppingListDetail(selectedShoppingList.id),
                     loadShoppingCatalog(),
                   ]);
-                } else {
+                  return;
+                }
+                if (mainTab === 'shopping') {
                   Promise.all([loadShoppingLists(), loadShoppingCatalog()]);
+                  return;
+                }
+                if (selectedPlannerEstimate) {
+                  loadPlannerData(selectedPlannerEstimate.id);
+                } else {
+                  loadEstimates();
                 }
               }}
             >
@@ -1414,6 +2076,14 @@ export default function App() {
           >
             <Text style={[styles.topTabLabel, mainTab === 'shopping' && styles.topTabLabelActive]}>
               Shopping
+            </Text>
+          </Pressable>
+          <Pressable
+            style={[styles.topTabButton, mainTab === 'planner' && styles.topTabButtonActive]}
+            onPress={() => setMainTab('planner')}
+          >
+            <Text style={[styles.topTabLabel, mainTab === 'planner' && styles.topTabLabelActive]}>
+              Planner
             </Text>
           </Pressable>
         </View>
@@ -1445,7 +2115,7 @@ export default function App() {
               {!estimates.length && <Text style={styles.subtleText}>No estimates found for this account.</Text>}
             </ScrollView>
           )
-        ) : (
+        ) : mainTab === 'shopping' ? (
           selectedShoppingList ? (
             <ScrollView
               contentContainerStyle={styles.contentWrap}
@@ -1794,6 +2464,197 @@ export default function App() {
               </View>
             </ScrollView>
           )
+        ) : (
+          !selectedPlannerEstimate ? (
+            loadingJobs ? (
+              <View style={styles.screenCenter}>
+                <ActivityIndicator size="large" color="#0f766e" />
+              </View>
+            ) : (
+              <ScrollView contentContainerStyle={styles.jobsListWrap}>
+                {estimates.map((estimate) => (
+                  <Pressable
+                    key={estimate.id}
+                    style={styles.jobCard}
+                    onPress={() => handleSelectPlannerEstimate(estimate)}
+                  >
+                    <Text style={styles.jobTitle}>{estimate.job_name}</Text>
+                    <Text style={styles.subtleText}>
+                      #{estimate.estimate_number ?? 'N/A'} • {formatDate(estimate.event_date)}
+                    </Text>
+                    <Text style={styles.subtleText}>{estimate.caterer_name}</Text>
+                  </Pressable>
+                ))}
+                {!estimates.length ? (
+                  <Text style={styles.subtleText}>No estimates found for this account.</Text>
+                ) : null}
+              </ScrollView>
+            )
+          ) : !plannerSection ? (
+            <ScrollView contentContainerStyle={styles.contentWrap}>
+              <View style={styles.sectionCard}>
+                <View style={styles.listHeaderTopRow}>
+                  <Text style={styles.sectionTitle}>{selectedPlannerEstimate.job_name}</Text>
+                  <Pressable
+                    style={styles.smallButton}
+                    onPress={() => {
+                      setSelectedPlannerEstimate(null);
+                      setPlannerSection(null);
+                      setPlannerSearchText('');
+                      closePlannerEditor();
+                    }}
+                  >
+                    <Text style={styles.smallButtonText}>Back to Jobs</Text>
+                  </Pressable>
+                </View>
+                <Text style={styles.subtleText}>
+                  {selectedPlannerEstimate.customer_name} • {formatDate(selectedPlannerEstimate.event_date)}
+                </Text>
+                <Text style={styles.subtleText}>
+                  Pick a planning area. Each entry is saved to this estimate checklist and planning PDF.
+                </Text>
+                {loadingPlanner ? <ActivityIndicator color="#0f766e" /> : null}
+              </View>
+
+              <View style={styles.plannerGrid}>
+                {PLANNER_SECTION_CHOICES.map((section) => {
+                  const stats = plannerProgressBySection.get(section.code);
+                  const total = stats?.total || 0;
+                  const completed = stats?.completed || 0;
+                  return (
+                    <Pressable
+                      key={section.code}
+                      style={styles.plannerIconCard}
+                      onPress={() => {
+                        setPlannerSection(section.code);
+                        setPlannerSearchText('');
+                      }}
+                    >
+                      <Text style={styles.plannerIconEmoji}>{section.icon}</Text>
+                      <Text style={styles.plannerIconLabel}>{section.label}</Text>
+                      <Text style={styles.plannerIconMeta}>
+                        {completed}/{total} checked
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </ScrollView>
+          ) : (
+            <ScrollView
+              contentContainerStyle={styles.contentWrap}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="on-drag"
+            >
+              <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+                <View style={styles.contentTapDismissArea}>
+                  <View style={styles.sectionCard}>
+                    <View style={styles.listHeaderTopRow}>
+                      <Text style={styles.sectionTitle}>
+                        {activePlannerSectionConfig?.icon} {activePlannerSectionConfig?.label || 'Planner'}
+                      </Text>
+                      <View style={styles.inlineActions}>
+                        <Pressable style={styles.smallButton} onPress={() => setPlannerSection(null)}>
+                          <Text style={styles.smallButtonText}>Board</Text>
+                        </Pressable>
+                        <Pressable style={styles.smallAccentButton} onPress={() => openPlannerEditor()}>
+                          <Text style={styles.smallAccentButtonText}>+ Add Item</Text>
+                        </Pressable>
+                      </View>
+                    </View>
+                    <TextInput
+                      style={styles.input}
+                      value={plannerSearchText}
+                      onChangeText={setPlannerSearchText}
+                      placeholder="Search planner items..."
+                    />
+                    <Text style={styles.subtleText}>
+                      Checklist view for {selectedPlannerEstimate.job_name}. Mark done or edit entries anytime.
+                    </Text>
+                  </View>
+
+                  <View style={styles.sectionCard}>
+                    <View style={styles.headerRow}>
+                      <Text style={styles.sectionTitle}>Checklist</Text>
+                      <Text style={styles.subtleText}>
+                        {plannerEntriesForSection.filter((row) => row.is_checked).length}/
+                        {plannerEntriesForSection.length} done
+                      </Text>
+                    </View>
+                    {loadingPlanner ? (
+                      <ActivityIndicator color="#0f766e" />
+                    ) : (
+                      <View style={styles.savedList}>
+                        {plannerEntriesForSection.map((entry) => (
+                          <View
+                            key={entry.id}
+                            style={[
+                              styles.plannerEntryCard,
+                              entry.is_checked && styles.plannerEntryCardChecked,
+                            ]}
+                          >
+                            <View style={styles.plannerEntryHeader}>
+                              <Pressable
+                                style={[
+                                  styles.plannerCheckCircle,
+                                  entry.is_checked && styles.plannerCheckCircleChecked,
+                                ]}
+                                onPress={() => togglePlannerChecked(entry)}
+                              >
+                                <Text
+                                  style={[
+                                    styles.plannerCheckCircleText,
+                                    entry.is_checked && styles.plannerCheckCircleTextChecked,
+                                  ]}
+                                >
+                                  {entry.is_checked ? '✓' : ''}
+                                </Text>
+                              </Pressable>
+                              <View style={styles.plannerEntryTitleWrap}>
+                                <Text style={styles.savedTitle}>
+                                  {entry.group_label}
+                                  {entry.item_label ? ` • ${entry.item_label}` : ''}
+                                </Text>
+                                <Text style={styles.subtleText}>
+                                  {entry.is_checked ? 'Checked' : 'Pending'}
+                                </Text>
+                              </View>
+                            </View>
+                            <View style={styles.plannerEntryDataList}>
+                              {entry.data_rows.map((row) => (
+                                <Text key={`${entry.id}-${row.field_code}`} style={styles.subtleText}>
+                                  {row.field_label}: {row.value}
+                                </Text>
+                              ))}
+                              {entry.notes ? (
+                                <Text style={styles.subtleText}>Notes: {entry.notes}</Text>
+                              ) : null}
+                            </View>
+                            <View style={styles.inlineActions}>
+                              <Pressable style={styles.smallButton} onPress={() => openPlannerEditor(entry)}>
+                                <Text style={styles.smallButtonText}>Edit</Text>
+                              </Pressable>
+                              <Pressable
+                                style={styles.smallDangerButton}
+                                onPress={() => deletePlannerEntry(entry)}
+                              >
+                                <Text style={styles.smallDangerButtonText}>Delete</Text>
+                              </Pressable>
+                            </View>
+                          </View>
+                        ))}
+                        {!plannerEntriesForSection.length ? (
+                          <Text style={styles.subtleText}>
+                            No checklist items in this section yet. Tap "Add Item" to begin.
+                          </Text>
+                        ) : null}
+                      </View>
+                    )}
+                  </View>
+                </View>
+              </TouchableWithoutFeedback>
+            </ScrollView>
+          )
         )}
 
         <Modal
@@ -1953,6 +2814,237 @@ export default function App() {
                   <Text style={styles.smallButtonText}>Cancel</Text>
                 </Pressable>
               </View>
+              </View>
+            </TouchableWithoutFeedback>
+          </View>
+        </Modal>
+        <Modal
+          visible={plannerEditorVisible}
+          transparent
+          animationType="slide"
+          onRequestClose={closePlannerEditor}
+        >
+          <View style={styles.modalBackdrop}>
+            <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+              <View style={styles.modalCard}>
+                <Text style={styles.sectionTitle}>
+                  {plannerEditingEntryId ? 'Edit Planner Item' : 'Add Planner Item'}
+                </Text>
+                <Text style={styles.subtleText}>
+                  Add details here to keep this estimate planning board and PDF checklist up to date.
+                </Text>
+
+                {activePlannerSectionConfig ? (
+                  <>
+                    <Text style={styles.labelInline}>Group</Text>
+                    <View style={styles.catalogItemWrap}>
+                      {activePlannerSectionConfig.groups.map((group) => {
+                        const selected = group.code === plannerEditorGroupCode;
+                        return (
+                          <Pressable
+                            key={group.code}
+                            style={[styles.catalogTypePill, selected && styles.selectedPill]}
+                            onPress={() => {
+                              const nextValues: Record<string, string> = {};
+                              for (const field of group.fields) {
+                                nextValues[field.code] = '';
+                              }
+                              setPlannerEditorGroupCode(group.code);
+                              setPlannerEditorItemCode(group.itemOptions?.[0]?.code || '');
+                              setPlannerEditorValues(nextValues);
+                              setPlannerCustomFields([]);
+                            }}
+                          >
+                            <Text
+                              style={[
+                                styles.catalogTypePillText,
+                                selected && styles.selectedPillText,
+                              ]}
+                            >
+                              {group.label}
+                            </Text>
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+
+                    {activePlannerEditorGroup?.itemOptions?.length ? (
+                      <>
+                        <Text style={styles.labelInline}>Option</Text>
+                        <View style={styles.catalogItemWrap}>
+                          {activePlannerEditorGroup.itemOptions.map((option) => {
+                            const selected = option.code === plannerEditorItemCode;
+                            return (
+                              <Pressable
+                                key={option.code}
+                                style={[styles.catalogTypePill, selected && styles.selectedPill]}
+                                onPress={() => setPlannerEditorItemCode(option.code)}
+                              >
+                                <Text
+                                  style={[
+                                    styles.catalogTypePillText,
+                                    selected && styles.selectedPillText,
+                                  ]}
+                                >
+                                  {option.label}
+                                </Text>
+                              </Pressable>
+                            );
+                          })}
+                        </View>
+                      </>
+                    ) : null}
+
+                    {(activePlannerEditorGroup?.fields || []).map((field) => {
+                      const value = plannerEditorValues[field.code] || '';
+                      const suggestions =
+                        plannerSection && plannerEditorGroupCode
+                          ? plannerSuggestionsForField(
+                              plannerSection,
+                              plannerEditorGroupCode,
+                              plannerEditorItemCode,
+                              field.code,
+                              value,
+                            ).slice(0, 8)
+                          : [];
+                      return (
+                        <View key={`${plannerEditorGroupCode}-${field.code}`} style={styles.plannerFieldBlock}>
+                          <Text style={styles.labelInline}>{field.label}</Text>
+                          <TextInput
+                            style={[styles.input, field.multiline ? styles.noteInput : null]}
+                            value={value}
+                            onChangeText={(nextValue) =>
+                              setPlannerEditorValues((prev) => ({ ...prev, [field.code]: nextValue }))
+                            }
+                            placeholder={field.placeholder || field.label}
+                            multiline={!!field.multiline}
+                            keyboardType={field.keyboardType || 'default'}
+                            inputAccessoryViewID={
+                              field.keyboardType === 'decimal-pad' && Platform.OS === 'ios'
+                                ? NUMERIC_INPUT_ACCESSORY_ID
+                                : undefined
+                            }
+                          />
+                          {suggestions.length ? (
+                            <View style={styles.catalogItemWrap}>
+                              {suggestions.map((suggestion) => (
+                                <Pressable
+                                  key={`${plannerEditorGroupCode}-${field.code}-${suggestion}`}
+                                  style={styles.catalogTypePill}
+                                  onPress={() =>
+                                    setPlannerEditorValues((prev) => ({
+                                      ...prev,
+                                      [field.code]: suggestion,
+                                    }))
+                                  }
+                                >
+                                  <Text style={styles.catalogTypePillText}>{suggestion}</Text>
+                                </Pressable>
+                              ))}
+                            </View>
+                          ) : null}
+                        </View>
+                      );
+                    })}
+
+                    <Text style={styles.labelInline}>Notes</Text>
+                    <TextInput
+                      style={[styles.input, styles.noteInput]}
+                      value={plannerEditorNotes}
+                      onChangeText={setPlannerEditorNotes}
+                      multiline
+                      placeholder="Notes (optional)"
+                    />
+
+                    <View style={styles.inlineActions}>
+                      <Pressable
+                        style={[styles.smallButton, plannerEditorChecked && styles.selectedPill]}
+                        onPress={() => setPlannerEditorChecked((prev) => !prev)}
+                      >
+                        <Text
+                          style={[
+                            styles.smallButtonText,
+                            plannerEditorChecked && styles.selectedPillText,
+                          ]}
+                        >
+                          {plannerEditorChecked ? 'Checked' : 'Mark as checked'}
+                        </Text>
+                      </Pressable>
+                    </View>
+
+                    <View style={styles.savedList}>
+                      <View style={styles.headerRow}>
+                        <Text style={styles.savedTitle}>Custom Fields</Text>
+                        <Pressable
+                          style={styles.smallButton}
+                          onPress={() =>
+                            setPlannerCustomFields((prev) => [
+                              ...prev,
+                              { id: localId(), label: '', value: '' },
+                            ])
+                          }
+                        >
+                          <Text style={styles.smallButtonText}>+ Add Field</Text>
+                        </Pressable>
+                      </View>
+                      {plannerCustomFields.map((row) => (
+                        <View key={row.id} style={styles.plannerCustomFieldRow}>
+                          <TextInput
+                            style={[styles.input, styles.plannerCustomFieldName]}
+                            value={row.label}
+                            onChangeText={(nextValue) =>
+                              setPlannerCustomFields((prev) =>
+                                prev.map((entry) =>
+                                  entry.id === row.id ? { ...entry, label: nextValue } : entry,
+                                ),
+                              )
+                            }
+                            placeholder="Field name"
+                          />
+                          <TextInput
+                            style={[styles.input, styles.plannerCustomFieldValue]}
+                            value={row.value}
+                            onChangeText={(nextValue) =>
+                              setPlannerCustomFields((prev) =>
+                                prev.map((entry) =>
+                                  entry.id === row.id ? { ...entry, value: nextValue } : entry,
+                                ),
+                              )
+                            }
+                            placeholder="Value"
+                          />
+                          <Pressable
+                            style={styles.smallDangerButton}
+                            onPress={() =>
+                              setPlannerCustomFields((prev) =>
+                                prev.filter((entry) => entry.id !== row.id),
+                              )
+                            }
+                          >
+                            <Text style={styles.smallDangerButtonText}>X</Text>
+                          </Pressable>
+                        </View>
+                      ))}
+                    </View>
+
+                    <View style={styles.inlineActions}>
+                      <Pressable
+                        style={[styles.primaryButton, savingPlanner && styles.buttonDisabled]}
+                        onPress={savePlannerEntry}
+                        disabled={savingPlanner}
+                      >
+                        {savingPlanner ? (
+                          <ActivityIndicator color="#ffffff" />
+                        ) : (
+                          <Text style={styles.primaryButtonText}>Save Item</Text>
+                        )}
+                      </Pressable>
+                      <Pressable style={styles.smallButton} onPress={closePlannerEditor}>
+                        <Text style={styles.smallButtonText}>Cancel</Text>
+                      </Pressable>
+                    </View>
+                  </>
+                ) : null}
               </View>
             </TouchableWithoutFeedback>
           </View>
@@ -2532,6 +3624,98 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
     color: '#0f172a',
+  },
+  plannerGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  plannerIconCard: {
+    width: '48%',
+    minHeight: 132,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#d1d5db',
+    backgroundColor: '#ffffff',
+    padding: 12,
+    gap: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  plannerIconEmoji: {
+    fontSize: 32,
+  },
+  plannerIconLabel: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#0f172a',
+    textAlign: 'center',
+  },
+  plannerIconMeta: {
+    fontSize: 12,
+    color: '#475569',
+    textAlign: 'center',
+  },
+  plannerEntryCard: {
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#d1d5db',
+    backgroundColor: '#ffffff',
+    padding: 10,
+    gap: 8,
+  },
+  plannerEntryCardChecked: {
+    borderColor: '#99f6e4',
+    backgroundColor: '#f0fdfa',
+  },
+  plannerEntryHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  plannerCheckCircle: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    borderWidth: 1,
+    borderColor: '#94a3b8',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#ffffff',
+  },
+  plannerCheckCircleChecked: {
+    backgroundColor: '#0f766e',
+    borderColor: '#0f766e',
+  },
+  plannerCheckCircleText: {
+    color: '#94a3b8',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  plannerCheckCircleTextChecked: {
+    color: '#ffffff',
+  },
+  plannerEntryTitleWrap: {
+    flex: 1,
+    gap: 2,
+  },
+  plannerEntryDataList: {
+    gap: 4,
+    paddingLeft: 4,
+  },
+  plannerFieldBlock: {
+    gap: 6,
+  },
+  plannerCustomFieldRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  plannerCustomFieldName: {
+    flex: 0.9,
+  },
+  plannerCustomFieldValue: {
+    flex: 1.1,
   },
   recordingBar: {
     borderRadius: 12,

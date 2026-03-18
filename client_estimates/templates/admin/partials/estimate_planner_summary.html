@@ -1,0 +1,50 @@
+<div class="expense-info-panel">
+    <h2>Planner Board Summary</h2>
+    <p class="help">
+        This section mirrors the mobile Planner tab and is printed in the planning checklist PDF.
+    </p>
+    <p style="margin:10px 0 14px;">
+        <a class="button" href="{{ planner_print_url }}" target="_blank" rel="noopener">Open Planning PDF</a>
+        <a class="button" href="{{ planner_print_url }}?print=1" target="_blank" rel="noopener">Print Planning PDF</a>
+    </p>
+
+    {% if planner_sections %}
+        <div class="expense-entry-list">
+            {% for section in planner_sections %}
+                <article class="expense-entry">
+                    <h4>{{ section.label }}</h4>
+                    <table style="width:100%; border-collapse:collapse; margin-top:6px;">
+                        <thead>
+                            <tr>
+                                <th style="text-align:left; border-bottom:1px solid #d4d4d8; padding:6px;">Done</th>
+                                <th style="text-align:left; border-bottom:1px solid #d4d4d8; padding:6px;">Category</th>
+                                <th style="text-align:left; border-bottom:1px solid #d4d4d8; padding:6px;">Details</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for item in section.items %}
+                                <tr>
+                                    <td style="padding:6px; width:70px;">{% if item.is_checked %}✓{% else %}☐{% endif %}</td>
+                                    <td style="padding:6px; width:220px;">
+                                        <strong>{{ item.group_label }}</strong>
+                                        {% if item.item_label %}<br><small>{{ item.item_label }}</small>{% endif %}
+                                    </td>
+                                    <td style="padding:6px;">
+                                        {% for row in item.data_rows %}
+                                            <div><strong>{{ row.field_label }}:</strong> {{ row.value }}</div>
+                                        {% endfor %}
+                                        {% if item.notes %}
+                                            <div><strong>Notes:</strong> {{ item.notes }}</div>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </article>
+            {% endfor %}
+        </div>
+    {% else %}
+        <p>No planner entries saved yet. Add entries from the mobile Planner tab and refresh this page.</p>
+    {% endif %}
+</div>
