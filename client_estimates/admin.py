@@ -121,6 +121,36 @@ PLANNER_FIELD_LABELS = {
     "notes": "Notes",
     "supplier": "Supplier",
 }
+PLANNER_REQUIRED_GROUPS = {
+    "DECOR": [
+        ("table_cloths", "Table Cloths"),
+        ("chad_paami", "Chad Paami"),
+        ("centerpieces", "Centerpieces"),
+        ("features", "Features"),
+    ],
+    "RENTALS": [
+        ("furniture", "Furniture"),
+        ("addon_features", "Addon Features"),
+    ],
+    "ORDERS": [
+        ("bread_order", "Bread Order"),
+        ("dishes_order", "Dishes Order"),
+        ("tablecloth_order", "Tablecloth Order"),
+    ],
+    "PRINTING": [
+        ("sign", "Sign"),
+        ("invitations", "Invitations"),
+        ("placecards", "Placecards"),
+        ("menus", "Menus"),
+        ("signing_boards", "Signing Boards"),
+    ],
+    "STAFFING": [
+        ("staffing", "Staffing"),
+    ],
+    "SPECIAL_REQUESTS": [
+        ("special_requests", "Special Requests"),
+    ],
+}
 
 
 def _humanize_planner_code(value):
@@ -1629,6 +1659,35 @@ class EstimateAdmin(admin.ModelAdmin):
         sections.sort(key=lambda row: section_order.get(row["code"], 999))
         return sections
 
+    def _planner_missing_groups_for_estimate(self, estimate):
+        existing_pairs = set(
+            estimate.planner_entries.values_list("section", "group_code")
+        )
+        missing_sections = []
+        for section_code, section_label in PLANNER_SECTION_CHOICES:
+            required_groups = PLANNER_REQUIRED_GROUPS.get(section_code, [])
+            missing = []
+            for group_code, fallback_label in required_groups:
+                if (section_code, group_code) in existing_pairs:
+                    continue
+                missing.append(
+                    {
+                        "group_code": group_code,
+                        "group_label": PLANNER_GROUP_LABELS.get(
+                            (section_code, group_code), fallback_label
+                        ),
+                    }
+                )
+            if missing:
+                missing_sections.append(
+                    {
+                        "code": section_code,
+                        "label": section_label,
+                        "items": missing,
+                    }
+                )
+        return missing_sections
+
     def print_planner(self, request, estimate_id):
         estimate = self._get_estimate(estimate_id)
         if not request.user.is_superuser and estimate.caterer.owner != request.user:
@@ -2281,6 +2340,7 @@ class EstimateAdmin(admin.ModelAdmin):
         staff_entries_manage_url = ""
         planner_sections = []
         planner_print_url = ""
+        planner_missing_groups = []
         if obj and obj.pk:
             expense_entries = list(
                 obj.expense_entries.select_related("created_by").order_by("-created_at")
@@ -2294,6 +2354,7 @@ class EstimateAdmin(admin.ModelAdmin):
                 + f"?estimate__id__exact={obj.pk}&applied_to_expenses__exact=0"
             )
             planner_sections = self._planner_sections_for_estimate(obj)
+            planner_missing_groups = self._planner_missing_groups_for_estimate(obj)
             planner_print_url = self._admin_reverse("planner_print", args=[obj.pk])
         context = {
             **self.admin_site.each_context(request),
@@ -2315,6 +2376,7 @@ class EstimateAdmin(admin.ModelAdmin):
             "expense_delete_url_name": f"admin:{self._admin_url_name('expense_delete')}",
             "staff_entries_manage_url": staff_entries_manage_url,
             "planner_sections": planner_sections,
+            "planner_missing_groups": planner_missing_groups,
             "planner_print_url": planner_print_url,
         }
 

@@ -206,6 +206,15 @@ type PlannerCustomField = {
   value: string;
 };
 
+type PlannerChecklistCard = {
+  groupCode: string;
+  label: string;
+  icon: string;
+  isAdded: boolean;
+  summaryLines: string[];
+  entries: PlannerEntryRow[];
+};
+
 type ApiRequestError = Error & {
   status?: number;
 };
@@ -418,6 +427,25 @@ const PLANNER_SECTION_CHOICES: PlannerSectionConfig[] = [
     ],
   },
 ];
+
+const PLANNER_GROUP_ICON_MAP: Record<string, string> = {
+  'DECOR|table_cloths': '🧺',
+  'DECOR|chad_paami': '🍽️',
+  'DECOR|centerpieces': '💐',
+  'DECOR|features': '✨',
+  'RENTALS|furniture': '🪑',
+  'RENTALS|addon_features': '🎛️',
+  'ORDERS|bread_order': '🥖',
+  'ORDERS|dishes_order': '🍽️',
+  'ORDERS|tablecloth_order': '🧵',
+  'PRINTING|sign': '🪧',
+  'PRINTING|invitations': '✉️',
+  'PRINTING|placecards': '🏷️',
+  'PRINTING|menus': '📋',
+  'PRINTING|signing_boards': '🖊️',
+  'STAFFING|staffing': '👥',
+  'SPECIAL_REQUESTS|special_requests': '📝',
+};
 
 function normalizeBaseUrl(value: string) {
   return value.trim().replace(/\/+$/, '');
@@ -832,25 +860,65 @@ export default function App() {
 
   const plannerEntriesForSection = useMemo(() => {
     if (!plannerSection) return [];
+    return plannerEntries.filter((entry) => entry.section === plannerSection);
+  }, [plannerEntries, plannerSection]);
+
+  const plannerChecklistCards = useMemo(() => {
+    if (!plannerSection) return [];
+    const sectionConfig = plannerConfigForSection(plannerSection);
+    if (!sectionConfig) return [];
+
+    const rowsByGroup = new Map<string, PlannerEntryRow[]>();
+    for (const entry of plannerEntriesForSection) {
+      if (!rowsByGroup.has(entry.group_code)) {
+        rowsByGroup.set(entry.group_code, []);
+      }
+      rowsByGroup.get(entry.group_code)?.push(entry);
+    }
+
+    const cards: PlannerChecklistCard[] = [];
+    for (const group of sectionConfig.groups) {
+      const groupEntries = rowsByGroup.get(group.code) || [];
+      const primary = groupEntries[0] || null;
+      const summaryLines: string[] = [];
+      if (primary?.data_rows?.length) {
+        for (const row of primary.data_rows.slice(0, 4)) {
+          summaryLines.push(`${row.field_label}: ${row.value}`);
+        }
+      }
+      if (primary?.notes) {
+        summaryLines.push(`Notes: ${primary.notes}`);
+      }
+      if (groupEntries.length > 1) {
+        summaryLines.unshift(`${groupEntries.length} entries saved`);
+      }
+      cards.push({
+        groupCode: group.code,
+        label: group.label,
+        icon: PLANNER_GROUP_ICON_MAP[`${plannerSection}|${group.code}`] || '•',
+        isAdded: groupEntries.length > 0,
+        summaryLines,
+        entries: groupEntries,
+      });
+    }
+    return cards;
+  }, [plannerEntriesForSection, plannerSection]);
+
+  const filteredPlannerChecklistCards = useMemo(() => {
     const search = plannerSearchText.trim().toLowerCase();
-    return plannerEntries.filter((entry) => {
-      if (entry.section !== plannerSection) {
-        return false;
-      }
-      if (!search) {
-        return true;
-      }
+    if (!search) {
+      return plannerChecklistCards;
+    }
+    return plannerChecklistCards.filter((card) => {
       const haystack = [
-        entry.group_label,
-        entry.item_label,
-        entry.notes,
-        ...Object.values(entry.data || {}),
+        card.label,
+        ...card.summaryLines,
       ]
         .join(' ')
         .toLowerCase();
       return haystack.includes(search);
     });
-  }, [plannerEntries, plannerSearchText, plannerSection]);
+  }, [plannerChecklistCards, plannerSearchText]);
 
   useEffect(() => {
     const itemNameKey = newShoppingItemName.trim().toLowerCase();
@@ -1398,7 +1466,7 @@ export default function App() {
   }, []);
 
   const openPlannerEditor = useCallback(
-    (entry?: PlannerEntryRow) => {
+    (entry?: PlannerEntryRow, preferredGroupCode?: string) => {
       const activeSection = (entry?.section || plannerSection) as PlannerSectionCode | null;
       if (!activeSection) {
         return;
@@ -1407,7 +1475,8 @@ export default function App() {
       if (!sectionConfig) {
         return;
       }
-      const nextGroupCode = entry?.group_code || sectionConfig.groups[0]?.code || '';
+      const nextGroupCode =
+        entry?.group_code || preferredGroupCode || sectionConfig.groups[0]?.code || '';
       const groupConfig = plannerGroupConfig(activeSection, nextGroupCode);
       const nextItemCode =
         entry?.item_code || groupConfig?.itemOptions?.[0]?.code || '';
@@ -1436,6 +1505,17 @@ export default function App() {
       setPlannerEditorVisible(true);
     },
     [plannerSection],
+  );
+
+  const openPlannerGroupCard = useCallback(
+    (groupCode: string, existingEntry?: PlannerEntryRow) => {
+      if (existingEntry) {
+        openPlannerEditor(existingEntry);
+        return;
+      }
+      openPlannerEditor(undefined, groupCode);
+    },
+    [openPlannerEditor],
   );
 
   const handleSelectPlannerEstimate = useCallback(
@@ -2577,75 +2657,100 @@ export default function App() {
                     <View style={styles.headerRow}>
                       <Text style={styles.sectionTitle}>Checklist</Text>
                       <Text style={styles.subtleText}>
-                        {plannerEntriesForSection.filter((row) => row.is_checked).length}/
-                        {plannerEntriesForSection.length} done
+                        {
+                          filteredPlannerChecklistCards.filter(
+                            (card) => card.isAdded && !!card.entries[0]?.is_checked,
+                          ).length
+                        }/
+                        {filteredPlannerChecklistCards.filter((card) => card.isAdded).length} done
                       </Text>
                     </View>
                     {loadingPlanner ? (
                       <ActivityIndicator color="#0f766e" />
                     ) : (
                       <View style={styles.savedList}>
-                        {plannerEntriesForSection.map((entry) => (
-                          <View
-                            key={entry.id}
-                            style={[
-                              styles.plannerEntryCard,
-                              entry.is_checked && styles.plannerEntryCardChecked,
-                            ]}
-                          >
-                            <View style={styles.plannerEntryHeader}>
-                              <Pressable
-                                style={[
-                                  styles.plannerCheckCircle,
-                                  entry.is_checked && styles.plannerCheckCircleChecked,
-                                ]}
-                                onPress={() => togglePlannerChecked(entry)}
-                              >
-                                <Text
-                                  style={[
-                                    styles.plannerCheckCircleText,
-                                    entry.is_checked && styles.plannerCheckCircleTextChecked,
-                                  ]}
-                                >
-                                  {entry.is_checked ? '✓' : ''}
-                                </Text>
-                              </Pressable>
-                              <View style={styles.plannerEntryTitleWrap}>
-                                <Text style={styles.savedTitle}>
-                                  {entry.group_label}
-                                  {entry.item_label ? ` • ${entry.item_label}` : ''}
-                                </Text>
-                                <Text style={styles.subtleText}>
-                                  {entry.is_checked ? 'Checked' : 'Pending'}
-                                </Text>
+                        {filteredPlannerChecklistCards.map((card) => {
+                          const primary = card.entries[0];
+                          return (
+                            <Pressable
+                              key={card.groupCode}
+                              style={[
+                                styles.plannerChecklistCard,
+                                !card.isAdded && styles.plannerChecklistCardPending,
+                                card.isAdded && primary?.is_checked && styles.plannerChecklistCardDone,
+                              ]}
+                              onPress={() => openPlannerGroupCard(card.groupCode, primary)}
+                            >
+                              <View style={styles.plannerChecklistMain}>
+                                <View style={styles.plannerChecklistBody}>
+                                  <Text style={styles.plannerChecklistTitle}>
+                                    {card.icon} {card.label}
+                                  </Text>
+                                  {!card.isAdded ? (
+                                    <Text style={styles.plannerChecklistMissingText}>Not added yet</Text>
+                                  ) : null}
+                                  {card.summaryLines.length ? (
+                                    <View style={styles.plannerChecklistSummary}>
+                                      {card.summaryLines.map((line, index) => (
+                                        <Text key={`${card.groupCode}-line-${index}`} style={styles.subtleText}>
+                                          {line}
+                                        </Text>
+                                      ))}
+                                    </View>
+                                  ) : (
+                                    <Text style={styles.plannerChecklistPlaceholder}>
+                                      Tap to add this checklist item.
+                                    </Text>
+                                  )}
+                                </View>
+                                {card.isAdded ? (
+                                  <Pressable
+                                    style={[
+                                      styles.plannerCheckCircle,
+                                      primary?.is_checked && styles.plannerCheckCircleChecked,
+                                    ]}
+                                    onPress={(event) => {
+                                      event.stopPropagation();
+                                      if (primary) {
+                                        togglePlannerChecked(primary);
+                                      }
+                                    }}
+                                  >
+                                    <Text
+                                      style={[
+                                        styles.plannerCheckCircleText,
+                                        primary?.is_checked && styles.plannerCheckCircleTextChecked,
+                                      ]}
+                                    >
+                                      {primary?.is_checked ? '✓' : ''}
+                                    </Text>
+                                  </Pressable>
+                                ) : null}
                               </View>
-                            </View>
-                            <View style={styles.plannerEntryDataList}>
-                              {entry.data_rows.map((row) => (
-                                <Text key={`${entry.id}-${row.field_code}`} style={styles.subtleText}>
-                                  {row.field_label}: {row.value}
-                                </Text>
-                              ))}
-                              {entry.notes ? (
-                                <Text style={styles.subtleText}>Notes: {entry.notes}</Text>
+                              {card.isAdded ? (
+                                <View style={styles.inlineActions}>
+                                  <Pressable
+                                    style={styles.smallButton}
+                                    onPress={() => openPlannerEditor(primary)}
+                                  >
+                                    <Text style={styles.smallButtonText}>Edit</Text>
+                                  </Pressable>
+                                  {primary ? (
+                                    <Pressable
+                                      style={styles.smallDangerButton}
+                                      onPress={() => deletePlannerEntry(primary)}
+                                    >
+                                      <Text style={styles.smallDangerButtonText}>Delete</Text>
+                                    </Pressable>
+                                  ) : null}
+                                </View>
                               ) : null}
-                            </View>
-                            <View style={styles.inlineActions}>
-                              <Pressable style={styles.smallButton} onPress={() => openPlannerEditor(entry)}>
-                                <Text style={styles.smallButtonText}>Edit</Text>
-                              </Pressable>
-                              <Pressable
-                                style={styles.smallDangerButton}
-                                onPress={() => deletePlannerEntry(entry)}
-                              >
-                                <Text style={styles.smallDangerButtonText}>Delete</Text>
-                              </Pressable>
-                            </View>
-                          </View>
-                        ))}
-                        {!plannerEntriesForSection.length ? (
+                            </Pressable>
+                          );
+                        })}
+                        {!filteredPlannerChecklistCards.length ? (
                           <Text style={styles.subtleText}>
-                            No checklist items in this section yet. Tap "Add Item" to begin.
+                            No checklist items matched your search.
                           </Text>
                         ) : null}
                       </View>
@@ -2820,65 +2925,54 @@ export default function App() {
         </Modal>
         <Modal
           visible={plannerEditorVisible}
-          transparent
           animationType="slide"
           onRequestClose={closePlannerEditor}
         >
-          <View style={styles.modalBackdrop}>
-            <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
-              <View style={styles.modalCard}>
-                <Text style={styles.sectionTitle}>
-                  {plannerEditingEntryId ? 'Edit Planner Item' : 'Add Planner Item'}
-                </Text>
-                <Text style={styles.subtleText}>
-                  Add details here to keep this estimate planning board and PDF checklist up to date.
-                </Text>
+          <SafeAreaView style={styles.plannerEditorSafeArea}>
+            <KeyboardAvoidingView
+              style={styles.flexOne}
+              behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+            >
+              <View style={styles.plannerEditorHeader}>
+                <View style={styles.flexOne}>
+                  <Text style={styles.sectionTitle}>
+                    {plannerEditingEntryId ? 'Edit Planner Item' : 'Add Planner Item'}
+                  </Text>
+                  <Text style={styles.subtleText}>Save returns you to the checklist screen.</Text>
+                </View>
+                <Pressable style={styles.smallButton} onPress={closePlannerEditor}>
+                  <Text style={styles.smallButtonText}>Back</Text>
+                </Pressable>
+              </View>
 
-                {activePlannerSectionConfig ? (
-                  <>
-                    <Text style={styles.labelInline}>Group</Text>
-                    <View style={styles.catalogItemWrap}>
-                      {activePlannerSectionConfig.groups.map((group) => {
-                        const selected = group.code === plannerEditorGroupCode;
-                        return (
-                          <Pressable
-                            key={group.code}
-                            style={[styles.catalogTypePill, selected && styles.selectedPill]}
-                            onPress={() => {
-                              const nextValues: Record<string, string> = {};
-                              for (const field of group.fields) {
-                                nextValues[field.code] = '';
-                              }
-                              setPlannerEditorGroupCode(group.code);
-                              setPlannerEditorItemCode(group.itemOptions?.[0]?.code || '');
-                              setPlannerEditorValues(nextValues);
-                              setPlannerCustomFields([]);
-                            }}
-                          >
-                            <Text
-                              style={[
-                                styles.catalogTypePillText,
-                                selected && styles.selectedPillText,
-                              ]}
-                            >
-                              {group.label}
-                            </Text>
-                          </Pressable>
-                        );
-                      })}
-                    </View>
-
-                    {activePlannerEditorGroup?.itemOptions?.length ? (
+              <ScrollView
+                style={styles.plannerEditorScroll}
+                contentContainerStyle={styles.plannerEditorScrollContent}
+                keyboardShouldPersistTaps="handled"
+                keyboardDismissMode="on-drag"
+              >
+                <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+                  <View style={styles.plannerEditorBody}>
+                    {activePlannerSectionConfig ? (
                       <>
-                        <Text style={styles.labelInline}>Option</Text>
+                        <Text style={styles.labelInline}>Group</Text>
                         <View style={styles.catalogItemWrap}>
-                          {activePlannerEditorGroup.itemOptions.map((option) => {
-                            const selected = option.code === plannerEditorItemCode;
+                          {activePlannerSectionConfig.groups.map((group) => {
+                            const selected = group.code === plannerEditorGroupCode;
                             return (
                               <Pressable
-                                key={option.code}
+                                key={group.code}
                                 style={[styles.catalogTypePill, selected && styles.selectedPill]}
-                                onPress={() => setPlannerEditorItemCode(option.code)}
+                                onPress={() => {
+                                  const nextValues: Record<string, string> = {};
+                                  for (const field of group.fields) {
+                                    nextValues[field.code] = '';
+                                  }
+                                  setPlannerEditorGroupCode(group.code);
+                                  setPlannerEditorItemCode(group.itemOptions?.[0]?.code || '');
+                                  setPlannerEditorValues(nextValues);
+                                  setPlannerCustomFields([]);
+                                }}
                               >
                                 <Text
                                   style={[
@@ -2886,168 +2980,195 @@ export default function App() {
                                     selected && styles.selectedPillText,
                                   ]}
                                 >
-                                  {option.label}
+                                  {group.label}
                                 </Text>
                               </Pressable>
                             );
                           })}
                         </View>
-                      </>
-                    ) : null}
 
-                    {(activePlannerEditorGroup?.fields || []).map((field) => {
-                      const value = plannerEditorValues[field.code] || '';
-                      const suggestions =
-                        plannerSection && plannerEditorGroupCode
-                          ? plannerSuggestionsForField(
-                              plannerSection,
-                              plannerEditorGroupCode,
-                              plannerEditorItemCode,
-                              field.code,
-                              value,
-                            ).slice(0, 8)
-                          : [];
-                      return (
-                        <View key={`${plannerEditorGroupCode}-${field.code}`} style={styles.plannerFieldBlock}>
-                          <Text style={styles.labelInline}>{field.label}</Text>
-                          <TextInput
-                            style={[styles.input, field.multiline ? styles.noteInput : null]}
-                            value={value}
-                            onChangeText={(nextValue) =>
-                              setPlannerEditorValues((prev) => ({ ...prev, [field.code]: nextValue }))
-                            }
-                            placeholder={field.placeholder || field.label}
-                            multiline={!!field.multiline}
-                            keyboardType={field.keyboardType || 'default'}
-                            inputAccessoryViewID={
-                              field.keyboardType === 'decimal-pad' && Platform.OS === 'ios'
-                                ? NUMERIC_INPUT_ACCESSORY_ID
-                                : undefined
-                            }
-                          />
-                          {suggestions.length ? (
+                        {activePlannerEditorGroup?.itemOptions?.length ? (
+                          <>
+                            <Text style={styles.labelInline}>Option</Text>
                             <View style={styles.catalogItemWrap}>
-                              {suggestions.map((suggestion) => (
-                                <Pressable
-                                  key={`${plannerEditorGroupCode}-${field.code}-${suggestion}`}
-                                  style={styles.catalogTypePill}
-                                  onPress={() =>
-                                    setPlannerEditorValues((prev) => ({
-                                      ...prev,
-                                      [field.code]: suggestion,
-                                    }))
-                                  }
-                                >
-                                  <Text style={styles.catalogTypePillText}>{suggestion}</Text>
-                                </Pressable>
-                              ))}
+                              {activePlannerEditorGroup.itemOptions.map((option) => {
+                                const selected = option.code === plannerEditorItemCode;
+                                return (
+                                  <Pressable
+                                    key={option.code}
+                                    style={[styles.catalogTypePill, selected && styles.selectedPill]}
+                                    onPress={() => setPlannerEditorItemCode(option.code)}
+                                  >
+                                    <Text
+                                      style={[
+                                        styles.catalogTypePillText,
+                                        selected && styles.selectedPillText,
+                                      ]}
+                                    >
+                                      {option.label}
+                                    </Text>
+                                  </Pressable>
+                                );
+                              })}
                             </View>
-                          ) : null}
-                        </View>
-                      );
-                    })}
+                          </>
+                        ) : null}
 
-                    <Text style={styles.labelInline}>Notes</Text>
-                    <TextInput
-                      style={[styles.input, styles.noteInput]}
-                      value={plannerEditorNotes}
-                      onChangeText={setPlannerEditorNotes}
-                      multiline
-                      placeholder="Notes (optional)"
-                    />
+                        {(activePlannerEditorGroup?.fields || []).map((field) => {
+                          const value = plannerEditorValues[field.code] || '';
+                          const suggestions =
+                            plannerSection && plannerEditorGroupCode
+                              ? plannerSuggestionsForField(
+                                  plannerSection,
+                                  plannerEditorGroupCode,
+                                  plannerEditorItemCode,
+                                  field.code,
+                                  value,
+                                ).slice(0, 8)
+                              : [];
+                          return (
+                            <View key={`${plannerEditorGroupCode}-${field.code}`} style={styles.plannerFieldBlock}>
+                              <Text style={styles.labelInline}>{field.label}</Text>
+                              <TextInput
+                                style={[styles.input, field.multiline ? styles.noteInput : null]}
+                                value={value}
+                                onChangeText={(nextValue) =>
+                                  setPlannerEditorValues((prev) => ({ ...prev, [field.code]: nextValue }))
+                                }
+                                placeholder={field.placeholder || field.label}
+                                multiline={!!field.multiline}
+                                keyboardType={field.keyboardType || 'default'}
+                                inputAccessoryViewID={
+                                  field.keyboardType === 'decimal-pad' && Platform.OS === 'ios'
+                                    ? NUMERIC_INPUT_ACCESSORY_ID
+                                    : undefined
+                                }
+                              />
+                              {suggestions.length ? (
+                                <View style={styles.catalogItemWrap}>
+                                  {suggestions.map((suggestion) => (
+                                    <Pressable
+                                      key={`${plannerEditorGroupCode}-${field.code}-${suggestion}`}
+                                      style={styles.catalogTypePill}
+                                      onPress={() =>
+                                        setPlannerEditorValues((prev) => ({
+                                          ...prev,
+                                          [field.code]: suggestion,
+                                        }))
+                                      }
+                                    >
+                                      <Text style={styles.catalogTypePillText}>{suggestion}</Text>
+                                    </Pressable>
+                                  ))}
+                                </View>
+                              ) : null}
+                            </View>
+                          );
+                        })}
 
-                    <View style={styles.inlineActions}>
-                      <Pressable
-                        style={[styles.smallButton, plannerEditorChecked && styles.selectedPill]}
-                        onPress={() => setPlannerEditorChecked((prev) => !prev)}
-                      >
-                        <Text
-                          style={[
-                            styles.smallButtonText,
-                            plannerEditorChecked && styles.selectedPillText,
-                          ]}
-                        >
-                          {plannerEditorChecked ? 'Checked' : 'Mark as checked'}
-                        </Text>
-                      </Pressable>
-                    </View>
+                        <Text style={styles.labelInline}>Notes</Text>
+                        <TextInput
+                          style={[styles.input, styles.noteInput]}
+                          value={plannerEditorNotes}
+                          onChangeText={setPlannerEditorNotes}
+                          multiline
+                          placeholder="Notes (optional)"
+                        />
 
-                    <View style={styles.savedList}>
-                      <View style={styles.headerRow}>
-                        <Text style={styles.savedTitle}>Custom Fields</Text>
-                        <Pressable
-                          style={styles.smallButton}
-                          onPress={() =>
-                            setPlannerCustomFields((prev) => [
-                              ...prev,
-                              { id: localId(), label: '', value: '' },
-                            ])
-                          }
-                        >
-                          <Text style={styles.smallButtonText}>+ Add Field</Text>
-                        </Pressable>
-                      </View>
-                      {plannerCustomFields.map((row) => (
-                        <View key={row.id} style={styles.plannerCustomFieldRow}>
-                          <TextInput
-                            style={[styles.input, styles.plannerCustomFieldName]}
-                            value={row.label}
-                            onChangeText={(nextValue) =>
-                              setPlannerCustomFields((prev) =>
-                                prev.map((entry) =>
-                                  entry.id === row.id ? { ...entry, label: nextValue } : entry,
-                                ),
-                              )
-                            }
-                            placeholder="Field name"
-                          />
-                          <TextInput
-                            style={[styles.input, styles.plannerCustomFieldValue]}
-                            value={row.value}
-                            onChangeText={(nextValue) =>
-                              setPlannerCustomFields((prev) =>
-                                prev.map((entry) =>
-                                  entry.id === row.id ? { ...entry, value: nextValue } : entry,
-                                ),
-                              )
-                            }
-                            placeholder="Value"
-                          />
+                        <View style={styles.inlineActions}>
                           <Pressable
-                            style={styles.smallDangerButton}
-                            onPress={() =>
-                              setPlannerCustomFields((prev) =>
-                                prev.filter((entry) => entry.id !== row.id),
-                              )
-                            }
+                            style={[styles.smallButton, plannerEditorChecked && styles.selectedPill]}
+                            onPress={() => setPlannerEditorChecked((prev) => !prev)}
                           >
-                            <Text style={styles.smallDangerButtonText}>X</Text>
+                            <Text
+                              style={[
+                                styles.smallButtonText,
+                                plannerEditorChecked && styles.selectedPillText,
+                              ]}
+                            >
+                              {plannerEditorChecked ? 'Checked' : 'Mark as checked'}
+                            </Text>
                           </Pressable>
                         </View>
-                      ))}
-                    </View>
 
-                    <View style={styles.inlineActions}>
-                      <Pressable
-                        style={[styles.primaryButton, savingPlanner && styles.buttonDisabled]}
-                        onPress={savePlannerEntry}
-                        disabled={savingPlanner}
-                      >
-                        {savingPlanner ? (
-                          <ActivityIndicator color="#ffffff" />
-                        ) : (
-                          <Text style={styles.primaryButtonText}>Save Item</Text>
-                        )}
-                      </Pressable>
-                      <Pressable style={styles.smallButton} onPress={closePlannerEditor}>
-                        <Text style={styles.smallButtonText}>Cancel</Text>
-                      </Pressable>
-                    </View>
-                  </>
-                ) : null}
+                        <View style={styles.savedList}>
+                          <View style={styles.headerRow}>
+                            <Text style={styles.savedTitle}>Custom Fields</Text>
+                            <Pressable
+                              style={styles.smallButton}
+                              onPress={() =>
+                                setPlannerCustomFields((prev) => [
+                                  ...prev,
+                                  { id: localId(), label: '', value: '' },
+                                ])
+                              }
+                            >
+                              <Text style={styles.smallButtonText}>+ Add Field</Text>
+                            </Pressable>
+                          </View>
+                          {plannerCustomFields.map((row) => (
+                            <View key={row.id} style={styles.plannerCustomFieldRow}>
+                              <TextInput
+                                style={[styles.input, styles.plannerCustomFieldName]}
+                                value={row.label}
+                                onChangeText={(nextValue) =>
+                                  setPlannerCustomFields((prev) =>
+                                    prev.map((entry) =>
+                                      entry.id === row.id ? { ...entry, label: nextValue } : entry,
+                                    ),
+                                  )
+                                }
+                                placeholder="Field name"
+                              />
+                              <TextInput
+                                style={[styles.input, styles.plannerCustomFieldValue]}
+                                value={row.value}
+                                onChangeText={(nextValue) =>
+                                  setPlannerCustomFields((prev) =>
+                                    prev.map((entry) =>
+                                      entry.id === row.id ? { ...entry, value: nextValue } : entry,
+                                    ),
+                                  )
+                                }
+                                placeholder="Value"
+                              />
+                              <Pressable
+                                style={styles.smallDangerButton}
+                                onPress={() =>
+                                  setPlannerCustomFields((prev) =>
+                                    prev.filter((entry) => entry.id !== row.id),
+                                  )
+                                }
+                              >
+                                <Text style={styles.smallDangerButtonText}>X</Text>
+                              </Pressable>
+                            </View>
+                          ))}
+                        </View>
+                      </>
+                    ) : null}
+                  </View>
+                </TouchableWithoutFeedback>
+              </ScrollView>
+
+              <View style={styles.plannerEditorFooter}>
+                <Pressable
+                  style={[styles.primaryButton, savingPlanner && styles.buttonDisabled]}
+                  onPress={savePlannerEntry}
+                  disabled={savingPlanner}
+                >
+                  {savingPlanner ? (
+                    <ActivityIndicator color="#ffffff" />
+                  ) : (
+                    <Text style={styles.primaryButtonText}>Save Item</Text>
+                  )}
+                </Pressable>
+                <Pressable style={styles.smallButton} onPress={closePlannerEditor}>
+                  <Text style={styles.smallButtonText}>Cancel</Text>
+                </Pressable>
               </View>
-            </TouchableWithoutFeedback>
-          </View>
+            </KeyboardAvoidingView>
+          </SafeAreaView>
         </Modal>
         {Platform.OS === 'ios' ? (
           <InputAccessoryView nativeID={NUMERIC_INPUT_ACCESSORY_ID}>
@@ -3656,6 +3777,49 @@ const styles = StyleSheet.create({
     color: '#475569',
     textAlign: 'center',
   },
+  plannerChecklistCard: {
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#d1d5db',
+    backgroundColor: '#ffffff',
+    padding: 12,
+    gap: 8,
+  },
+  plannerChecklistCardPending: {
+    backgroundColor: '#f1f5f9',
+    borderColor: '#cbd5e1',
+    opacity: 0.72,
+  },
+  plannerChecklistCardDone: {
+    borderColor: '#99f6e4',
+    backgroundColor: '#f0fdfa',
+  },
+  plannerChecklistMain: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+  },
+  plannerChecklistBody: {
+    flex: 1,
+    gap: 4,
+  },
+  plannerChecklistTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#0f172a',
+  },
+  plannerChecklistMissingText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#64748b',
+  },
+  plannerChecklistSummary: {
+    gap: 2,
+  },
+  plannerChecklistPlaceholder: {
+    color: '#64748b',
+    fontSize: 13,
+  },
   plannerEntryCard: {
     borderRadius: 12,
     borderWidth: 1,
@@ -3716,6 +3880,47 @@ const styles = StyleSheet.create({
   },
   plannerCustomFieldValue: {
     flex: 1.1,
+  },
+  plannerEditorSafeArea: {
+    flex: 1,
+    backgroundColor: '#eef3ef',
+  },
+  plannerEditorHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 10,
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#d1d5db',
+    backgroundColor: '#ffffff',
+  },
+  plannerEditorScroll: {
+    flex: 1,
+  },
+  plannerEditorScrollContent: {
+    padding: 16,
+    paddingBottom: 110,
+  },
+  plannerEditorBody: {
+    gap: 10,
+  },
+  plannerEditorFooter: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderTopWidth: 1,
+    borderTopColor: '#d1d5db',
+    backgroundColor: '#ffffff',
+    paddingHorizontal: 16,
+    paddingTop: 10,
+    paddingBottom: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
   },
   recordingBar: {
     borderRadius: 12,

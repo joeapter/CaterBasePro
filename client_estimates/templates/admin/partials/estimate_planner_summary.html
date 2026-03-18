@@ -47,4 +47,27 @@
     {% else %}
         <p>No planner entries saved yet. Add entries from the mobile Planner tab and refresh this page.</p>
     {% endif %}
+
+    {% if planner_missing_groups %}
+        <div class="expense-entry-list" style="margin-top:14px;">
+            <article class="expense-entry" style="background:#f8fafc;">
+                <h4>Not Added Yet (Screen Only)</h4>
+                <p class="expense-entry-meta">
+                    This list is shown here to guide data entry and is not included in the planning PDF printout.
+                </p>
+                {% for section in planner_missing_groups %}
+                    <div style="margin-bottom:10px;">
+                        <strong>{{ section.label }}</strong>
+                        <div style="margin-top:4px; color:#4b5563;">
+                            {% for item in section.items %}
+                                <span style="display:inline-block; margin:0 10px 6px 0; padding:4px 10px; border:1px solid #d1d5db; border-radius:999px; background:#fff;">
+                                    {{ item.group_label }}
+                                </span>
+                            {% endfor %}
+                        </div>
+                    </div>
+                {% endfor %}
+            </article>
+        </div>
+    {% endif %}
 </div>
