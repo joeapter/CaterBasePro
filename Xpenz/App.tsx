@@ -8,6 +8,18 @@ import {
   useAudioRecorder,
   useAudioRecorderState,
 } from 'expo-audio';
+import {
+  Armchair,
+  Circle,
+  ClipboardList,
+  FileText,
+  Package,
+  Palette,
+  Printer,
+  Sparkles,
+  Table,
+  Users,
+} from 'lucide-react-native';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
@@ -173,6 +185,22 @@ type PlannerMemoryBucket = {
   values: string[];
 };
 
+type PlannerCatalogItem = {
+  section: PlannerSectionCode;
+  group_code: string;
+  item_code: string;
+  item_label: string;
+  usage_count: number;
+};
+
+type PlannerIconOverride = {
+  section: PlannerSectionCode;
+  group_code: string;
+  item_code: string;
+  icon_key: string;
+  is_manual_override?: boolean;
+};
+
 type PlannerFieldConfig = {
   code: string;
   label: string;
@@ -184,6 +212,7 @@ type PlannerFieldConfig = {
 type PlannerItemOption = {
   code: string;
   label: string;
+  fields?: PlannerFieldConfig[];
 };
 
 type PlannerGroupConfig = {
@@ -191,6 +220,7 @@ type PlannerGroupConfig = {
   label: string;
   fields: PlannerFieldConfig[];
   itemOptions?: PlannerItemOption[];
+  showGroupCard?: boolean;
 };
 
 type PlannerSectionConfig = {
@@ -207,8 +237,11 @@ type PlannerCustomField = {
 };
 
 type PlannerChecklistCard = {
+  key: string;
   groupCode: string;
+  itemCode: string;
   label: string;
+  secondaryLabel?: string;
   icon: string;
   isAdded: boolean;
   summaryLines: string[];
@@ -229,7 +262,7 @@ const PLANNER_SECTION_CHOICES: PlannerSectionConfig[] = [
   {
     code: 'DECOR',
     label: 'Decor',
-    icon: '🎀',
+    icon: 'decor',
     groups: [
       {
         code: 'table_cloths',
@@ -280,26 +313,48 @@ const PLANNER_SECTION_CHOICES: PlannerSectionConfig[] = [
   {
     code: 'RENTALS',
     label: 'Rentals',
-    icon: '🪑',
+    icon: 'rentals',
     groups: [
       {
         code: 'furniture',
         label: 'Furniture',
         itemOptions: [
-          { code: 'tables', label: 'Tables' },
-          { code: 'chairs', label: 'Chairs' },
-          { code: 'bars', label: 'Bars' },
-          { code: 'couches', label: 'Couches' },
+          {
+            code: 'tables',
+            label: 'Tables',
+            fields: [
+              { code: 'shape', label: 'Shape', placeholder: 'Shape' },
+              { code: 'seat_qty', label: 'Seat Qty', keyboardType: 'decimal-pad', placeholder: 'Seat Qty' },
+              { code: 'table_qty', label: 'Table Qty', keyboardType: 'decimal-pad', placeholder: 'Table Qty' },
+            ],
+          },
+          {
+            code: 'chairs',
+            label: 'Chairs',
+            fields: [
+              { code: 'type', label: 'Type', placeholder: 'Type' },
+              { code: 'color', label: 'Color', placeholder: 'Color' },
+              { code: 'qty', label: 'Qty', keyboardType: 'decimal-pad', placeholder: 'Qty' },
+            ],
+          },
+          {
+            code: 'bars',
+            label: 'Bars',
+            fields: [
+              { code: 'type', label: 'Type', placeholder: 'Type' },
+              { code: 'qty', label: 'Qty', keyboardType: 'decimal-pad', placeholder: 'Qty' },
+            ],
+          },
+          {
+            code: 'couches',
+            label: 'Couches',
+            fields: [
+              { code: 'size', label: 'Size', placeholder: 'Size' },
+              { code: 'qty', label: 'Qty', keyboardType: 'decimal-pad', placeholder: 'Qty' },
+            ],
+          },
         ],
-        fields: [
-          { code: 'shape', label: 'Shape', placeholder: 'Shape' },
-          { code: 'seat_qty', label: 'Seat Qty', keyboardType: 'decimal-pad', placeholder: 'Seat Qty' },
-          { code: 'table_qty', label: 'Table Qty', keyboardType: 'decimal-pad', placeholder: 'Table Qty' },
-          { code: 'type', label: 'Type', placeholder: 'Type' },
-          { code: 'color', label: 'Color', placeholder: 'Color' },
-          { code: 'size', label: 'Size', placeholder: 'Size' },
-          { code: 'qty', label: 'Qty', keyboardType: 'decimal-pad', placeholder: 'Qty' },
-        ],
+        fields: [],
       },
       {
         code: 'addon_features',
@@ -318,7 +373,7 @@ const PLANNER_SECTION_CHOICES: PlannerSectionConfig[] = [
   {
     code: 'ORDERS',
     label: 'Orders',
-    icon: '📦',
+    icon: 'orders',
     groups: [
       {
         code: 'bread_order',
@@ -352,7 +407,7 @@ const PLANNER_SECTION_CHOICES: PlannerSectionConfig[] = [
   {
     code: 'SPECIAL_REQUESTS',
     label: 'Special Requests',
-    icon: '📝',
+    icon: 'special_requests',
     groups: [
       {
         code: 'special_requests',
@@ -364,7 +419,7 @@ const PLANNER_SECTION_CHOICES: PlannerSectionConfig[] = [
   {
     code: 'PRINTING',
     label: 'Printing',
-    icon: '🖨️',
+    icon: 'printing',
     groups: [
       {
         code: 'sign',
@@ -413,7 +468,7 @@ const PLANNER_SECTION_CHOICES: PlannerSectionConfig[] = [
   {
     code: 'STAFFING',
     label: 'Staffing',
-    icon: '👥',
+    icon: 'staffing',
     groups: [
       {
         code: 'staffing',
@@ -428,24 +483,104 @@ const PLANNER_SECTION_CHOICES: PlannerSectionConfig[] = [
   },
 ];
 
-const PLANNER_GROUP_ICON_MAP: Record<string, string> = {
-  'DECOR|table_cloths': '🧺',
-  'DECOR|chad_paami': '🍽️',
-  'DECOR|centerpieces': '💐',
-  'DECOR|features': '✨',
-  'RENTALS|furniture': '🪑',
-  'RENTALS|addon_features': '🎛️',
-  'ORDERS|bread_order': '🥖',
-  'ORDERS|dishes_order': '🍽️',
-  'ORDERS|tablecloth_order': '🧵',
-  'PRINTING|sign': '🪧',
-  'PRINTING|invitations': '✉️',
-  'PRINTING|placecards': '🏷️',
-  'PRINTING|menus': '📋',
-  'PRINTING|signing_boards': '🖊️',
-  'STAFFING|staffing': '👥',
-  'SPECIAL_REQUESTS|special_requests': '📝',
+const PLANNER_SECTION_ICON_MAP: Record<string, string> = {
+  decor: 'palette',
+  rentals: 'armchair',
+  orders: 'clipboard',
+  special_requests: 'file',
+  printing: 'printer',
+  staffing: 'users',
 };
+
+const PLANNER_ITEM_ICON_MAP: Record<string, string> = {
+  'DECOR|table_cloths|': 'table',
+  'DECOR|chad_paami|': 'package',
+  'DECOR|centerpieces|floral': 'sparkles',
+  'DECOR|centerpieces|balloon': 'sparkles',
+  'DECOR|centerpieces|lanterns': 'sparkles',
+  'DECOR|features|balloon_feature': 'sparkles',
+  'DECOR|features|floral_feature': 'sparkles',
+  'DECOR|features|other': 'sparkles',
+  'RENTALS|furniture|tables': 'table',
+  'RENTALS|furniture|chairs': 'armchair',
+  'RENTALS|furniture|bars': 'package',
+  'RENTALS|furniture|couches': 'armchair',
+  'RENTALS|addon_features|chocolate_fountain_rental': 'package',
+  'RENTALS|addon_features|projector_screen_speaker_rental': 'package',
+  'ORDERS|bread_order|': 'clipboard',
+  'ORDERS|dishes_order|': 'clipboard',
+  'ORDERS|tablecloth_order|': 'clipboard',
+  'PRINTING|sign|': 'printer',
+  'PRINTING|invitations|': 'printer',
+  'PRINTING|placecards|': 'printer',
+  'PRINTING|menus|': 'printer',
+  'PRINTING|signing_boards|': 'printer',
+  'STAFFING|staffing|': 'users',
+  'SPECIAL_REQUESTS|special_requests|': 'file',
+};
+
+function renderPlannerIcon(iconKey: string, size = 20, color = '#0f172a') {
+  switch (iconKey) {
+    case 'palette':
+      return <Palette size={size} color={color} strokeWidth={2.2} />;
+    case 'armchair':
+      return <Armchair size={size} color={color} strokeWidth={2.2} />;
+    case 'clipboard':
+      return <ClipboardList size={size} color={color} strokeWidth={2.2} />;
+    case 'printer':
+      return <Printer size={size} color={color} strokeWidth={2.2} />;
+    case 'users':
+      return <Users size={size} color={color} strokeWidth={2.2} />;
+    case 'file':
+      return <FileText size={size} color={color} strokeWidth={2.2} />;
+    case 'sparkles':
+      return <Sparkles size={size} color={color} strokeWidth={2.2} />;
+    case 'table':
+      return <Table size={size} color={color} strokeWidth={2.2} />;
+    case 'package':
+      return <Package size={size} color={color} strokeWidth={2.2} />;
+    default:
+      return <Circle size={size} color={color} strokeWidth={2.2} />;
+  }
+}
+
+function humanizePlannerCode(value: string) {
+  const raw = (value || '').trim().replace(/[_-]+/g, ' ');
+  if (!raw) return '';
+  return raw
+    .split(/\s+/)
+    .map((chunk) => chunk.charAt(0).toUpperCase() + chunk.slice(1))
+    .join(' ');
+}
+
+function normalizePlannerCode(value: string) {
+  return (value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+}
+
+const PLANNER_FIELD_TEMPLATE_MAP = (() => {
+  const map = new Map<string, PlannerFieldConfig>();
+  for (const section of PLANNER_SECTION_CHOICES) {
+    for (const group of section.groups) {
+      for (const field of group.fields || []) {
+        if (!map.has(field.code)) {
+          map.set(field.code, field);
+        }
+      }
+      for (const option of group.itemOptions || []) {
+        for (const field of option.fields || []) {
+          if (!map.has(field.code)) {
+            map.set(field.code, field);
+          }
+        }
+      }
+    }
+  }
+  return map;
+})();
 
 function normalizeBaseUrl(value: string) {
   return value.trim().replace(/\/+$/, '');
@@ -513,6 +648,22 @@ function plannerItemLabel(section: PlannerSectionCode | null, groupCode: string,
   return match ? match.label : itemCode.replace(/[_-]+/g, ' ');
 }
 
+function plannerFieldsForSelection(
+  section: PlannerSectionCode | null,
+  groupCode: string,
+  itemCode: string,
+) {
+  const group = plannerGroupConfig(section, groupCode);
+  if (!group) {
+    return [] as PlannerFieldConfig[];
+  }
+  const option = group.itemOptions?.find((row) => row.code === itemCode);
+  if (option?.fields?.length) {
+    return option.fields;
+  }
+  return group.fields || [];
+}
+
 export default function App() {
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const recorderState = useAudioRecorderState(recorder, 300);
@@ -569,6 +720,8 @@ export default function App() {
   const [plannerSection, setPlannerSection] = useState<PlannerSectionCode | null>(null);
   const [plannerEntries, setPlannerEntries] = useState<PlannerEntryRow[]>([]);
   const [plannerMemory, setPlannerMemory] = useState<PlannerMemoryBucket[]>([]);
+  const [plannerItemCatalog, setPlannerItemCatalog] = useState<PlannerCatalogItem[]>([]);
+  const [plannerIconOverrides, setPlannerIconOverrides] = useState<PlannerIconOverride[]>([]);
   const [loadingPlanner, setLoadingPlanner] = useState(false);
   const [savingPlanner, setSavingPlanner] = useState(false);
   const [plannerSearchText, setPlannerSearchText] = useState('');
@@ -580,6 +733,7 @@ export default function App() {
   const [plannerEditorNotes, setPlannerEditorNotes] = useState('');
   const [plannerEditorChecked, setPlannerEditorChecked] = useState(false);
   const [plannerCustomFields, setPlannerCustomFields] = useState<PlannerCustomField[]>([]);
+  const [plannerNewOptionName, setPlannerNewOptionName] = useState('');
 
   const [drafts, setDrafts] = useState<ExpenseDraft[]>([]);
   const [activeRecordingDraftId, setActiveRecordingDraftId] = useState<string | null>(null);
@@ -783,6 +937,8 @@ export default function App() {
         );
         setPlannerEntries(Array.isArray(payload.entries) ? payload.entries : []);
         setPlannerMemory(Array.isArray(payload.memory) ? payload.memory : []);
+        setPlannerItemCatalog(Array.isArray(payload.item_catalog) ? payload.item_catalog : []);
+        setPlannerIconOverrides(Array.isArray(payload.icon_overrides) ? payload.icon_overrides : []);
       } finally {
         setLoadingPlanner(false);
       }
@@ -858,6 +1014,171 @@ export default function App() {
     return map;
   }, [plannerMemory]);
 
+  const plannerIconOverrideMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const row of plannerIconOverrides) {
+      const section = row.section;
+      const groupCode = (row.group_code || '').trim();
+      const itemCode = (row.item_code || '').trim();
+      const iconKey = (row.icon_key || '').trim();
+      if (!section || !groupCode || !iconKey) {
+        continue;
+      }
+      map.set(`${section}|${groupCode}|${itemCode}`, iconKey);
+    }
+    return map;
+  }, [plannerIconOverrides]);
+
+  const plannerSectionChoices = useMemo(() => {
+    const fieldsByItem = new Map<string, Set<string>>();
+    const toFieldConfig = (fieldCode: string): PlannerFieldConfig => {
+      const template = PLANNER_FIELD_TEMPLATE_MAP.get(fieldCode);
+      if (template) {
+        return template;
+      }
+      const label = humanizePlannerCode(fieldCode);
+      return {
+        code: fieldCode,
+        label,
+        placeholder: label,
+      };
+    };
+    const mergeFieldConfigs = (
+      baseFields: PlannerFieldConfig[] | undefined,
+      extraCodes: string[],
+    ) => {
+      const mergedFields: PlannerFieldConfig[] = [...(baseFields || [])];
+      const seen = new Set(mergedFields.map((field) => field.code));
+      const sortedCodes = [...extraCodes].sort();
+      for (const fieldCode of sortedCodes) {
+        if (!fieldCode || seen.has(fieldCode)) {
+          continue;
+        }
+        seen.add(fieldCode);
+        mergedFields.push(toFieldConfig(fieldCode));
+      }
+      return mergedFields;
+    };
+
+    for (const bucket of plannerMemory) {
+      const section = bucket.section;
+      const groupCode = (bucket.group_code || '').trim();
+      const itemCode = (bucket.item_code || '').trim();
+      const fieldCode = (bucket.field_code || '').trim();
+      if (!section || !groupCode || !fieldCode) {
+        continue;
+      }
+      const key = `${section}|${groupCode}|${itemCode}`;
+      if (!fieldsByItem.has(key)) {
+        fieldsByItem.set(key, new Set<string>());
+      }
+      fieldsByItem.get(key)?.add(fieldCode);
+    }
+
+    const catalogByGroup = new Map<string, PlannerCatalogItem[]>();
+    for (const row of plannerItemCatalog) {
+      const section = row.section;
+      const groupCode = (row.group_code || '').trim();
+      const itemCode = (row.item_code || '').trim();
+      if (!section || !groupCode || !itemCode) {
+        continue;
+      }
+      const key = `${section}|${groupCode}`;
+      if (!catalogByGroup.has(key)) {
+        catalogByGroup.set(key, []);
+      }
+      catalogByGroup.get(key)?.push(row);
+    }
+
+    return PLANNER_SECTION_CHOICES.map((section) => {
+      const groups = section.groups.map((group) => {
+        const groupFields = mergeFieldConfigs(
+          group.fields,
+          Array.from(fieldsByItem.get(`${section.code}|${group.code}|`) || []),
+        );
+        const baseOptions = (group.itemOptions || []).map((option) => {
+          const optionFields = mergeFieldConfigs(
+            option.fields?.length ? option.fields : groupFields,
+            Array.from(fieldsByItem.get(`${section.code}|${group.code}|${option.code}`) || []),
+          );
+          return {
+            ...option,
+            fields: optionFields.length ? optionFields : undefined,
+          };
+        });
+        const seenCodes = new Set(baseOptions.map((option) => option.code));
+        const dynamicOptions: PlannerItemOption[] = [];
+        const rows = catalogByGroup.get(`${section.code}|${group.code}`) || [];
+        for (const row of rows) {
+          const itemCode = (row.item_code || '').trim();
+          if (!itemCode || seenCodes.has(itemCode)) {
+            continue;
+          }
+          seenCodes.add(itemCode);
+          const fields = mergeFieldConfigs(
+            groupFields,
+            Array.from(fieldsByItem.get(`${section.code}|${group.code}|${itemCode}`) || []),
+          );
+          dynamicOptions.push({
+            code: itemCode,
+            label: (row.item_label || '').trim() || humanizePlannerCode(itemCode),
+            fields: fields.length ? fields : undefined,
+          });
+        }
+        const mergedOptions = [...baseOptions, ...dynamicOptions];
+        if (!mergedOptions.length) {
+          return group;
+        }
+        return {
+          ...group,
+          fields: groupFields,
+          itemOptions: mergedOptions,
+          showGroupCard: !(group.itemOptions?.length),
+        };
+      });
+      return {
+        ...section,
+        groups,
+      };
+    });
+  }, [plannerItemCatalog, plannerMemory]);
+
+  const plannerConfigForActive = useCallback(
+    (section: PlannerSectionCode | null) => {
+      if (!section) return null;
+      return plannerSectionChoices.find((row) => row.code === section) || null;
+    },
+    [plannerSectionChoices],
+  );
+
+  const plannerGroupForActive = useCallback(
+    (section: PlannerSectionCode | null, groupCode: string) => {
+      const sectionConfig = plannerConfigForActive(section);
+      if (!sectionConfig) return null;
+      return sectionConfig.groups.find((group) => group.code === groupCode) || null;
+    },
+    [plannerConfigForActive],
+  );
+
+  const plannerFieldsForActive = useCallback(
+    (
+      section: PlannerSectionCode | null,
+      groupCode: string,
+      itemCode: string,
+    ) => {
+      const group = plannerGroupForActive(section, groupCode);
+      if (!group) {
+        return [] as PlannerFieldConfig[];
+      }
+      const option = group.itemOptions?.find((row) => row.code === itemCode);
+      if (option?.fields?.length) {
+        return option.fields;
+      }
+      return group.fields || [];
+    },
+    [plannerGroupForActive],
+  );
+
   const plannerEntriesForSection = useMemo(() => {
     if (!plannerSection) return [];
     return plannerEntries.filter((entry) => entry.section === plannerSection);
@@ -865,9 +1186,10 @@ export default function App() {
 
   const plannerChecklistCards = useMemo(() => {
     if (!plannerSection) return [];
-    const sectionConfig = plannerConfigForSection(plannerSection);
+    const sectionConfig = plannerConfigForActive(plannerSection);
     if (!sectionConfig) return [];
 
+    const cards: PlannerChecklistCard[] = [];
     const rowsByGroup = new Map<string, PlannerEntryRow[]>();
     for (const entry of plannerEntriesForSection) {
       if (!rowsByGroup.has(entry.group_code)) {
@@ -876,10 +1198,8 @@ export default function App() {
       rowsByGroup.get(entry.group_code)?.push(entry);
     }
 
-    const cards: PlannerChecklistCard[] = [];
-    for (const group of sectionConfig.groups) {
-      const groupEntries = rowsByGroup.get(group.code) || [];
-      const primary = groupEntries[0] || null;
+    const buildSummary = (entries: PlannerEntryRow[]) => {
+      const primary = entries[0] || null;
       const summaryLines: string[] = [];
       if (primary?.data_rows?.length) {
         for (const row of primary.data_rows.slice(0, 4)) {
@@ -889,20 +1209,73 @@ export default function App() {
       if (primary?.notes) {
         summaryLines.push(`Notes: ${primary.notes}`);
       }
-      if (groupEntries.length > 1) {
-        summaryLines.unshift(`${groupEntries.length} entries saved`);
+      if (entries.length > 1) {
+        summaryLines.unshift(`${entries.length} entries saved`);
       }
+      return summaryLines;
+    };
+
+    for (const group of sectionConfig.groups) {
+      const groupEntries = rowsByGroup.get(group.code) || [];
+      if (group.itemOptions?.length) {
+        const baseEntries = groupEntries.filter((entry) => !entry.item_code);
+        if (group.showGroupCard || baseEntries.length) {
+          cards.push({
+            key: `${group.code}::`,
+            groupCode: group.code,
+            itemCode: '',
+            label: group.label,
+            icon:
+              plannerIconOverrideMap.get(`${plannerSection}|${group.code}|`) ||
+              PLANNER_ITEM_ICON_MAP[`${plannerSection}|${group.code}|`] ||
+              'circle',
+            isAdded: baseEntries.length > 0,
+            summaryLines: buildSummary(baseEntries),
+            entries: baseEntries,
+          });
+        }
+        for (const option of group.itemOptions) {
+          const optionEntries = groupEntries.filter(
+            (entry) => (entry.item_code || '') === option.code,
+          );
+          cards.push({
+            key: `${group.code}::${option.code}`,
+            groupCode: group.code,
+            itemCode: option.code,
+            label: option.label,
+            secondaryLabel: group.label,
+            icon:
+              plannerIconOverrideMap.get(`${plannerSection}|${group.code}|${option.code}`) ||
+              plannerIconOverrideMap.get(`${plannerSection}|${group.code}|`) ||
+              PLANNER_ITEM_ICON_MAP[`${plannerSection}|${group.code}|${option.code}`] ||
+              PLANNER_ITEM_ICON_MAP[`${plannerSection}|${group.code}|`] ||
+              'circle',
+            isAdded: optionEntries.length > 0,
+            summaryLines: buildSummary(optionEntries),
+            entries: optionEntries,
+          });
+        }
+        continue;
+      }
+
+      const plainEntries = groupEntries.filter((entry) => !entry.item_code);
+      const entriesToUse = plainEntries.length ? plainEntries : groupEntries;
       cards.push({
+        key: `${group.code}::`,
         groupCode: group.code,
+        itemCode: '',
         label: group.label,
-        icon: PLANNER_GROUP_ICON_MAP[`${plannerSection}|${group.code}`] || '•',
-        isAdded: groupEntries.length > 0,
-        summaryLines,
-        entries: groupEntries,
+        icon:
+          plannerIconOverrideMap.get(`${plannerSection}|${group.code}|`) ||
+          PLANNER_ITEM_ICON_MAP[`${plannerSection}|${group.code}|`] ||
+          'circle',
+        isAdded: entriesToUse.length > 0,
+        summaryLines: buildSummary(entriesToUse),
+        entries: entriesToUse,
       });
     }
     return cards;
-  }, [plannerEntriesForSection, plannerSection]);
+  }, [plannerConfigForActive, plannerEntriesForSection, plannerIconOverrideMap, plannerSection]);
 
   const filteredPlannerChecklistCards = useMemo(() => {
     const search = plannerSearchText.trim().toLowerCase();
@@ -912,6 +1285,7 @@ export default function App() {
     return plannerChecklistCards.filter((card) => {
       const haystack = [
         card.label,
+        card.secondaryLabel || '',
         ...card.summaryLines,
       ]
         .join(' ')
@@ -1122,6 +1496,8 @@ export default function App() {
       setPlannerSection(null);
       setPlannerEntries([]);
       setPlannerMemory([]);
+      setPlannerItemCatalog([]);
+      setPlannerIconOverrides([]);
       setPlannerSearchText('');
       setPlannerEditorVisible(false);
       setPlannerEditingEntryId(null);
@@ -1131,6 +1507,7 @@ export default function App() {
       setPlannerEditorNotes('');
       setPlannerEditorChecked(false);
       setPlannerCustomFields([]);
+      setPlannerNewOptionName('');
       setDrafts([]);
     }
   }, []);
@@ -1463,27 +1840,35 @@ export default function App() {
     setPlannerEditorNotes('');
     setPlannerEditorChecked(false);
     setPlannerCustomFields([]);
+    setPlannerNewOptionName('');
   }, []);
 
   const openPlannerEditor = useCallback(
-    (entry?: PlannerEntryRow, preferredGroupCode?: string) => {
+    (entry?: PlannerEntryRow, preferredGroupCode?: string, preferredItemCode?: string) => {
       const activeSection = (entry?.section || plannerSection) as PlannerSectionCode | null;
       if (!activeSection) {
         return;
       }
-      const sectionConfig = plannerConfigForSection(activeSection);
+      const sectionConfig = plannerConfigForActive(activeSection);
       if (!sectionConfig) {
         return;
       }
       const nextGroupCode =
         entry?.group_code || preferredGroupCode || sectionConfig.groups[0]?.code || '';
-      const groupConfig = plannerGroupConfig(activeSection, nextGroupCode);
-      const nextItemCode =
-        entry?.item_code || groupConfig?.itemOptions?.[0]?.code || '';
+      const groupConfig = plannerGroupForActive(activeSection, nextGroupCode);
+      const requestedItemCode = entry?.item_code || preferredItemCode || '';
+      const itemExists = groupConfig?.itemOptions?.some((row) => row.code === requestedItemCode);
+      const keepBaseCardSelected = !requestedItemCode && !!groupConfig?.showGroupCard;
+      const nextItemCode = keepBaseCardSelected
+        ? ''
+        : itemExists
+          ? requestedItemCode
+          : groupConfig?.itemOptions?.[0]?.code || '';
+      const editorFields = plannerFieldsForActive(activeSection, nextGroupCode, nextItemCode);
       const rawValues = (entry?.data || {}) as Record<string, string>;
-      const presetFieldCodes = new Set((groupConfig?.fields || []).map((field) => field.code));
+      const presetFieldCodes = new Set(editorFields.map((field) => field.code));
       const presetValues: Record<string, string> = {};
-      for (const field of groupConfig?.fields || []) {
+      for (const field of editorFields) {
         presetValues[field.code] = rawValues[field.code] || '';
       }
       const customRows: PlannerCustomField[] = [];
@@ -1504,25 +1889,86 @@ export default function App() {
       setPlannerCustomFields(customRows);
       setPlannerEditorVisible(true);
     },
-    [plannerSection],
+    [plannerConfigForActive, plannerFieldsForActive, plannerGroupForActive, plannerSection],
   );
 
   const openPlannerGroupCard = useCallback(
-    (groupCode: string, existingEntry?: PlannerEntryRow) => {
+    (groupCode: string, itemCode = '', existingEntry?: PlannerEntryRow) => {
       if (existingEntry) {
         openPlannerEditor(existingEntry);
         return;
       }
-      openPlannerEditor(undefined, groupCode);
+      openPlannerEditor(undefined, groupCode, itemCode);
     },
     [openPlannerEditor],
   );
+
+  const addPlannerOptionToGroup = useCallback(() => {
+    if (!plannerSection || !plannerEditorGroupCode) {
+      return;
+    }
+    const label = plannerNewOptionName.trim();
+    if (!label) {
+      Alert.alert('Missing option name', 'Enter an option name first.');
+      return;
+    }
+    const optionCode = normalizePlannerCode(label);
+    if (!optionCode) {
+      Alert.alert('Invalid option name', 'Use letters or numbers in the option name.');
+      return;
+    }
+
+    const groupConfig = plannerGroupForActive(plannerSection, plannerEditorGroupCode);
+    const exists = (groupConfig?.itemOptions || []).some((row) => row.code === optionCode);
+    if (!exists) {
+      setPlannerItemCatalog((prev) => {
+        const alreadyExists = prev.some(
+          (row) =>
+            row.section === plannerSection &&
+            row.group_code === plannerEditorGroupCode &&
+            row.item_code === optionCode,
+        );
+        if (alreadyExists) {
+          return prev;
+        }
+        return [
+          ...prev,
+          {
+            section: plannerSection,
+            group_code: plannerEditorGroupCode,
+            item_code: optionCode,
+            item_label: label,
+            usage_count: 0,
+          },
+        ];
+      });
+    }
+
+    const nextFields = plannerFieldsForActive(plannerSection, plannerEditorGroupCode, optionCode);
+    setPlannerEditorItemCode(optionCode);
+    setPlannerEditorValues((prev) => {
+      const nextValues: Record<string, string> = {};
+      for (const field of nextFields) {
+        nextValues[field.code] = prev[field.code] || '';
+      }
+      return nextValues;
+    });
+    setPlannerNewOptionName('');
+  }, [
+    plannerEditorGroupCode,
+    plannerFieldsForActive,
+    plannerGroupForActive,
+    plannerNewOptionName,
+    plannerSection,
+  ]);
 
   const handleSelectPlannerEstimate = useCallback(
     async (estimate: EstimateRow) => {
       setSelectedPlannerEstimate(estimate);
       setPlannerSection(null);
       setPlannerSearchText('');
+      setPlannerItemCatalog([]);
+      setPlannerIconOverrides([]);
       try {
         await loadPlannerData(estimate.id);
       } catch (error) {
@@ -1539,9 +1985,8 @@ export default function App() {
     if (!selectedPlannerEstimate || !plannerSection || !token || !plannerEditorGroupCode) {
       return;
     }
-    const groupConfig = plannerGroupConfig(plannerSection, plannerEditorGroupCode);
     const payloadData: Record<string, string> = {};
-    for (const field of groupConfig?.fields || []) {
+    for (const field of plannerFieldsForActive(plannerSection, plannerEditorGroupCode, plannerEditorItemCode)) {
       const value = (plannerEditorValues[field.code] || '').trim();
       if (!value) continue;
       payloadData[field.code] = value;
@@ -1599,6 +2044,7 @@ export default function App() {
     plannerEditorNotes,
     plannerEditorValues,
     plannerEntriesForSection.length,
+    plannerFieldsForActive,
     plannerSection,
     selectedPlannerEstimate,
     token,
@@ -1997,13 +2443,18 @@ export default function App() {
   }, [recorderState.durationMillis, recordingStartedAt]);
 
   const activePlannerSectionConfig = useMemo(
-    () => plannerConfigForSection(plannerSection),
-    [plannerSection],
+    () => plannerConfigForActive(plannerSection),
+    [plannerConfigForActive, plannerSection],
   );
 
   const activePlannerEditorGroup = useMemo(
-    () => plannerGroupConfig(plannerSection, plannerEditorGroupCode),
-    [plannerSection, plannerEditorGroupCode],
+    () => plannerGroupForActive(plannerSection, plannerEditorGroupCode),
+    [plannerEditorGroupCode, plannerGroupForActive, plannerSection],
+  );
+
+  const activePlannerEditorFields = useMemo(
+    () => plannerFieldsForActive(plannerSection, plannerEditorGroupCode, plannerEditorItemCode),
+    [plannerEditorGroupCode, plannerEditorItemCode, plannerFieldsForActive, plannerSection],
   );
 
   const plannerProgressBySection = useMemo(() => {
@@ -2580,6 +3031,8 @@ export default function App() {
                     onPress={() => {
                       setSelectedPlannerEstimate(null);
                       setPlannerSection(null);
+                      setPlannerItemCatalog([]);
+                      setPlannerIconOverrides([]);
                       setPlannerSearchText('');
                       closePlannerEditor();
                     }}
@@ -2601,6 +3054,7 @@ export default function App() {
                   const stats = plannerProgressBySection.get(section.code);
                   const total = stats?.total || 0;
                   const completed = stats?.completed || 0;
+                  const sectionIcon = PLANNER_SECTION_ICON_MAP[section.icon] || 'circle';
                   return (
                     <Pressable
                       key={section.code}
@@ -2610,7 +3064,9 @@ export default function App() {
                         setPlannerSearchText('');
                       }}
                     >
-                      <Text style={styles.plannerIconEmoji}>{section.icon}</Text>
+                      <View style={styles.plannerIconBadge}>
+                        {renderPlannerIcon(sectionIcon, 28, '#0f766e')}
+                      </View>
                       <Text style={styles.plannerIconLabel}>{section.label}</Text>
                       <Text style={styles.plannerIconMeta}>
                         {completed}/{total} checked
@@ -2630,9 +3086,18 @@ export default function App() {
                 <View style={styles.contentTapDismissArea}>
                   <View style={styles.sectionCard}>
                     <View style={styles.listHeaderTopRow}>
-                      <Text style={styles.sectionTitle}>
-                        {activePlannerSectionConfig?.icon} {activePlannerSectionConfig?.label || 'Planner'}
-                      </Text>
+                      <View style={styles.plannerSectionTitleRow}>
+                        <View style={styles.plannerSectionGlyph}>
+                          {renderPlannerIcon(
+                            PLANNER_SECTION_ICON_MAP[activePlannerSectionConfig?.icon || ''] || 'circle',
+                            18,
+                            '#0f766e',
+                          )}
+                        </View>
+                        <Text style={styles.sectionTitle}>
+                          {activePlannerSectionConfig?.label || 'Planner'}
+                        </Text>
+                      </View>
                       <View style={styles.inlineActions}>
                         <Pressable style={styles.smallButton} onPress={() => setPlannerSection(null)}>
                           <Text style={styles.smallButtonText}>Board</Text>
@@ -2673,26 +3138,36 @@ export default function App() {
                           const primary = card.entries[0];
                           return (
                             <Pressable
-                              key={card.groupCode}
+                              key={card.key}
                               style={[
                                 styles.plannerChecklistCard,
                                 !card.isAdded && styles.plannerChecklistCardPending,
                                 card.isAdded && primary?.is_checked && styles.plannerChecklistCardDone,
                               ]}
-                              onPress={() => openPlannerGroupCard(card.groupCode, primary)}
+                              onPress={() => openPlannerGroupCard(card.groupCode, card.itemCode, primary)}
                             >
                               <View style={styles.plannerChecklistMain}>
                                 <View style={styles.plannerChecklistBody}>
-                                  <Text style={styles.plannerChecklistTitle}>
-                                    {card.icon} {card.label}
-                                  </Text>
+                                  <View style={styles.plannerChecklistTitleRow}>
+                                    <View style={styles.plannerChecklistIconBadge}>
+                                      {renderPlannerIcon(card.icon, 16, '#0f766e')}
+                                    </View>
+                                    <View style={styles.plannerChecklistTitleWrap}>
+                                      <Text style={styles.plannerChecklistTitle}>{card.label}</Text>
+                                      {card.secondaryLabel ? (
+                                        <Text style={styles.plannerChecklistSubtitle}>
+                                          {card.secondaryLabel}
+                                        </Text>
+                                      ) : null}
+                                    </View>
+                                  </View>
                                   {!card.isAdded ? (
                                     <Text style={styles.plannerChecklistMissingText}>Not added yet</Text>
                                   ) : null}
                                   {card.summaryLines.length ? (
                                     <View style={styles.plannerChecklistSummary}>
                                       {card.summaryLines.map((line, index) => (
-                                        <Text key={`${card.groupCode}-line-${index}`} style={styles.subtleText}>
+                                        <Text key={`${card.key}-line-${index}`} style={styles.subtleText}>
                                           {line}
                                         </Text>
                                       ))}
@@ -2964,12 +3439,20 @@ export default function App() {
                                 key={group.code}
                                 style={[styles.catalogTypePill, selected && styles.selectedPill]}
                                 onPress={() => {
+                                  const nextItemCode = group.showGroupCard
+                                    ? ''
+                                    : group.itemOptions?.[0]?.code || '';
+                                  const nextFields = plannerFieldsForActive(
+                                    plannerSection,
+                                    group.code,
+                                    nextItemCode,
+                                  );
                                   const nextValues: Record<string, string> = {};
-                                  for (const field of group.fields) {
+                                  for (const field of nextFields) {
                                     nextValues[field.code] = '';
                                   }
                                   setPlannerEditorGroupCode(group.code);
-                                  setPlannerEditorItemCode(group.itemOptions?.[0]?.code || '');
+                                  setPlannerEditorItemCode(nextItemCode);
                                   setPlannerEditorValues(nextValues);
                                   setPlannerCustomFields([]);
                                 }}
@@ -2987,34 +3470,97 @@ export default function App() {
                           })}
                         </View>
 
+                        <Text style={styles.labelInline}>Option</Text>
                         {activePlannerEditorGroup?.itemOptions?.length ? (
-                          <>
-                            <Text style={styles.labelInline}>Option</Text>
-                            <View style={styles.catalogItemWrap}>
-                              {activePlannerEditorGroup.itemOptions.map((option) => {
-                                const selected = option.code === plannerEditorItemCode;
-                                return (
-                                  <Pressable
-                                    key={option.code}
-                                    style={[styles.catalogTypePill, selected && styles.selectedPill]}
-                                    onPress={() => setPlannerEditorItemCode(option.code)}
+                          <View style={styles.catalogItemWrap}>
+                            {activePlannerEditorGroup.showGroupCard ? (
+                              <Pressable
+                                key={`${plannerEditorGroupCode}-base-option`}
+                                style={[
+                                  styles.catalogTypePill,
+                                  !plannerEditorItemCode && styles.selectedPill,
+                                ]}
+                                onPress={() => {
+                                  const nextFields = plannerFieldsForActive(
+                                    plannerSection,
+                                    plannerEditorGroupCode,
+                                    '',
+                                  );
+                                  setPlannerEditorItemCode('');
+                                  setPlannerEditorValues((prev) => {
+                                    const nextValues: Record<string, string> = {};
+                                    for (const field of nextFields) {
+                                      nextValues[field.code] = prev[field.code] || '';
+                                    }
+                                    return nextValues;
+                                  });
+                                }}
+                              >
+                                <Text
+                                  style={[
+                                    styles.catalogTypePillText,
+                                    !plannerEditorItemCode && styles.selectedPillText,
+                                  ]}
+                                >
+                                  {activePlannerEditorGroup.label}
+                                </Text>
+                              </Pressable>
+                            ) : null}
+                            {activePlannerEditorGroup.itemOptions.map((option) => {
+                              const selected = option.code === plannerEditorItemCode;
+                              return (
+                                <Pressable
+                                  key={option.code}
+                                  style={[styles.catalogTypePill, selected && styles.selectedPill]}
+                                  onPress={() => {
+                                    const nextFields = plannerFieldsForActive(
+                                      plannerSection,
+                                      plannerEditorGroupCode,
+                                      option.code,
+                                    );
+                                    setPlannerEditorItemCode(option.code);
+                                    setPlannerEditorValues((prev) => {
+                                      const nextValues: Record<string, string> = {};
+                                      for (const field of nextFields) {
+                                        nextValues[field.code] = prev[field.code] || '';
+                                      }
+                                      return nextValues;
+                                    });
+                                  }}
+                                >
+                                  <Text
+                                    style={[
+                                      styles.catalogTypePillText,
+                                      selected && styles.selectedPillText,
+                                    ]}
                                   >
-                                    <Text
-                                      style={[
-                                        styles.catalogTypePillText,
-                                        selected && styles.selectedPillText,
-                                      ]}
-                                    >
-                                      {option.label}
-                                    </Text>
-                                  </Pressable>
-                                );
-                              })}
-                            </View>
-                          </>
-                        ) : null}
+                                    {option.label}
+                                  </Text>
+                                </Pressable>
+                              );
+                            })}
+                          </View>
+                        ) : (
+                          <Text style={styles.subtleText}>No option cards yet for this group.</Text>
+                        )}
+                        <View style={styles.plannerAddOptionRow}>
+                          <TextInput
+                            style={[styles.input, styles.plannerAddOptionInput]}
+                            value={plannerNewOptionName}
+                            onChangeText={setPlannerNewOptionName}
+                            placeholder="New option card name"
+                            returnKeyType="done"
+                            onSubmitEditing={addPlannerOptionToGroup}
+                          />
+                          <Pressable style={styles.smallButton} onPress={addPlannerOptionToGroup}>
+                            <Text style={styles.smallButtonText}>+ Add Option</Text>
+                          </Pressable>
+                        </View>
+                        <Text style={styles.subtleText}>
+                          Add option cards for this group. New options use a placeholder icon until mapped.
+                        </Text>
 
-                        {(activePlannerEditorGroup?.fields || []).map((field) => {
+                        {activePlannerEditorFields.map((field) => {
                           const value = plannerEditorValues[field.code] || '';
                           const suggestions =
                             plannerSection && plannerEditorGroupCode
@@ -3106,6 +3652,9 @@ export default function App() {
                               <Text style={styles.smallButtonText}>+ Add Field</Text>
                             </Pressable>
                           </View>
+                          <Text style={styles.subtleText}>
+                            Custom field names and values are remembered for future jobs.
+                          </Text>
                           {plannerCustomFields.map((row) => (
                             <View key={row.id} style={styles.plannerCustomFieldRow}>
                               <TextInput
@@ -3763,8 +4312,30 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  plannerIconEmoji: {
-    fontSize: 32,
+  plannerIconBadge: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    borderWidth: 1,
+    borderColor: '#99f6e4',
+    backgroundColor: '#f0fdfa',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  plannerSectionTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  plannerSectionGlyph: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#99f6e4',
+    backgroundColor: '#f0fdfa',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   plannerIconLabel: {
     fontSize: 14,
@@ -3803,10 +4374,34 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: 4,
   },
+  plannerChecklistTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+  },
+  plannerChecklistIconBadge: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#99f6e4',
+    backgroundColor: '#f0fdfa',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  plannerChecklistTitleWrap: {
+    flex: 1,
+    gap: 2,
+  },
   plannerChecklistTitle: {
     fontSize: 16,
     fontWeight: '700',
     color: '#0f172a',
+  },
+  plannerChecklistSubtitle: {
+    fontSize: 12,
+    color: '#64748b',
+    fontWeight: '600',
   },
   plannerChecklistMissingText: {
     fontSize: 12,
@@ -3869,6 +4464,14 @@ const styles = StyleSheet.create({
   },
   plannerFieldBlock: {
     gap: 6,
+  },
+  plannerAddOptionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  plannerAddOptionInput: {
+    flex: 1,
   },
   plannerCustomFieldRow: {
     flexDirection: 'row',

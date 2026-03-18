@@ -10,6 +10,11 @@
             • {{ expense_entries|length }} entr{{ expense_entries|length|pluralize:"y,ies" }}
         {% endif %}
     </p>
+    {% if staff_entries_manage_url %}
+        <p class="expense-entry-note">
+            <a class="button" href="{{ staff_entries_manage_url }}">Edit Staff Records Before Applying Costs</a>
+        </p>
+    {% endif %}
 
     {% if expense_entries %}
         <div class="expense-entry-list">

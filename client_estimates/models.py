@@ -58,6 +58,19 @@ PLANNER_SECTION_CHOICES = [
     ("STAFFING", "Staffing"),
 ]
 
+PLANNER_ICON_KEY_CHOICES = [
+    ("circle", "Circle (placeholder)"),
+    ("palette", "Palette"),
+    ("armchair", "Armchair"),
+    ("clipboard", "Clipboard"),
+    ("printer", "Printer"),
+    ("users", "Users"),
+    ("file", "File"),
+    ("sparkles", "Sparkles"),
+    ("table", "Table"),
+    ("package", "Package"),
+]
+
 DOCUMENT_BACKGROUND_CHOICES = [
     ("CLEAN", "Clean white"),
     ("WATERCOLOR_SAGE", "Watercolor sage wash"),
@@ -1561,6 +1574,60 @@ class PlannerFieldMemory(models.Model):
         self.value_key = (self.value or "").lower()
         if self.usage_count < 1:
             self.usage_count = 1
+        super().save(*args, **kwargs)
+
+
+class PlannerOptionIcon(models.Model):
+    caterer = models.ForeignKey(
+        CatererAccount,
+        on_delete=models.CASCADE,
+        related_name="planner_option_icons",
+    )
+    section = models.CharField(
+        max_length=30,
+        choices=PLANNER_SECTION_CHOICES,
+        default="DECOR",
+    )
+    group_code = models.CharField(max_length=80, blank=True)
+    item_code = models.CharField(max_length=80, blank=True)
+    icon_key = models.CharField(
+        max_length=40,
+        choices=PLANNER_ICON_KEY_CHOICES,
+        default="circle",
+    )
+    is_manual_override = models.BooleanField(default=False)
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="planner_option_icons_updated",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["section", "group_code", "item_code"]
+        unique_together = (
+            "caterer",
+            "section",
+            "group_code",
+            "item_code",
+        )
+        verbose_name = "Planner option icon"
+        verbose_name_plural = "Planner option icons"
+
+    def __str__(self):
+        label = self.group_code or "planner"
+        if self.item_code:
+            label = f"{label}/{self.item_code}"
+        return f"{self.caterer.name} / {self.section} / {label}: {self.icon_key}"
+
+    def save(self, *args, **kwargs):
+        self.group_code = _normalize_planner_code(self.group_code or "")
+        self.item_code = _normalize_planner_code(self.item_code or "")
+        if not self.icon_key:
+            self.icon_key = "circle"
         super().save(*args, **kwargs)
 
 

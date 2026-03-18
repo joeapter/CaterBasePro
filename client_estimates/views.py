@@ -32,6 +32,7 @@ from .models import (
     EstimateExpenseEntry,
     EstimateStaffTimeEntry,
     PlannerFieldMemory,
+    PlannerOptionIcon,
     PLANNER_SECTION_CHOICES,
     ShoppingList,
     ShoppingListItem,
@@ -795,6 +796,56 @@ def _planner_memory_payload(memory_rows):
             row["field_code"],
         )
     )
+    return payload
+
+
+def _planner_item_catalog_payload(caterer_id):
+    if not caterer_id:
+        return []
+    rows = (
+        EstimatePlannerEntry.objects.filter(caterer_id=caterer_id)
+        .exclude(item_code="")
+        .values("section", "group_code", "item_code")
+        .annotate(usage_count=Count("id"))
+        .order_by("section", "group_code", "item_code")
+    )
+    payload = []
+    for row in rows:
+        section = row.get("section") or ""
+        group_code = row.get("group_code") or ""
+        item_code = row.get("item_code") or ""
+        if not section or not group_code or not item_code:
+            continue
+        payload.append(
+            {
+                "section": section,
+                "group_code": group_code,
+                "item_code": item_code,
+                "item_label": _planner_item_label(section, group_code, item_code),
+                "usage_count": int(row.get("usage_count") or 0),
+            }
+        )
+    return payload
+
+
+def _planner_icon_override_payload(caterer_id):
+    if not caterer_id:
+        return []
+    rows = (
+        PlannerOptionIcon.objects.filter(caterer_id=caterer_id)
+        .order_by("section", "group_code", "item_code")
+    )
+    payload = []
+    for row in rows:
+        payload.append(
+            {
+                "section": row.section,
+                "group_code": row.group_code or "",
+                "item_code": row.item_code or "",
+                "icon_key": row.icon_key or "circle",
+                "is_manual_override": bool(row.is_manual_override),
+            }
+        )
     return payload
 
 
@@ -1760,6 +1811,8 @@ def xpenz_estimate_planner(request, estimate_id):
                 "estimate_id": estimate.id,
                 "entries": [_serialize_planner_entry(row) for row in entries],
                 "memory": _planner_memory_payload(memory_rows),
+                "item_catalog": _planner_item_catalog_payload(estimate.caterer_id),
+                "icon_overrides": _planner_icon_override_payload(estimate.caterer_id),
             }
         )
 

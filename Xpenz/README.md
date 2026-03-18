@@ -6,7 +6,7 @@ Internal expense capture app for CaterBase Pro estimates.
 
 - Logs in to your Django backend with `/api/xpenz/login/`
 - Loads estimate jobs from `/api/xpenz/estimates/`
-- Lets staff capture `receipt + voice note` per expense
+- Lets staff capture `receipt + voice note` per expense from camera or photo gallery
 - Opens an expense text/amount input on each captured item before save
 - Supports `+ Manual Expense` entries without receipt/audio
 - Saves to estimate Additional Info entries via `/api/xpenz/estimates/<id>/expenses/`

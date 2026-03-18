@@ -3,10 +3,21 @@
     <p class="help">
         This section mirrors the mobile Planner tab and is printed in the planning checklist PDF.
     </p>
-    <p style="margin:10px 0 14px;">
+    <div style="margin:10px 0 14px; display:flex; flex-wrap:wrap; gap:8px; align-items:center;">
+        {% if planner_icons_refresh_url %}
+            <form method="post" action="{{ planner_icons_refresh_url }}" style="margin:0;">
+                {% csrf_token %}
+                <button type="submit" class="button" style="background:#e0f2fe; border-color:#7dd3fc; color:#0f172a;">
+                    Refresh Icons
+                </button>
+            </form>
+        {% endif %}
+        {% if planner_icons_manage_url %}
+            <a class="button" href="{{ planner_icons_manage_url }}">Manage Icon Overrides</a>
+        {% endif %}
         <a class="button" href="{{ planner_print_url }}" target="_blank" rel="noopener">Open Planning PDF</a>
         <a class="button" href="{{ planner_print_url }}?print=1" target="_blank" rel="noopener">Print Planning PDF</a>
-    </p>
+    </div>
 
     {% if planner_sections %}
         <div class="expense-entry-list">
