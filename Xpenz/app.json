@@ -5,7 +5,7 @@
     "scheme": "xpenz",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/1.png",
+    "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
     "splash": {
@@ -15,7 +15,7 @@
     },
     "ios": {
       "supportsTablet": false,
-      "icon": "./assets/1.png",
+      "icon": "./assets/icon.png",
       "bundleIdentifier": "com.caterbasepro.xpenz",
       "buildNumber": "1.0.0",
       "infoPlist": {
@@ -28,7 +28,7 @@
     "android": {
       "package": "com.caterbasepro.xpenz",
       "adaptiveIcon": {
-        "foregroundImage": "./assets/1.png",
+        "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
       "edgeToEdgeEnabled": true,
@@ -40,7 +40,7 @@
       ]
     },
     "web": {
-      "favicon": "./assets/1.png"
+      "favicon": "./assets/favicon.png"
     },
     "plugins": [
       "expo-audio",
