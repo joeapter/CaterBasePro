@@ -690,6 +690,151 @@ class EstimatePlannerEntryAdmin(admin.ModelAdmin):
         return obj.caterer.owner == request.user
 
 
+@admin.register(PlannerOptionIcon)
+class PlannerOptionIconAdmin(admin.ModelAdmin):
+    change_list_template = "admin/client_estimates/planneroptionicon/change_list.html"
+    list_display = (
+        "caterer",
+        "section",
+        "group_code",
+        "item_code",
+        "icon_key",
+        "is_manual_override",
+        "updated_by",
+        "updated_at",
+    )
+    list_editable = ("icon_key", "is_manual_override")
+    list_filter = ("section", "icon_key", "is_manual_override", "caterer")
+    search_fields = ("caterer__name", "group_code", "item_code")
+    ordering = ("caterer__name", "section", "group_code", "item_code")
+    list_select_related = ("caterer", "updated_by")
+
+    def get_queryset(self, request):
+        qs = super().get_queryset(request).select_related("caterer", "updated_by")
+        return limit_to_user_caterer(qs, request)
+
+    def has_module_permission(self, request):
+        return request.user.is_superuser or CatererAccount.objects.filter(owner=request.user).exists()
+
+    def has_view_permission(self, request, obj=None):
+        if request.user.is_superuser:
+            return True
+        if obj is None:
+            return self.has_module_permission(request)
+        return obj.caterer.owner == request.user
+
+    def has_change_permission(self, request, obj=None):
+        if request.user.is_superuser:
+            return True
+        if obj is None:
+            return self.has_module_permission(request)
+        return obj.caterer.owner == request.user
+
+    def has_add_permission(self, request):
+        return request.user.is_superuser
+
+    def has_delete_permission(self, request, obj=None):
+        if request.user.is_superuser:
+            return True
+        if obj is None:
+            return False
+        return obj.caterer.owner == request.user
+
+    def get_urls(self):
+        urls = super().get_urls()
+        custom = [
+            path(
+                "refresh-icons/",
+                self.admin_site.admin_view(self.refresh_icons),
+                name="client_estimates_planneroptionicon_refresh_icons",
+            ),
+        ]
+        return custom + urls
+
+    def refresh_icons(self, request):
+        if request.method != "POST":
+            return redirect("admin:client_estimates_planneroptionicon_changelist")
+
+        if request.user.is_superuser:
+            caterer_ids = list(CatererAccount.objects.values_list("id", flat=True))
+        else:
+            caterer_ids = list(CatererAccount.objects.filter(owner=request.user).values_list("id", flat=True))
+
+        if not caterer_ids:
+            self.message_user(request, "No accessible caterers found.", level=messages.WARNING)
+            return redirect("admin:client_estimates_planneroptionicon_changelist")
+
+        rows = (
+            EstimatePlannerEntry.objects.filter(caterer_id__in=caterer_ids)
+            .exclude(item_code="")
+            .values("caterer_id", "section", "group_code", "item_code")
+            .annotate(usage_count=Count("id"))
+            .order_by("caterer_id", "section", "group_code", "item_code")
+        )
+
+        existing = {
+            (row.caterer_id, row.section, row.group_code, row.item_code): row
+            for row in PlannerOptionIcon.objects.filter(caterer_id__in=caterer_ids)
+        }
+
+        created_count = 0
+        updated_count = 0
+        skipped_manual_count = 0
+        for row in rows:
+            caterer_id = row["caterer_id"]
+            section = row["section"] or ""
+            group_code = row["group_code"] or ""
+            item_code = row["item_code"] or ""
+            if not section or not group_code or not item_code:
+                continue
+            key = (caterer_id, section, group_code, item_code)
+            inferred_icon = _infer_planner_icon_key(section, group_code, item_code)
+            if inferred_icon not in PLANNER_ICON_KEY_SET:
+                inferred_icon = "circle"
+            existing_row = existing.get(key)
+            if existing_row and existing_row.is_manual_override:
+                skipped_manual_count += 1
+                continue
+            if not existing_row:
+                PlannerOptionIcon.objects.create(
+                    caterer_id=caterer_id,
+                    section=section,
+                    group_code=group_code,
+                    item_code=item_code,
+                    icon_key=inferred_icon,
+                    is_manual_override=False,
+                    updated_by=request.user,
+                )
+                created_count += 1
+                continue
+
+            changed = []
+            if existing_row.icon_key != inferred_icon:
+                existing_row.icon_key = inferred_icon
+                changed.append("icon_key")
+            if existing_row.is_manual_override:
+                existing_row.is_manual_override = False
+                changed.append("is_manual_override")
+            if existing_row.updated_by_id != request.user.id:
+                existing_row.updated_by = request.user
+                changed.append("updated_by")
+            if changed:
+                changed.append("updated_at")
+                existing_row.save(update_fields=changed)
+                updated_count += 1
+
+        self.message_user(
+            request,
+            (
+                "Global planner icon refresh finished. "
+                f"Created: {created_count}, updated: {updated_count}, "
+                f"manual overrides kept: {skipped_manual_count}."
+            ),
+            level=messages.SUCCESS,
+        )
+        return redirect("admin:client_estimates_planneroptionicon_changelist")
+
+
 @admin.register(ShoppingList)
 class ShoppingListAdmin(admin.ModelAdmin):
     list_display = (
@@ -2619,8 +2764,6 @@ class EstimateAdmin(admin.ModelAdmin):
         planner_sections = []
         planner_print_url = ""
         planner_missing_groups = []
-        planner_icons_manage_url = ""
-        planner_icons_refresh_url = ""
         if obj and obj.pk:
             expense_entries = list(
                 obj.expense_entries.select_related("created_by").order_by("-created_at")
@@ -2636,8 +2779,6 @@ class EstimateAdmin(admin.ModelAdmin):
             planner_sections = self._planner_sections_for_estimate(obj)
             planner_missing_groups = self._planner_missing_groups_for_estimate(obj)
             planner_print_url = self._admin_reverse("planner_print", args=[obj.pk])
-            planner_icons_manage_url = self._admin_reverse("planner_icons", args=[obj.pk])
-            planner_icons_refresh_url = self._admin_reverse("planner_icons_refresh", args=[obj.pk])
         context = {
             **self.admin_site.each_context(request),
             "title": title % self.opts.verbose_name,
@@ -2660,8 +2801,6 @@ class EstimateAdmin(admin.ModelAdmin):
             "planner_sections": planner_sections,
             "planner_missing_groups": planner_missing_groups,
             "planner_print_url": planner_print_url,
-            "planner_icons_manage_url": planner_icons_manage_url,
-            "planner_icons_refresh_url": planner_icons_refresh_url,
         }
 
         if (

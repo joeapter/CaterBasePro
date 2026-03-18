@@ -318,7 +318,6 @@
         {% if original %}
             <button type="button" data-step="6">6. Additional Info</button>
             <button type="button" data-step="7">7. Planning</button>
-            <button type="button" data-step="8">8. Planner Icons</button>
         {% endif %}
     </div>
 
@@ -351,10 +350,7 @@
             {% include "admin/partials/estimate_additional_info.html" with expense_entries=expense_entries expense_total=expense_total expense_delete_url_name=expense_delete_url_name staff_entries_manage_url=staff_entries_manage_url estimate=original only %}
         </section>
         <section class="estimate-step-section" data-step="7">
-            {% include "admin/partials/estimate_planner_summary.html" with planner_sections=planner_sections planner_missing_groups=planner_missing_groups planner_print_url=planner_print_url planner_icons_manage_url=planner_icons_manage_url planner_icons_refresh_url=planner_icons_refresh_url estimate=original only %}
-        </section>
-        <section class="estimate-step-section" data-step="8">
-            {% include "admin/partials/estimate_planner_icons_entry.html" with planner_icons_manage_url=planner_icons_manage_url planner_icons_refresh_url=planner_icons_refresh_url estimate=original only %}
+            {% include "admin/partials/estimate_planner_summary.html" with planner_sections=planner_sections planner_missing_groups=planner_missing_groups planner_print_url=planner_print_url estimate=original only %}
         </section>
     {% endif %}
 
