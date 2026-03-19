@@ -37,6 +37,7 @@ from .models import (
     EstimateExpenseEntry,
     EstimateStaffTimeEntry,
     EstimatePlannerEntry,
+    PlannerOptionCard,
     PlannerOptionIcon,
     PLANNER_ICON_KEY_CHOICES,
     PLANNER_SECTION_CHOICES,
@@ -764,13 +765,53 @@ class PlannerOptionIconAdmin(admin.ModelAdmin):
             self.message_user(request, "No accessible caterers found.", level=messages.WARNING)
             return redirect("admin:client_estimates_planneroptionicon_changelist")
 
-        rows = (
+        option_map = {}
+        for row in PlannerOptionCard.objects.filter(caterer_id__in=caterer_ids).values(
+            "caterer_id",
+            "section",
+            "group_code",
+            "item_code",
+            "item_label",
+        ):
+            caterer_id = row.get("caterer_id")
+            section = row.get("section") or ""
+            group_code = row.get("group_code") or ""
+            item_code = row.get("item_code") or ""
+            if not caterer_id or not section or not group_code or not item_code:
+                continue
+            key = (caterer_id, section, group_code, item_code)
+            option_map[key] = {
+                "caterer_id": caterer_id,
+                "section": section,
+                "group_code": group_code,
+                "item_code": item_code,
+                "item_label": (row.get("item_label") or "").strip(),
+            }
+
+        usage_rows = (
             EstimatePlannerEntry.objects.filter(caterer_id__in=caterer_ids)
             .exclude(item_code="")
             .values("caterer_id", "section", "group_code", "item_code")
             .annotate(usage_count=Count("id"))
             .order_by("caterer_id", "section", "group_code", "item_code")
         )
+        for row in usage_rows:
+            caterer_id = row["caterer_id"]
+            section = row["section"] or ""
+            group_code = row["group_code"] or ""
+            item_code = row["item_code"] or ""
+            if not section or not group_code or not item_code:
+                continue
+            key = (caterer_id, section, group_code, item_code)
+            if key not in option_map:
+                option_map[key] = {
+                    "caterer_id": caterer_id,
+                    "section": section,
+                    "group_code": group_code,
+                    "item_code": item_code,
+                    "item_label": _planner_item_label(section, group_code, item_code),
+                }
+        rows = list(option_map.values())
 
         existing = {
             (row.caterer_id, row.section, row.group_code, row.item_code): row
@@ -785,10 +826,11 @@ class PlannerOptionIconAdmin(admin.ModelAdmin):
             section = row["section"] or ""
             group_code = row["group_code"] or ""
             item_code = row["item_code"] or ""
+            item_label = row.get("item_label") or _planner_item_label(section, group_code, item_code)
             if not section or not group_code or not item_code:
                 continue
             key = (caterer_id, section, group_code, item_code)
-            inferred_icon = _infer_planner_icon_key(section, group_code, item_code)
+            inferred_icon = _infer_planner_icon_key(section, group_code, item_code, item_label)
             if inferred_icon not in PLANNER_ICON_KEY_SET:
                 inferred_icon = "circle"
             existing_row = existing.get(key)
@@ -1805,31 +1847,73 @@ class EstimateAdmin(admin.ModelAdmin):
         return JsonResponse({"ok": True})
 
     def _planner_option_catalog_for_caterer(self, caterer_id):
-        rows = (
+        payload_map = {}
+
+        option_rows = (
+            PlannerOptionCard.objects.filter(caterer_id=caterer_id)
+            .values("section", "group_code", "item_code", "item_label", "sort_order")
+            .order_by("section", "group_code", "sort_order", "item_label", "item_code")
+        )
+        for row in option_rows:
+            section = row.get("section") or ""
+            group_code = row.get("group_code") or ""
+            item_code = row.get("item_code") or ""
+            if not section or not group_code or not item_code:
+                continue
+            key = (section, group_code, item_code)
+            payload_map[key] = {
+                "section": section,
+                "section_label": PLANNER_SECTION_LABELS.get(section, section),
+                "group_code": group_code,
+                "group_label": _planner_group_label(section, group_code),
+                "item_code": item_code,
+                "item_label": (row.get("item_label") or "").strip()
+                or _planner_item_label(section, group_code, item_code),
+                "usage_count": 0,
+                "sort_order": int(row.get("sort_order") or 0),
+            }
+
+        usage_rows = (
             EstimatePlannerEntry.objects.filter(caterer_id=caterer_id)
             .exclude(item_code="")
             .values("section", "group_code", "item_code")
             .annotate(usage_count=Count("id"))
             .order_by("section", "group_code", "item_code")
         )
-        payload = []
-        for row in rows:
+        for row in usage_rows:
             section = row.get("section") or ""
             group_code = row.get("group_code") or ""
             item_code = row.get("item_code") or ""
             if not section or not group_code or not item_code:
                 continue
-            payload.append(
-                {
+            key = (section, group_code, item_code)
+            if key not in payload_map:
+                payload_map[key] = {
                     "section": section,
                     "section_label": PLANNER_SECTION_LABELS.get(section, section),
                     "group_code": group_code,
                     "group_label": _planner_group_label(section, group_code),
                     "item_code": item_code,
                     "item_label": _planner_item_label(section, group_code, item_code),
-                    "usage_count": int(row.get("usage_count") or 0),
+                    "usage_count": 0,
+                    "sort_order": 9999,
                 }
+            payload_map[key]["usage_count"] = int(payload_map[key]["usage_count"]) + int(
+                row.get("usage_count") or 0
             )
+
+        payload = list(payload_map.values())
+        payload.sort(
+            key=lambda row: (
+                row.get("section") or "",
+                row.get("group_code") or "",
+                int(row.get("sort_order") or 0),
+                (row.get("item_label") or "").lower(),
+                row.get("item_code") or "",
+            )
+        )
+        for row in payload:
+            row.pop("sort_order", None)
         return payload
 
     def _refresh_planner_icons_for_caterer(self, caterer, user):

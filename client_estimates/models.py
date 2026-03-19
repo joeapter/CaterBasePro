@@ -1577,6 +1577,121 @@ class PlannerFieldMemory(models.Model):
         super().save(*args, **kwargs)
 
 
+class PlannerFieldCard(models.Model):
+    caterer = models.ForeignKey(
+        CatererAccount,
+        on_delete=models.CASCADE,
+        related_name="planner_field_cards",
+    )
+    section = models.CharField(
+        max_length=30,
+        choices=PLANNER_SECTION_CHOICES,
+        default="DECOR",
+    )
+    group_code = models.CharField(max_length=80, blank=True)
+    item_code = models.CharField(max_length=80, blank=True)
+    field_code = models.CharField(max_length=120)
+    field_label = models.CharField(max_length=120)
+    value_options = models.JSONField(default=list, blank=True)
+    sort_order = models.PositiveIntegerField(default=0)
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="planner_field_cards_updated",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["section", "group_code", "item_code", "sort_order", "field_label"]
+        unique_together = (
+            "caterer",
+            "section",
+            "group_code",
+            "item_code",
+            "field_code",
+        )
+        verbose_name = "Planner field card"
+        verbose_name_plural = "Planner field cards"
+
+    def __str__(self):
+        label = self.group_code or "planner"
+        if self.item_code:
+            label = f"{label}/{self.item_code}"
+        return f"{self.caterer.name} / {self.section} / {label}: {self.field_label}"
+
+    def save(self, *args, **kwargs):
+        self.group_code = _normalize_planner_code(self.group_code or "")
+        self.item_code = _normalize_planner_code(self.item_code or "")
+        self.field_code = _normalize_planner_code(self.field_code or "")
+        self.field_label = " ".join((self.field_label or "").split()).strip()
+        cleaned_values = []
+        seen = set()
+        if isinstance(self.value_options, list):
+            for raw in self.value_options:
+                value = " ".join(str(raw or "").split()).strip()
+                if not value:
+                    continue
+                key = value.lower()
+                if key in seen:
+                    continue
+                seen.add(key)
+                cleaned_values.append(value)
+        self.value_options = cleaned_values
+        super().save(*args, **kwargs)
+
+
+class PlannerOptionCard(models.Model):
+    caterer = models.ForeignKey(
+        CatererAccount,
+        on_delete=models.CASCADE,
+        related_name="planner_option_cards",
+    )
+    section = models.CharField(
+        max_length=30,
+        choices=PLANNER_SECTION_CHOICES,
+        default="DECOR",
+    )
+    group_code = models.CharField(max_length=80, blank=True)
+    item_code = models.CharField(max_length=80)
+    item_label = models.CharField(max_length=120)
+    sort_order = models.PositiveIntegerField(default=0)
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="planner_option_cards_updated",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["section", "group_code", "sort_order", "item_label", "item_code"]
+        unique_together = (
+            "caterer",
+            "section",
+            "group_code",
+            "item_code",
+        )
+        verbose_name = "Planner option card"
+        verbose_name_plural = "Planner option cards"
+
+    def __str__(self):
+        label = self.group_code or "planner"
+        return f"{self.caterer.name} / {self.section} / {label}: {self.item_label}"
+
+    def save(self, *args, **kwargs):
+        self.group_code = _normalize_planner_code(self.group_code or "")
+        self.item_code = _normalize_planner_code(self.item_code or "")
+        self.item_label = " ".join((self.item_label or "").split()).strip()
+        if not self.item_label:
+            self.item_label = self.item_code.replace("_", " ").title()
+        super().save(*args, **kwargs)
+
+
 class PlannerOptionIcon(models.Model):
     caterer = models.ForeignKey(
         CatererAccount,

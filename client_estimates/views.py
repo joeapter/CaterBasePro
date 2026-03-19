@@ -31,7 +31,9 @@ from .models import (
     EstimatePlannerEntry,
     EstimateExpenseEntry,
     EstimateStaffTimeEntry,
+    PlannerFieldCard,
     PlannerFieldMemory,
+    PlannerOptionCard,
     PlannerOptionIcon,
     PLANNER_SECTION_CHOICES,
     ShoppingList,
@@ -799,33 +801,167 @@ def _planner_memory_payload(memory_rows):
     return payload
 
 
-def _planner_item_catalog_payload(caterer_id):
+def _planner_field_card_payload(caterer_id):
     if not caterer_id:
         return []
     rows = (
+        PlannerFieldCard.objects.filter(caterer_id=caterer_id)
+        .order_by("section", "group_code", "item_code", "sort_order", "field_label")
+    )
+    payload = []
+    for row in rows:
+        payload.append(
+            {
+                "section": row.section,
+                "group_code": row.group_code or "",
+                "item_code": row.item_code or "",
+                "field_code": row.field_code or "",
+                "field_label": row.field_label or _planner_field_label(row.field_code),
+                "value_options": _merge_option_values(row.value_options or []),
+                "sort_order": int(row.sort_order or 0),
+            }
+        )
+    return payload
+
+
+def _planner_item_catalog_payload(caterer_id):
+    if not caterer_id:
+        return []
+
+    catalog_map = {}
+    option_rows = (
+        PlannerOptionCard.objects.filter(caterer_id=caterer_id)
+        .order_by("section", "group_code", "sort_order", "item_label", "item_code")
+    )
+    for row in option_rows:
+        section = row.section or ""
+        group_code = row.group_code or ""
+        item_code = row.item_code or ""
+        if not section or not group_code or not item_code:
+            continue
+        key = (section, group_code, item_code)
+        catalog_map[key] = {
+            "section": section,
+            "group_code": group_code,
+            "item_code": item_code,
+            "item_label": _normalize_item_text(row.item_label)
+            or _planner_item_label(section, group_code, item_code),
+            "usage_count": 0,
+            "sort_order": int(row.sort_order or 0),
+        }
+
+    usage_rows = (
         EstimatePlannerEntry.objects.filter(caterer_id=caterer_id)
         .exclude(item_code="")
         .values("section", "group_code", "item_code")
         .annotate(usage_count=Count("id"))
         .order_by("section", "group_code", "item_code")
     )
-    payload = []
-    for row in rows:
+    for row in usage_rows:
         section = row.get("section") or ""
         group_code = row.get("group_code") or ""
         item_code = row.get("item_code") or ""
         if not section or not group_code or not item_code:
             continue
-        payload.append(
-            {
+        key = (section, group_code, item_code)
+        if key not in catalog_map:
+            catalog_map[key] = {
                 "section": section,
                 "group_code": group_code,
                 "item_code": item_code,
                 "item_label": _planner_item_label(section, group_code, item_code),
-                "usage_count": int(row.get("usage_count") or 0),
+                "usage_count": 0,
+                "sort_order": 9999,
             }
+        catalog_map[key]["usage_count"] = int(catalog_map[key]["usage_count"]) + int(
+            row.get("usage_count") or 0
         )
+        if not _normalize_item_text(catalog_map[key].get("item_label")):
+            catalog_map[key]["item_label"] = _planner_item_label(section, group_code, item_code)
+
+    payload = list(catalog_map.values())
+    payload.sort(
+        key=lambda row: (
+            row.get("section") or "",
+            row.get("group_code") or "",
+            int(row.get("sort_order") or 0),
+            (row.get("item_label") or "").lower(),
+            row.get("item_code") or "",
+        )
+    )
+    for row in payload:
+        row.pop("sort_order", None)
     return payload
+
+
+def _save_planner_option_card(
+    estimate,
+    section,
+    group_code,
+    item_code,
+    item_label,
+    sort_order,
+    user,
+):
+    if not estimate.caterer_id:
+        return None
+
+    normalized_group = _normalize_item_text(group_code).replace(" ", "_").lower()
+    normalized_item = _normalize_item_text(item_code).replace(" ", "_").lower()
+    if not normalized_group or not normalized_item:
+        return None
+
+    cleaned_label = _normalize_item_text(item_label)
+    if not cleaned_label:
+        cleaned_label = _planner_item_label(section, normalized_group, normalized_item)
+
+    try:
+        normalized_sort_order = int(sort_order)
+    except (TypeError, ValueError):
+        normalized_sort_order = None
+    if normalized_sort_order is None or normalized_sort_order < 0:
+        existing_count = PlannerOptionCard.objects.filter(
+            caterer_id=estimate.caterer_id,
+            section=section,
+            group_code=normalized_group,
+        ).count()
+        normalized_sort_order = existing_count
+
+    option_card, _created = PlannerOptionCard.objects.get_or_create(
+        caterer=estimate.caterer,
+        section=section,
+        group_code=normalized_group,
+        item_code=normalized_item,
+        defaults={
+            "item_label": cleaned_label,
+            "sort_order": normalized_sort_order,
+            "updated_by": user,
+        },
+    )
+
+    changed_fields = []
+    if option_card.item_label != cleaned_label:
+        option_card.item_label = cleaned_label
+        changed_fields.append("item_label")
+    if option_card.sort_order != normalized_sort_order:
+        option_card.sort_order = normalized_sort_order
+        changed_fields.append("sort_order")
+    if option_card.updated_by_id != user.id:
+        option_card.updated_by = user
+        changed_fields.append("updated_by")
+    if changed_fields:
+        changed_fields.append("updated_at")
+        option_card.save(update_fields=changed_fields)
+
+    return {
+        "section": option_card.section,
+        "group_code": option_card.group_code or "",
+        "item_code": option_card.item_code or "",
+        "item_label": option_card.item_label or _planner_item_label(
+            option_card.section, option_card.group_code, option_card.item_code
+        ),
+        "sort_order": int(option_card.sort_order or 0),
+    }
 
 
 def _planner_icon_override_payload(caterer_id):
@@ -849,34 +985,152 @@ def _planner_icon_override_payload(caterer_id):
     return payload
 
 
+def _planner_split_value_options(raw_value):
+    value = _normalize_item_text(raw_value)
+    if not value:
+        return []
+    normalized = value.replace("\n", ",").replace(";", ",")
+    parts = []
+    for chunk in normalized.split(","):
+        cleaned = _normalize_item_text(chunk)
+        if cleaned:
+            parts.append(cleaned)
+    if not parts:
+        return [value]
+    return _merge_option_values(parts)[:30]
+
+
 def _record_planner_memory(estimate, section, group_code, item_code, data):
     if not estimate.caterer_id or not isinstance(data, dict):
         return
     for raw_field, raw_value in data.items():
         field_code = _normalize_item_text(raw_field)
-        value = _normalize_item_text(raw_value)
-        if not field_code or not value:
+        if not field_code:
             continue
         field_code = field_code.replace(" ", "_").lower()
-        obj, created = PlannerFieldMemory.objects.get_or_create(
+        values = _planner_split_value_options(raw_value)
+        if not values:
+            continue
+        for value in values:
+            obj, created = PlannerFieldMemory.objects.get_or_create(
+                caterer_id=estimate.caterer_id,
+                section=section,
+                group_code=_normalize_item_text(group_code).replace(" ", "_").lower(),
+                item_code=_normalize_item_text(item_code).replace(" ", "_").lower(),
+                field_code=field_code,
+                value_key=value.lower(),
+                defaults={"value": value, "usage_count": 1},
+            )
+            if created:
+                continue
+            changed_fields = []
+            if obj.value != value:
+                obj.value = value
+                changed_fields.append("value")
+            obj.usage_count = (obj.usage_count or 0) + 1
+            changed_fields.append("usage_count")
+            changed_fields.append("last_used_at")
+            obj.save(update_fields=changed_fields)
+
+
+def _save_planner_field_cards(
+    estimate,
+    section,
+    group_code,
+    item_code,
+    payload_rows,
+    user,
+):
+    if not estimate.caterer_id:
+        return []
+
+    normalized_group = _normalize_item_text(group_code).replace(" ", "_").lower()
+    normalized_item = _normalize_item_text(item_code).replace(" ", "_").lower()
+    existing = {
+        row.field_code: row
+        for row in PlannerFieldCard.objects.filter(
             caterer_id=estimate.caterer_id,
             section=section,
-            group_code=_normalize_item_text(group_code).replace(" ", "_").lower(),
-            item_code=_normalize_item_text(item_code).replace(" ", "_").lower(),
-            field_code=field_code,
-            value_key=value.lower(),
-            defaults={"value": value, "usage_count": 1},
+            group_code=normalized_group,
+            item_code=normalized_item,
         )
-        if created:
+    }
+
+    kept_codes = []
+    if not isinstance(payload_rows, list):
+        payload_rows = []
+
+    for index, raw_row in enumerate(payload_rows):
+        if not isinstance(raw_row, dict):
             continue
-        changed_fields = []
-        if obj.value != value:
-            obj.value = value
-            changed_fields.append("value")
-        obj.usage_count = (obj.usage_count or 0) + 1
-        changed_fields.append("usage_count")
-        changed_fields.append("last_used_at")
-        obj.save(update_fields=changed_fields)
+        raw_label = _normalize_item_text(raw_row.get("field_label") or raw_row.get("label"))
+        raw_code = _normalize_item_text(raw_row.get("field_code"))
+        if not raw_code and raw_label:
+            raw_code = raw_label.replace(" ", "_").lower()
+        field_code = raw_code.replace(" ", "_").lower()
+        field_code = "_".join(part for part in field_code.split("_") if part)
+        if not field_code:
+            continue
+        field_label = raw_label or _planner_field_label(field_code)
+        options = []
+        for raw_value in raw_row.get("value_options") or []:
+            options.extend(_planner_split_value_options(raw_value))
+        if isinstance(raw_row.get("value_options_text"), str):
+            options.extend(_planner_split_value_options(raw_row.get("value_options_text")))
+        if isinstance(raw_row.get("values"), str):
+            options.extend(_planner_split_value_options(raw_row.get("values")))
+        options = _merge_option_values(options)[:40]
+        sort_order = raw_row.get("sort_order")
+        try:
+            sort_order = int(sort_order)
+        except (TypeError, ValueError):
+            sort_order = index
+        if sort_order < 0:
+            sort_order = index
+
+        card = existing.get(field_code)
+        if not card:
+            card = PlannerFieldCard(
+                caterer=estimate.caterer,
+                section=section,
+                group_code=normalized_group,
+                item_code=normalized_item,
+                field_code=field_code,
+            )
+        card.field_label = field_label
+        card.value_options = options
+        card.sort_order = sort_order
+        card.updated_by = user
+        card.save()
+        kept_codes.append(field_code)
+
+    for field_code, row in existing.items():
+        if field_code in kept_codes:
+            continue
+        row.delete()
+
+    rows = (
+        PlannerFieldCard.objects.filter(
+            caterer_id=estimate.caterer_id,
+            section=section,
+            group_code=normalized_group,
+            item_code=normalized_item,
+        )
+        .order_by("sort_order", "field_label")
+    )
+    return [
+        {
+            "section": row.section,
+            "group_code": row.group_code or "",
+            "item_code": row.item_code or "",
+            "field_code": row.field_code or "",
+            "field_label": row.field_label or _planner_field_label(row.field_code),
+            "value_options": _merge_option_values(row.value_options or []),
+            "sort_order": int(row.sort_order or 0),
+        }
+        for row in rows
+    ]
+
 
 
 def _build_shopping_catalog_queryset(user, access_map):
@@ -1813,6 +2067,7 @@ def xpenz_estimate_planner(request, estimate_id):
                 "memory": _planner_memory_payload(memory_rows),
                 "item_catalog": _planner_item_catalog_payload(estimate.caterer_id),
                 "icon_overrides": _planner_icon_override_payload(estimate.caterer_id),
+                "field_cards": _planner_field_card_payload(estimate.caterer_id),
             }
         )
 
@@ -1841,6 +2096,55 @@ def xpenz_estimate_planner(request, estimate_id):
         entry.delete()
         return JsonResponse({"ok": True, "deleted_entry_id": int(raw_entry_id)})
 
+    if action == "save_field_cards":
+        raw_section = _normalize_item_text(payload.get("section")).upper()
+        if raw_section not in PLANNER_SECTION_LABELS:
+            return _json_error("Invalid planner section.", status=400)
+        group_code = _normalize_item_text(payload.get("group_code", ""))
+        item_code = _normalize_item_text(payload.get("item_code", ""))
+        field_cards_payload = payload.get("field_cards")
+        if not isinstance(field_cards_payload, list):
+            field_cards_payload = []
+        saved_cards = _save_planner_field_cards(
+            estimate=estimate,
+            section=raw_section,
+            group_code=group_code,
+            item_code=item_code,
+            payload_rows=field_cards_payload,
+            user=user,
+        )
+        return JsonResponse({"ok": True, "field_cards": saved_cards})
+
+    if action == "save_option_card":
+        raw_section = _normalize_item_text(payload.get("section")).upper()
+        if raw_section not in PLANNER_SECTION_LABELS:
+            return _json_error("Invalid planner section.", status=400)
+        group_code = _normalize_item_text(payload.get("group_code", ""))
+        item_code = _normalize_item_text(payload.get("item_code", ""))
+        item_label = _normalize_item_text(payload.get("item_label", ""))
+        try:
+            sort_order = int(payload.get("sort_order"))
+        except (TypeError, ValueError):
+            sort_order = None
+        saved_option = _save_planner_option_card(
+            estimate=estimate,
+            section=raw_section,
+            group_code=group_code,
+            item_code=item_code,
+            item_label=item_label,
+            sort_order=sort_order,
+            user=user,
+        )
+        if not saved_option:
+            return _json_error("Invalid planner option payload.", status=400)
+        return JsonResponse(
+            {
+                "ok": True,
+                "option_card": saved_option,
+                "item_catalog": _planner_item_catalog_payload(estimate.caterer_id),
+            }
+        )
+
     raw_section = _normalize_item_text(payload.get("section")).upper()
     if raw_section not in PLANNER_SECTION_LABELS:
         return _json_error("Invalid planner section.", status=400)
@@ -1854,6 +2158,9 @@ def xpenz_estimate_planner(request, estimate_id):
         sort_order = 0
     sort_order = max(sort_order, 0)
     is_checked = _to_bool(payload.get("is_checked"))
+    field_cards_payload = payload.get("field_cards")
+    if not isinstance(field_cards_payload, list):
+        field_cards_payload = None
 
     data = payload.get("data")
     if not isinstance(data, dict):
@@ -1892,6 +2199,19 @@ def xpenz_estimate_planner(request, estimate_id):
     entry.updated_by = user
     entry.save()
 
+    if entry.item_code:
+        _save_planner_option_card(
+            estimate=estimate,
+            section=entry.section,
+            group_code=entry.group_code,
+            item_code=entry.item_code,
+            item_label=payload.get("item_label") or _planner_item_label(
+                entry.section, entry.group_code, entry.item_code
+            ),
+            sort_order=None,
+            user=user,
+        )
+
     _record_planner_memory(
         estimate=estimate,
         section=entry.section,
@@ -1900,13 +2220,25 @@ def xpenz_estimate_planner(request, estimate_id):
         data=entry.data,
     )
 
-    return JsonResponse(
-        {
-            "ok": True,
-            "entry": _serialize_planner_entry(entry),
-        },
-        status=201 if not raw_entry_id else 200,
-    )
+    saved_cards = None
+    if field_cards_payload is not None:
+        saved_cards = _save_planner_field_cards(
+            estimate=estimate,
+            section=entry.section,
+            group_code=entry.group_code,
+            item_code=entry.item_code,
+            payload_rows=field_cards_payload,
+            user=user,
+        )
+
+    response_payload = {
+        "ok": True,
+        "entry": _serialize_planner_entry(entry),
+    }
+    if saved_cards is not None:
+        response_payload["field_cards"] = saved_cards
+
+    return JsonResponse(response_payload, status=201 if not raw_entry_id else 200)
 
 
 @csrf_exempt
