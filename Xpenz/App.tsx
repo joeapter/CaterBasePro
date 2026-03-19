@@ -9,18 +9,11 @@ import {
   useAudioRecorderState,
 } from 'expo-audio';
 import {
-  Armchair,
-  Circle,
-  ClipboardList,
-  FileText,
-  Package,
-  Palette,
-  Printer,
-  Sparkles,
-  Table,
-  Users,
-} from 'lucide-react-native';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -244,6 +237,7 @@ type PlannerChecklistCard = {
   secondaryLabel?: string;
   icon: string;
   isAdded: boolean;
+  isChecked: boolean;
   summaryLines: string[];
   entries: PlannerEntryRow[];
 };
@@ -519,29 +513,94 @@ const PLANNER_ITEM_ICON_MAP: Record<string, string> = {
   'SPECIAL_REQUESTS|special_requests|': 'file',
 };
 
-function renderPlannerIcon(iconKey: string, size = 20, color = '#0f172a') {
-  switch (iconKey) {
-    case 'palette':
-      return <Palette size={size} color={color} strokeWidth={2.2} />;
-    case 'armchair':
-      return <Armchair size={size} color={color} strokeWidth={2.2} />;
-    case 'clipboard':
-      return <ClipboardList size={size} color={color} strokeWidth={2.2} />;
-    case 'printer':
-      return <Printer size={size} color={color} strokeWidth={2.2} />;
-    case 'users':
-      return <Users size={size} color={color} strokeWidth={2.2} />;
-    case 'file':
-      return <FileText size={size} color={color} strokeWidth={2.2} />;
-    case 'sparkles':
-      return <Sparkles size={size} color={color} strokeWidth={2.2} />;
-    case 'table':
-      return <Table size={size} color={color} strokeWidth={2.2} />;
-    case 'package':
-      return <Package size={size} color={color} strokeWidth={2.2} />;
-    default:
-      return <Circle size={size} color={color} strokeWidth={2.2} />;
+const PLANNER_EMOJI_ICON_MAP: Record<string, string> = {
+  palette: '🎀',
+  armchair: '🪑',
+  clipboard: '📦',
+  printer: '🖨️',
+  users: '👥',
+  file: '📝',
+  sparkles: '✨',
+  table: '🧺',
+  package: '📦',
+  circle: '◯',
+};
+
+const DEFAULT_PLANNER_COLOR_VALUES = [
+  'White',
+  'Black',
+  'Cream',
+  'Beige',
+  'Gold',
+  'Silver',
+  'Blue',
+  'Navy',
+  'Pink',
+  'Green',
+];
+const DEFAULT_PLANNER_PRICE_VALUES = ['250', '500', '800', '1200', '1500', '2000'];
+const DEFAULT_PLANNER_QTY_VALUES = ['1', '2', '3', '5', '8', '10', '12', '15', '20'];
+const PLANNER_COLOR_HEX_MAP: Record<string, string> = {
+  white: '#ffffff',
+  black: '#111827',
+  cream: '#fff7d6',
+  beige: '#e8d8b5',
+  gold: '#d4a017',
+  silver: '#c0c0c0',
+  blue: '#2563eb',
+  navy: '#1e3a8a',
+  pink: '#ec4899',
+  green: '#16a34a',
+  red: '#dc2626',
+  yellow: '#facc15',
+  orange: '#f97316',
+  purple: '#7c3aed',
+  clear: '#e2e8f0',
+  transparent: '#e2e8f0',
+};
+
+function renderPlannerIcon(iconKey: string, size = 20, _color = '#0f172a') {
+  const glyph = PLANNER_EMOJI_ICON_MAP[iconKey] || iconKey || PLANNER_EMOJI_ICON_MAP.circle;
+  return <Text style={{ fontSize: size, lineHeight: size + 2 }}>{glyph}</Text>;
+}
+
+function plannerSplitMultiValue(value: string) {
+  return (value || '')
+    .split(',')
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
+function plannerColorHexForValue(value: string) {
+  const raw = (value || '').trim().toLowerCase();
+  if (!raw) return '';
+  const compact = raw.replace(/\s+/g, '_');
+  if (PLANNER_COLOR_HEX_MAP[compact]) {
+    return PLANNER_COLOR_HEX_MAP[compact];
   }
+  if (/^#?[0-9a-f]{6}$/i.test(raw)) {
+    return raw.startsWith('#') ? raw : `#${raw}`;
+  }
+  if (/^#?[0-9a-f]{3}$/i.test(raw)) {
+    const short = raw.startsWith('#') ? raw.slice(1) : raw;
+    return `#${short[0]}${short[0]}${short[1]}${short[1]}${short[2]}${short[2]}`;
+  }
+  return '';
+}
+
+function plannerTextColorForBackground(hex: string) {
+  const normalized = hex.replace('#', '');
+  if (normalized.length !== 6) {
+    return '#0f172a';
+  }
+  const r = parseInt(normalized.slice(0, 2), 16);
+  const g = parseInt(normalized.slice(2, 4), 16);
+  const b = parseInt(normalized.slice(4, 6), 16);
+  if ([r, g, b].some((value) => Number.isNaN(value))) {
+    return '#0f172a';
+  }
+  const brightness = (r * 299 + g * 587 + b * 114) / 1000;
+  return brightness < 150 ? '#ffffff' : '#0f172a';
 }
 
 function humanizePlannerCode(value: string) {
@@ -718,6 +777,7 @@ export default function App() {
   const [openCatalogCategory, setOpenCatalogCategory] = useState<string | null>(null);
   const [selectedPlannerEstimate, setSelectedPlannerEstimate] = useState<EstimateRow | null>(null);
   const [plannerSection, setPlannerSection] = useState<PlannerSectionCode | null>(null);
+  const [plannerCategoryCode, setPlannerCategoryCode] = useState('');
   const [plannerEntries, setPlannerEntries] = useState<PlannerEntryRow[]>([]);
   const [plannerMemory, setPlannerMemory] = useState<PlannerMemoryBucket[]>([]);
   const [plannerItemCatalog, setPlannerItemCatalog] = useState<PlannerCatalogItem[]>([]);
@@ -1184,7 +1244,24 @@ export default function App() {
     return plannerEntries.filter((entry) => entry.section === plannerSection);
   }, [plannerEntries, plannerSection]);
 
-  const plannerChecklistCards = useMemo(() => {
+  const buildPlannerSummary = useCallback((entries: PlannerEntryRow[]) => {
+    const primary = entries[0] || null;
+    const summaryLines: string[] = [];
+    if (primary?.data_rows?.length) {
+      for (const row of primary.data_rows.slice(0, 4)) {
+        summaryLines.push(`${row.field_label}: ${row.value}`);
+      }
+    }
+    if (primary?.notes) {
+      summaryLines.push(`Notes: ${primary.notes}`);
+    }
+    if (entries.length > 1) {
+      summaryLines.unshift(`${entries.length} entries saved`);
+    }
+    return summaryLines;
+  }, []);
+
+  const plannerCategoryCards = useMemo(() => {
     if (!plannerSection) return [];
     const sectionConfig = plannerConfigForActive(plannerSection);
     if (!sectionConfig) return [];
@@ -1198,91 +1275,106 @@ export default function App() {
       rowsByGroup.get(entry.group_code)?.push(entry);
     }
 
-    const buildSummary = (entries: PlannerEntryRow[]) => {
-      const primary = entries[0] || null;
-      const summaryLines: string[] = [];
-      if (primary?.data_rows?.length) {
-        for (const row of primary.data_rows.slice(0, 4)) {
-          summaryLines.push(`${row.field_label}: ${row.value}`);
-        }
-      }
-      if (primary?.notes) {
-        summaryLines.push(`Notes: ${primary.notes}`);
-      }
-      if (entries.length > 1) {
-        summaryLines.unshift(`${entries.length} entries saved`);
-      }
-      return summaryLines;
-    };
-
     for (const group of sectionConfig.groups) {
       const groupEntries = rowsByGroup.get(group.code) || [];
       if (group.itemOptions?.length) {
-        const baseEntries = groupEntries.filter((entry) => !entry.item_code);
-        if (group.showGroupCard || baseEntries.length) {
-          cards.push({
-            key: `${group.code}::`,
-            groupCode: group.code,
-            itemCode: '',
-            label: group.label,
-            icon:
-              plannerIconOverrideMap.get(`${plannerSection}|${group.code}|`) ||
-              PLANNER_ITEM_ICON_MAP[`${plannerSection}|${group.code}|`] ||
-              'circle',
-            isAdded: baseEntries.length > 0,
-            summaryLines: buildSummary(baseEntries),
-            entries: baseEntries,
-          });
-        }
-        for (const option of group.itemOptions) {
-          const optionEntries = groupEntries.filter(
-            (entry) => (entry.item_code || '') === option.code,
-          );
-          cards.push({
-            key: `${group.code}::${option.code}`,
-            groupCode: group.code,
-            itemCode: option.code,
-            label: option.label,
-            secondaryLabel: group.label,
-            icon:
-              plannerIconOverrideMap.get(`${plannerSection}|${group.code}|${option.code}`) ||
-              plannerIconOverrideMap.get(`${plannerSection}|${group.code}|`) ||
-              PLANNER_ITEM_ICON_MAP[`${plannerSection}|${group.code}|${option.code}`] ||
-              PLANNER_ITEM_ICON_MAP[`${plannerSection}|${group.code}|`] ||
-              'circle',
-            isAdded: optionEntries.length > 0,
-            summaryLines: buildSummary(optionEntries),
-            entries: optionEntries,
-          });
-        }
-        continue;
+        const addedOptionCount = group.itemOptions.filter((option) =>
+          groupEntries.some((entry) => (entry.item_code || '') === option.code),
+        ).length;
+        const summaryLines = [
+          `${addedOptionCount}/${group.itemOptions.length} options added`,
+          ...buildPlannerSummary(groupEntries),
+        ].slice(0, 4);
+        cards.push({
+          key: `${group.code}::`,
+          groupCode: group.code,
+          itemCode: '',
+          label: group.label,
+          icon:
+            plannerIconOverrideMap.get(`${plannerSection}|${group.code}|`) ||
+            PLANNER_ITEM_ICON_MAP[`${plannerSection}|${group.code}|`] ||
+            'circle',
+          isAdded: groupEntries.length > 0,
+          isChecked: groupEntries.length > 0 && groupEntries.every((entry) => !!entry.is_checked),
+          summaryLines,
+          entries: groupEntries,
+        });
+      } else {
+        const plainEntries = groupEntries.filter((entry) => !entry.item_code);
+        const entriesToUse = plainEntries.length ? plainEntries : groupEntries;
+        cards.push({
+          key: `${group.code}::`,
+          groupCode: group.code,
+          itemCode: '',
+          label: group.label,
+          icon:
+            plannerIconOverrideMap.get(`${plannerSection}|${group.code}|`) ||
+            PLANNER_ITEM_ICON_MAP[`${plannerSection}|${group.code}|`] ||
+            'circle',
+          isAdded: entriesToUse.length > 0,
+          isChecked: entriesToUse.length > 0 && entriesToUse.every((entry) => !!entry.is_checked),
+          summaryLines: buildPlannerSummary(entriesToUse),
+          entries: entriesToUse,
+        });
       }
+    }
+    return cards;
+  }, [
+    buildPlannerSummary,
+    plannerConfigForActive,
+    plannerEntriesForSection,
+    plannerIconOverrideMap,
+    plannerSection,
+  ]);
 
-      const plainEntries = groupEntries.filter((entry) => !entry.item_code);
-      const entriesToUse = plainEntries.length ? plainEntries : groupEntries;
+  const activePlannerCategory = useMemo(
+    () => plannerGroupForActive(plannerSection, plannerCategoryCode),
+    [plannerCategoryCode, plannerGroupForActive, plannerSection],
+  );
+
+  const plannerOptionCards = useMemo(() => {
+    if (!plannerSection || !activePlannerCategory?.itemOptions?.length) {
+      return [] as PlannerChecklistCard[];
+    }
+    const groupEntries = plannerEntriesForSection.filter(
+      (entry) => entry.group_code === activePlannerCategory.code,
+    );
+    const cards: PlannerChecklistCard[] = [];
+    for (const option of activePlannerCategory.itemOptions) {
+      const optionEntries = groupEntries.filter((entry) => (entry.item_code || '') === option.code);
       cards.push({
-        key: `${group.code}::`,
-        groupCode: group.code,
-        itemCode: '',
-        label: group.label,
+        key: `${activePlannerCategory.code}::${option.code}`,
+        groupCode: activePlannerCategory.code,
+        itemCode: option.code,
+        label: option.label,
+        secondaryLabel: activePlannerCategory.label,
         icon:
-          plannerIconOverrideMap.get(`${plannerSection}|${group.code}|`) ||
-          PLANNER_ITEM_ICON_MAP[`${plannerSection}|${group.code}|`] ||
+          plannerIconOverrideMap.get(`${plannerSection}|${activePlannerCategory.code}|${option.code}`) ||
+          plannerIconOverrideMap.get(`${plannerSection}|${activePlannerCategory.code}|`) ||
+          PLANNER_ITEM_ICON_MAP[`${plannerSection}|${activePlannerCategory.code}|${option.code}`] ||
+          PLANNER_ITEM_ICON_MAP[`${plannerSection}|${activePlannerCategory.code}|`] ||
           'circle',
-        isAdded: entriesToUse.length > 0,
-        summaryLines: buildSummary(entriesToUse),
-        entries: entriesToUse,
+        isAdded: optionEntries.length > 0,
+        isChecked: optionEntries.length > 0 && optionEntries.every((entry) => !!entry.is_checked),
+        summaryLines: buildPlannerSummary(optionEntries),
+        entries: optionEntries,
       });
     }
     return cards;
-  }, [plannerConfigForActive, plannerEntriesForSection, plannerIconOverrideMap, plannerSection]);
+  }, [
+    activePlannerCategory,
+    buildPlannerSummary,
+    plannerEntriesForSection,
+    plannerIconOverrideMap,
+    plannerSection,
+  ]);
 
-  const filteredPlannerChecklistCards = useMemo(() => {
+  const filteredPlannerCategoryCards = useMemo(() => {
     const search = plannerSearchText.trim().toLowerCase();
     if (!search) {
-      return plannerChecklistCards;
+      return plannerCategoryCards;
     }
-    return plannerChecklistCards.filter((card) => {
+    return plannerCategoryCards.filter((card) => {
       const haystack = [
         card.label,
         card.secondaryLabel || '',
@@ -1292,7 +1384,24 @@ export default function App() {
         .toLowerCase();
       return haystack.includes(search);
     });
-  }, [plannerChecklistCards, plannerSearchText]);
+  }, [plannerCategoryCards, plannerSearchText]);
+
+  const filteredPlannerOptionCards = useMemo(() => {
+    const search = plannerSearchText.trim().toLowerCase();
+    if (!search) {
+      return plannerOptionCards;
+    }
+    return plannerOptionCards.filter((card) => {
+      const haystack = [
+        card.label,
+        card.secondaryLabel || '',
+        ...card.summaryLines,
+      ]
+        .join(' ')
+        .toLowerCase();
+      return haystack.includes(search);
+    });
+  }, [plannerOptionCards, plannerSearchText]);
 
   useEffect(() => {
     const itemNameKey = newShoppingItemName.trim().toLowerCase();
@@ -1494,6 +1603,7 @@ export default function App() {
       setOpenCatalogCategory(null);
       setSelectedPlannerEstimate(null);
       setPlannerSection(null);
+      setPlannerCategoryCode('');
       setPlannerEntries([]);
       setPlannerMemory([]);
       setPlannerItemCatalog([]);
@@ -1904,7 +2014,7 @@ export default function App() {
   );
 
   const addPlannerOptionToGroup = useCallback(() => {
-    if (!plannerSection || !plannerEditorGroupCode) {
+    if (!plannerSection || !plannerCategoryCode) {
       return;
     }
     const label = plannerNewOptionName.trim();
@@ -1918,14 +2028,14 @@ export default function App() {
       return;
     }
 
-    const groupConfig = plannerGroupForActive(plannerSection, plannerEditorGroupCode);
+    const groupConfig = plannerGroupForActive(plannerSection, plannerCategoryCode);
     const exists = (groupConfig?.itemOptions || []).some((row) => row.code === optionCode);
     if (!exists) {
       setPlannerItemCatalog((prev) => {
         const alreadyExists = prev.some(
           (row) =>
             row.section === plannerSection &&
-            row.group_code === plannerEditorGroupCode &&
+            row.group_code === plannerCategoryCode &&
             row.item_code === optionCode,
         );
         if (alreadyExists) {
@@ -1935,7 +2045,7 @@ export default function App() {
           ...prev,
           {
             section: plannerSection,
-            group_code: plannerEditorGroupCode,
+            group_code: plannerCategoryCode,
             item_code: optionCode,
             item_label: label,
             usage_count: 0,
@@ -1944,19 +2054,9 @@ export default function App() {
       });
     }
 
-    const nextFields = plannerFieldsForActive(plannerSection, plannerEditorGroupCode, optionCode);
-    setPlannerEditorItemCode(optionCode);
-    setPlannerEditorValues((prev) => {
-      const nextValues: Record<string, string> = {};
-      for (const field of nextFields) {
-        nextValues[field.code] = prev[field.code] || '';
-      }
-      return nextValues;
-    });
     setPlannerNewOptionName('');
   }, [
-    plannerEditorGroupCode,
-    plannerFieldsForActive,
+    plannerCategoryCode,
     plannerGroupForActive,
     plannerNewOptionName,
     plannerSection,
@@ -1966,6 +2066,7 @@ export default function App() {
     async (estimate: EstimateRow) => {
       setSelectedPlannerEstimate(estimate);
       setPlannerSection(null);
+      setPlannerCategoryCode('');
       setPlannerSearchText('');
       setPlannerItemCatalog([]);
       setPlannerIconOverrides([]);
@@ -2455,6 +2556,40 @@ export default function App() {
   const activePlannerEditorFields = useMemo(
     () => plannerFieldsForActive(plannerSection, plannerEditorGroupCode, plannerEditorItemCode),
     [plannerEditorGroupCode, plannerEditorItemCode, plannerFieldsForActive, plannerSection],
+  );
+
+  const activePlannerEditorOptionLabel = useMemo(
+    () =>
+      activePlannerEditorGroup?.itemOptions?.find((option) => option.code === plannerEditorItemCode)
+        ?.label || '',
+    [activePlannerEditorGroup, plannerEditorItemCode],
+  );
+
+  const plannerApplySuggestion = useCallback(
+    (fieldCode: string, suggestion: string) => {
+      const code = fieldCode.toLowerCase();
+      const isColorField = code.includes('color');
+      setPlannerEditorValues((prev) => {
+        if (isColorField) {
+          const currentValues = plannerSplitMultiValue(prev[fieldCode] || '');
+          const exists = currentValues.some(
+            (value) => value.toLowerCase() === suggestion.toLowerCase(),
+          );
+          const nextValues = exists
+            ? currentValues.filter((value) => value.toLowerCase() !== suggestion.toLowerCase())
+            : [...currentValues, suggestion];
+          return {
+            ...prev,
+            [fieldCode]: nextValues.join(', '),
+          };
+        }
+        return {
+          ...prev,
+          [fieldCode]: suggestion,
+        };
+      });
+    },
+    [],
   );
 
   const plannerProgressBySection = useMemo(() => {
@@ -3031,6 +3166,7 @@ export default function App() {
                     onPress={() => {
                       setSelectedPlannerEstimate(null);
                       setPlannerSection(null);
+                      setPlannerCategoryCode('');
                       setPlannerItemCatalog([]);
                       setPlannerIconOverrides([]);
                       setPlannerSearchText('');
@@ -3061,6 +3197,7 @@ export default function App() {
                       style={styles.plannerIconCard}
                       onPress={() => {
                         setPlannerSection(section.code);
+                        setPlannerCategoryCode('');
                         setPlannerSearchText('');
                       }}
                     >
@@ -3094,16 +3231,30 @@ export default function App() {
                             '#0f766e',
                           )}
                         </View>
-                        <Text style={styles.sectionTitle}>
-                          {activePlannerSectionConfig?.label || 'Planner'}
-                        </Text>
+                        <View style={styles.flexOne}>
+                          <Text style={styles.sectionTitle}>
+                            {activePlannerSectionConfig?.label || 'Planner'}
+                          </Text>
+                          {plannerCategoryCode && activePlannerCategory ? (
+                            <Text style={styles.subtleText}>{activePlannerCategory.label}</Text>
+                          ) : null}
+                        </View>
                       </View>
                       <View style={styles.inlineActions}>
-                        <Pressable style={styles.smallButton} onPress={() => setPlannerSection(null)}>
-                          <Text style={styles.smallButtonText}>Board</Text>
-                        </Pressable>
-                        <Pressable style={styles.smallAccentButton} onPress={() => openPlannerEditor()}>
-                          <Text style={styles.smallAccentButtonText}>+ Add Item</Text>
+                        <Pressable
+                          style={styles.smallButton}
+                          onPress={() => {
+                            if (plannerCategoryCode) {
+                              setPlannerCategoryCode('');
+                              setPlannerSearchText('');
+                              return;
+                            }
+                            setPlannerSection(null);
+                          }}
+                        >
+                          <Text style={styles.smallButtonText}>
+                            {plannerCategoryCode ? 'Categories' : 'Board'}
+                          </Text>
                         </Pressable>
                       </View>
                     </View>
@@ -3111,126 +3262,263 @@ export default function App() {
                       style={styles.input}
                       value={plannerSearchText}
                       onChangeText={setPlannerSearchText}
-                      placeholder="Search planner items..."
+                      placeholder={
+                        plannerCategoryCode ? 'Search options...' : 'Search planner categories...'
+                      }
                     />
                     <Text style={styles.subtleText}>
-                      Checklist view for {selectedPlannerEstimate.job_name}. Mark done or edit entries anytime.
+                      {plannerCategoryCode && activePlannerCategory?.itemOptions?.length
+                        ? `Options for ${activePlannerCategory.label}. Tap an option to add or edit variables.`
+                        : `Checklist view for ${selectedPlannerEstimate.job_name}. Tap a category to add or edit entries.`}
                     </Text>
+                    {plannerCategoryCode && activePlannerCategory?.itemOptions?.length ? (
+                      <>
+                        <View style={styles.plannerAddOptionRow}>
+                          <TextInput
+                            style={[styles.input, styles.plannerAddOptionInput]}
+                            value={plannerNewOptionName}
+                            onChangeText={setPlannerNewOptionName}
+                            placeholder={`Add new ${activePlannerCategory.label} option`}
+                            returnKeyType="done"
+                            onSubmitEditing={addPlannerOptionToGroup}
+                          />
+                          <Pressable style={styles.smallButton} onPress={addPlannerOptionToGroup}>
+                            <Text style={styles.smallButtonText}>+ Add Option</Text>
+                          </Pressable>
+                        </View>
+                        <Text style={styles.subtleText}>
+                          New option cards are remembered and available on future jobs.
+                        </Text>
+                      </>
+                    ) : null}
                   </View>
 
-                  <View style={styles.sectionCard}>
-                    <View style={styles.headerRow}>
-                      <Text style={styles.sectionTitle}>Checklist</Text>
-                      <Text style={styles.subtleText}>
-                        {
-                          filteredPlannerChecklistCards.filter(
-                            (card) => card.isAdded && !!card.entries[0]?.is_checked,
-                          ).length
-                        }/
-                        {filteredPlannerChecklistCards.filter((card) => card.isAdded).length} done
-                      </Text>
-                    </View>
-                    {loadingPlanner ? (
-                      <ActivityIndicator color="#0f766e" />
-                    ) : (
-                      <View style={styles.savedList}>
-                        {filteredPlannerChecklistCards.map((card) => {
-                          const primary = card.entries[0];
-                          return (
-                            <Pressable
-                              key={card.key}
-                              style={[
-                                styles.plannerChecklistCard,
-                                !card.isAdded && styles.plannerChecklistCardPending,
-                                card.isAdded && primary?.is_checked && styles.plannerChecklistCardDone,
-                              ]}
-                              onPress={() => openPlannerGroupCard(card.groupCode, card.itemCode, primary)}
-                            >
-                              <View style={styles.plannerChecklistMain}>
-                                <View style={styles.plannerChecklistBody}>
-                                  <View style={styles.plannerChecklistTitleRow}>
-                                    <View style={styles.plannerChecklistIconBadge}>
-                                      {renderPlannerIcon(card.icon, 16, '#0f766e')}
+                  {plannerCategoryCode && activePlannerCategory?.itemOptions?.length ? (
+                    <View style={styles.sectionCard}>
+                      <View style={styles.headerRow}>
+                        <Text style={styles.sectionTitle}>Options</Text>
+                        <Text style={styles.subtleText}>
+                          {filteredPlannerOptionCards.filter((card) => card.isAdded).length}/
+                          {filteredPlannerOptionCards.length} added
+                        </Text>
+                      </View>
+                      {loadingPlanner ? (
+                        <ActivityIndicator color="#0f766e" />
+                      ) : (
+                        <View style={styles.savedList}>
+                          {filteredPlannerOptionCards.map((card) => {
+                            const primary = card.entries[0];
+                            return (
+                              <Pressable
+                                key={card.key}
+                                style={[
+                                  styles.plannerChecklistCard,
+                                  !card.isAdded && styles.plannerChecklistCardPending,
+                                  card.isAdded && card.isChecked && styles.plannerChecklistCardDone,
+                                ]}
+                                onPress={() => openPlannerGroupCard(card.groupCode, card.itemCode, primary)}
+                              >
+                                <View style={styles.plannerChecklistMain}>
+                                  <View style={styles.plannerChecklistBody}>
+                                    <View style={styles.plannerChecklistTitleRow}>
+                                      <View style={styles.plannerChecklistIconBadge}>
+                                        {renderPlannerIcon(card.icon, 16, '#0f766e')}
+                                      </View>
+                                      <View style={styles.plannerChecklistTitleWrap}>
+                                        <Text style={styles.plannerChecklistTitle}>{card.label}</Text>
+                                        {card.secondaryLabel ? (
+                                          <Text style={styles.plannerChecklistSubtitle}>
+                                            {card.secondaryLabel}
+                                          </Text>
+                                        ) : null}
+                                      </View>
                                     </View>
-                                    <View style={styles.plannerChecklistTitleWrap}>
-                                      <Text style={styles.plannerChecklistTitle}>{card.label}</Text>
-                                      {card.secondaryLabel ? (
-                                        <Text style={styles.plannerChecklistSubtitle}>
-                                          {card.secondaryLabel}
-                                        </Text>
-                                      ) : null}
-                                    </View>
+                                    {!card.isAdded ? (
+                                      <Text style={styles.plannerChecklistMissingText}>Not added yet</Text>
+                                    ) : null}
+                                    {card.summaryLines.length ? (
+                                      <View style={styles.plannerChecklistSummary}>
+                                        {card.summaryLines.map((line, index) => (
+                                          <Text key={`${card.key}-line-${index}`} style={styles.subtleText}>
+                                            {line}
+                                          </Text>
+                                        ))}
+                                      </View>
+                                    ) : (
+                                      <Text style={styles.plannerChecklistPlaceholder}>
+                                        Tap to add this option.
+                                      </Text>
+                                    )}
                                   </View>
-                                  {!card.isAdded ? (
-                                    <Text style={styles.plannerChecklistMissingText}>Not added yet</Text>
-                                  ) : null}
-                                  {card.summaryLines.length ? (
-                                    <View style={styles.plannerChecklistSummary}>
-                                      {card.summaryLines.map((line, index) => (
-                                        <Text key={`${card.key}-line-${index}`} style={styles.subtleText}>
-                                          {line}
-                                        </Text>
-                                      ))}
-                                    </View>
-                                  ) : (
-                                    <Text style={styles.plannerChecklistPlaceholder}>
-                                      Tap to add this checklist item.
-                                    </Text>
-                                  )}
                                 </View>
                                 {card.isAdded ? (
-                                  <Pressable
-                                    style={[
-                                      styles.plannerCheckCircle,
-                                      primary?.is_checked && styles.plannerCheckCircleChecked,
-                                    ]}
-                                    onPress={(event) => {
-                                      event.stopPropagation();
-                                      if (primary) {
-                                        togglePlannerChecked(primary);
-                                      }
-                                    }}
-                                  >
-                                    <Text
-                                      style={[
-                                        styles.plannerCheckCircleText,
-                                        primary?.is_checked && styles.plannerCheckCircleTextChecked,
-                                      ]}
-                                    >
-                                      {primary?.is_checked ? '✓' : ''}
-                                    </Text>
-                                  </Pressable>
-                                ) : null}
-                              </View>
-                              {card.isAdded ? (
-                                <View style={styles.inlineActions}>
-                                  <Pressable
-                                    style={styles.smallButton}
-                                    onPress={() => openPlannerEditor(primary)}
-                                  >
-                                    <Text style={styles.smallButtonText}>Edit</Text>
-                                  </Pressable>
-                                  {primary ? (
-                                    <Pressable
-                                      style={styles.smallDangerButton}
-                                      onPress={() => deletePlannerEntry(primary)}
-                                    >
-                                      <Text style={styles.smallDangerButtonText}>Delete</Text>
+                                  <View style={styles.inlineActions}>
+                                    <Pressable style={styles.smallButton} onPress={() => openPlannerEditor(primary)}>
+                                      <Text style={styles.smallButtonText}>Edit</Text>
                                     </Pressable>
+                                    {primary ? (
+                                      <Pressable
+                                        style={styles.smallDangerButton}
+                                        onPress={() => deletePlannerEntry(primary)}
+                                      >
+                                        <Text style={styles.smallDangerButtonText}>Delete</Text>
+                                      </Pressable>
+                                    ) : null}
+                                  </View>
+                                ) : null}
+                              </Pressable>
+                            );
+                          })}
+                          {!filteredPlannerOptionCards.length ? (
+                            <Text style={styles.subtleText}>
+                              No options matched your search.
+                            </Text>
+                          ) : null}
+                        </View>
+                      )}
+                    </View>
+                  ) : (
+                    <View style={styles.sectionCard}>
+                      <View style={styles.headerRow}>
+                        <Text style={styles.sectionTitle}>Checklist</Text>
+                        <Text style={styles.subtleText}>
+                          {
+                            filteredPlannerCategoryCards.filter(
+                              (card) => card.isAdded && card.isChecked,
+                            ).length
+                          }/
+                          {filteredPlannerCategoryCards.filter((card) => card.isAdded).length} done
+                        </Text>
+                      </View>
+                      {loadingPlanner ? (
+                        <ActivityIndicator color="#0f766e" />
+                      ) : (
+                        <View style={styles.savedList}>
+                          {filteredPlannerCategoryCards.map((card) => {
+                            const primary = card.entries[0];
+                            const hasOptions = !!plannerGroupForActive(plannerSection, card.groupCode)?.itemOptions
+                              ?.length;
+                            return (
+                              <Pressable
+                                key={card.key}
+                                style={[
+                                  styles.plannerChecklistCard,
+                                  !card.isAdded && styles.plannerChecklistCardPending,
+                                  card.isAdded && card.isChecked && styles.plannerChecklistCardDone,
+                                ]}
+                                onPress={() => {
+                                  if (hasOptions) {
+                                    setPlannerCategoryCode(card.groupCode);
+                                    setPlannerSearchText('');
+                                    return;
+                                  }
+                                  openPlannerGroupCard(card.groupCode, card.itemCode, primary);
+                                }}
+                              >
+                                <View style={styles.plannerChecklistMain}>
+                                  <View style={styles.plannerChecklistBody}>
+                                    <View style={styles.plannerChecklistTitleRow}>
+                                      <View style={styles.plannerChecklistIconBadge}>
+                                        {renderPlannerIcon(card.icon, 16, '#0f766e')}
+                                      </View>
+                                      <View style={styles.plannerChecklistTitleWrap}>
+                                        <Text style={styles.plannerChecklistTitle}>{card.label}</Text>
+                                      </View>
+                                    </View>
+                                    {!card.isAdded ? (
+                                      <Text style={styles.plannerChecklistMissingText}>Not added yet</Text>
+                                    ) : null}
+                                    {card.summaryLines.length ? (
+                                      <View style={styles.plannerChecklistSummary}>
+                                        {card.summaryLines.map((line, index) => (
+                                          <Text key={`${card.key}-line-${index}`} style={styles.subtleText}>
+                                            {line}
+                                          </Text>
+                                        ))}
+                                      </View>
+                                    ) : (
+                                      <Text style={styles.plannerChecklistPlaceholder}>
+                                        {hasOptions
+                                          ? 'Tap to open this category.'
+                                          : 'Tap to add this checklist item.'}
+                                      </Text>
+                                    )}
+                                  </View>
+                                  {card.isAdded ? (
+                                    hasOptions ? (
+                                      <View
+                                        style={[
+                                          styles.plannerCheckCircle,
+                                          card.isChecked && styles.plannerCheckCircleChecked,
+                                        ]}
+                                      >
+                                        <Text
+                                          style={[
+                                            styles.plannerCheckCircleText,
+                                            card.isChecked && styles.plannerCheckCircleTextChecked,
+                                          ]}
+                                        >
+                                          {card.isChecked ? '✓' : ''}
+                                        </Text>
+                                      </View>
+                                    ) : (
+                                      <Pressable
+                                        style={[
+                                          styles.plannerCheckCircle,
+                                          card.isChecked && styles.plannerCheckCircleChecked,
+                                        ]}
+                                        onPress={(event) => {
+                                          event.stopPropagation();
+                                          if (primary) {
+                                            togglePlannerChecked(primary);
+                                          }
+                                        }}
+                                      >
+                                        <Text
+                                          style={[
+                                            styles.plannerCheckCircleText,
+                                            card.isChecked && styles.plannerCheckCircleTextChecked,
+                                          ]}
+                                        >
+                                          {card.isChecked ? '✓' : ''}
+                                        </Text>
+                                      </Pressable>
+                                    )
                                   ) : null}
                                 </View>
-                              ) : null}
-                            </Pressable>
-                          );
-                        })}
-                        {!filteredPlannerChecklistCards.length ? (
-                          <Text style={styles.subtleText}>
-                            No checklist items matched your search.
-                          </Text>
-                        ) : null}
-                      </View>
-                    )}
-                  </View>
+                                {card.isAdded && !hasOptions ? (
+                                  <View style={styles.inlineActions}>
+                                    <Pressable style={styles.smallButton} onPress={() => openPlannerEditor(primary)}>
+                                      <Text style={styles.smallButtonText}>Edit</Text>
+                                    </Pressable>
+                                    {primary ? (
+                                      <Pressable
+                                        style={styles.smallDangerButton}
+                                        onPress={() => deletePlannerEntry(primary)}
+                                      >
+                                        <Text style={styles.smallDangerButtonText}>Delete</Text>
+                                      </Pressable>
+                                    ) : null}
+                                  </View>
+                                ) : hasOptions ? (
+                                  <View style={styles.inlineActions}>
+                                    <Pressable style={styles.smallButton} onPress={() => setPlannerCategoryCode(card.groupCode)}>
+                                      <Text style={styles.smallButtonText}>Open</Text>
+                                    </Pressable>
+                                  </View>
+                                ) : null}
+                              </Pressable>
+                            );
+                          })}
+                          {!filteredPlannerCategoryCards.length ? (
+                            <Text style={styles.subtleText}>
+                              No checklist items matched your search.
+                            </Text>
+                          ) : null}
+                        </View>
+                      )}
+                    </View>
+                  )}
                 </View>
               </TouchableWithoutFeedback>
             </ScrollView>
@@ -3413,7 +3701,9 @@ export default function App() {
                   <Text style={styles.sectionTitle}>
                     {plannerEditingEntryId ? 'Edit Planner Item' : 'Add Planner Item'}
                   </Text>
-                  <Text style={styles.subtleText}>Save returns you to the checklist screen.</Text>
+                  <Text style={styles.subtleText}>
+                    {plannerCategoryCode ? 'Save returns you to the options screen.' : 'Save returns you to the checklist screen.'}
+                  </Text>
                 </View>
                 <Pressable style={styles.smallButton} onPress={closePlannerEditor}>
                   <Text style={styles.smallButtonText}>Back</Text>
@@ -3430,139 +3720,32 @@ export default function App() {
                   <View style={styles.plannerEditorBody}>
                     {activePlannerSectionConfig ? (
                       <>
-                        <Text style={styles.labelInline}>Group</Text>
-                        <View style={styles.catalogItemWrap}>
-                          {activePlannerSectionConfig.groups.map((group) => {
-                            const selected = group.code === plannerEditorGroupCode;
-                            return (
-                              <Pressable
-                                key={group.code}
-                                style={[styles.catalogTypePill, selected && styles.selectedPill]}
-                                onPress={() => {
-                                  const nextItemCode = group.showGroupCard
-                                    ? ''
-                                    : group.itemOptions?.[0]?.code || '';
-                                  const nextFields = plannerFieldsForActive(
-                                    plannerSection,
-                                    group.code,
-                                    nextItemCode,
-                                  );
-                                  const nextValues: Record<string, string> = {};
-                                  for (const field of nextFields) {
-                                    nextValues[field.code] = '';
-                                  }
-                                  setPlannerEditorGroupCode(group.code);
-                                  setPlannerEditorItemCode(nextItemCode);
-                                  setPlannerEditorValues(nextValues);
-                                  setPlannerCustomFields([]);
-                                }}
-                              >
-                                <Text
-                                  style={[
-                                    styles.catalogTypePillText,
-                                    selected && styles.selectedPillText,
-                                  ]}
-                                >
-                                  {group.label}
-                                </Text>
-                              </Pressable>
-                            );
-                          })}
+                        <View style={styles.plannerVariableCard}>
+                          <Text style={styles.savedTitle}>
+                            {activePlannerEditorGroup?.label || 'Planner Item'}
+                          </Text>
+                          {activePlannerEditorOptionLabel ? (
+                            <Text style={styles.subtleText}>{activePlannerEditorOptionLabel}</Text>
+                          ) : null}
+                          <Text style={styles.subtleText}>
+                            {plannerEditingEntryId
+                              ? 'Update variables for this item.'
+                              : 'Enter variables for this item.'}
+                          </Text>
                         </View>
-
-                        <Text style={styles.labelInline}>Option</Text>
-                        {activePlannerEditorGroup?.itemOptions?.length ? (
-                          <View style={styles.catalogItemWrap}>
-                            {activePlannerEditorGroup.showGroupCard ? (
-                              <Pressable
-                                key={`${plannerEditorGroupCode}-base-option`}
-                                style={[
-                                  styles.catalogTypePill,
-                                  !plannerEditorItemCode && styles.selectedPill,
-                                ]}
-                                onPress={() => {
-                                  const nextFields = plannerFieldsForActive(
-                                    plannerSection,
-                                    plannerEditorGroupCode,
-                                    '',
-                                  );
-                                  setPlannerEditorItemCode('');
-                                  setPlannerEditorValues((prev) => {
-                                    const nextValues: Record<string, string> = {};
-                                    for (const field of nextFields) {
-                                      nextValues[field.code] = prev[field.code] || '';
-                                    }
-                                    return nextValues;
-                                  });
-                                }}
-                              >
-                                <Text
-                                  style={[
-                                    styles.catalogTypePillText,
-                                    !plannerEditorItemCode && styles.selectedPillText,
-                                  ]}
-                                >
-                                  {activePlannerEditorGroup.label}
-                                </Text>
-                              </Pressable>
-                            ) : null}
-                            {activePlannerEditorGroup.itemOptions.map((option) => {
-                              const selected = option.code === plannerEditorItemCode;
-                              return (
-                                <Pressable
-                                  key={option.code}
-                                  style={[styles.catalogTypePill, selected && styles.selectedPill]}
-                                  onPress={() => {
-                                    const nextFields = plannerFieldsForActive(
-                                      plannerSection,
-                                      plannerEditorGroupCode,
-                                      option.code,
-                                    );
-                                    setPlannerEditorItemCode(option.code);
-                                    setPlannerEditorValues((prev) => {
-                                      const nextValues: Record<string, string> = {};
-                                      for (const field of nextFields) {
-                                        nextValues[field.code] = prev[field.code] || '';
-                                      }
-                                      return nextValues;
-                                    });
-                                  }}
-                                >
-                                  <Text
-                                    style={[
-                                      styles.catalogTypePillText,
-                                      selected && styles.selectedPillText,
-                                    ]}
-                                  >
-                                    {option.label}
-                                  </Text>
-                                </Pressable>
-                              );
-                            })}
-                          </View>
-                        ) : (
-                          <Text style={styles.subtleText}>No option cards yet for this group.</Text>
-                        )}
-                        <View style={styles.plannerAddOptionRow}>
-                          <TextInput
-                            style={[styles.input, styles.plannerAddOptionInput]}
-                            value={plannerNewOptionName}
-                            onChangeText={setPlannerNewOptionName}
-                            placeholder="New option card name"
-                            returnKeyType="done"
-                            onSubmitEditing={addPlannerOptionToGroup}
-                          />
-                          <Pressable style={styles.smallButton} onPress={addPlannerOptionToGroup}>
-                            <Text style={styles.smallButtonText}>+ Add Option</Text>
-                          </Pressable>
-                        </View>
-                        <Text style={styles.subtleText}>
-                          Add option cards for this group. New options use a placeholder icon until mapped.
-                        </Text>
-
                         {activePlannerEditorFields.map((field) => {
                           const value = plannerEditorValues[field.code] || '';
-                          const suggestions =
+                          const fieldCode = field.code.toLowerCase();
+                          const isColorField = fieldCode.includes('color');
+                          const isPriceField =
+                            fieldCode.includes('price') ||
+                            fieldCode.includes('cost') ||
+                            fieldCode.includes('amount');
+                          const isQtyField =
+                            fieldCode.includes('qty') ||
+                            fieldCode.includes('quantity') ||
+                            fieldCode.includes('count');
+                          const memorySuggestions =
                             plannerSection && plannerEditorGroupCode
                               ? plannerSuggestionsForField(
                                   plannerSection,
@@ -3570,18 +3753,34 @@ export default function App() {
                                   plannerEditorItemCode,
                                   field.code,
                                   value,
-                                ).slice(0, 8)
+                                ).slice(0, 10)
                               : [];
+                          const suggestions = mergeOptionValues(
+                            memorySuggestions,
+                            isColorField ? DEFAULT_PLANNER_COLOR_VALUES : undefined,
+                            isPriceField ? DEFAULT_PLANNER_PRICE_VALUES : undefined,
+                            isQtyField ? DEFAULT_PLANNER_QTY_VALUES : undefined,
+                          ).slice(0, 14);
+                          const selectedColorValues = plannerSplitMultiValue(value).map((row) =>
+                            row.toLowerCase(),
+                          );
                           return (
-                            <View key={`${plannerEditorGroupCode}-${field.code}`} style={styles.plannerFieldBlock}>
-                              <Text style={styles.labelInline}>{field.label}</Text>
+                            <View
+                              key={`${plannerEditorGroupCode}-${field.code}`}
+                              style={styles.plannerVariableCard}
+                            >
+                              <Text style={styles.savedTitle}>{field.label}</Text>
                               <TextInput
                                 style={[styles.input, field.multiline ? styles.noteInput : null]}
                                 value={value}
                                 onChangeText={(nextValue) =>
                                   setPlannerEditorValues((prev) => ({ ...prev, [field.code]: nextValue }))
                                 }
-                                placeholder={field.placeholder || field.label}
+                                placeholder={
+                                  isColorField
+                                    ? 'Add one or more colors (comma separated)'
+                                    : field.placeholder || field.label
+                                }
                                 multiline={!!field.multiline}
                                 keyboardType={field.keyboardType || 'default'}
                                 inputAccessoryViewID={
@@ -3592,52 +3791,82 @@ export default function App() {
                               />
                               {suggestions.length ? (
                                 <View style={styles.catalogItemWrap}>
-                                  {suggestions.map((suggestion) => (
-                                    <Pressable
-                                      key={`${plannerEditorGroupCode}-${field.code}-${suggestion}`}
-                                      style={styles.catalogTypePill}
-                                      onPress={() =>
-                                        setPlannerEditorValues((prev) => ({
-                                          ...prev,
-                                          [field.code]: suggestion,
-                                        }))
-                                      }
-                                    >
-                                      <Text style={styles.catalogTypePillText}>{suggestion}</Text>
-                                    </Pressable>
-                                  ))}
+                                  {suggestions.map((suggestion) => {
+                                    const colorHex = isColorField
+                                      ? plannerColorHexForValue(suggestion)
+                                      : '';
+                                    const selected = isColorField
+                                      ? selectedColorValues.includes(suggestion.toLowerCase())
+                                      : value.trim().toLowerCase() === suggestion.toLowerCase();
+                                    return (
+                                      <Pressable
+                                        key={`${plannerEditorGroupCode}-${field.code}-${suggestion}`}
+                                        style={[
+                                          styles.catalogTypePill,
+                                          colorHex ? styles.plannerColorPill : null,
+                                          colorHex ? { backgroundColor: colorHex } : null,
+                                          selected && !colorHex ? styles.selectedPill : null,
+                                          selected && colorHex ? styles.plannerColorPillSelected : null,
+                                        ]}
+                                        onPress={() =>
+                                          plannerApplySuggestion(field.code, suggestion)
+                                        }
+                                      >
+                                        <Text
+                                          style={[
+                                            styles.catalogTypePillText,
+                                            colorHex
+                                              ? {
+                                                  color: plannerTextColorForBackground(colorHex),
+                                                }
+                                              : null,
+                                            selected && !colorHex ? styles.selectedPillText : null,
+                                          ]}
+                                        >
+                                          {isPriceField && !suggestion.includes(SHEKEL_SYMBOL)
+                                            ? `${SHEKEL_SYMBOL}${suggestion}`
+                                            : suggestion}
+                                        </Text>
+                                      </Pressable>
+                                    );
+                                  })}
                                 </View>
                               ) : null}
                             </View>
                           );
                         })}
 
-                        <Text style={styles.labelInline}>Notes</Text>
-                        <TextInput
-                          style={[styles.input, styles.noteInput]}
-                          value={plannerEditorNotes}
-                          onChangeText={setPlannerEditorNotes}
-                          multiline
-                          placeholder="Notes (optional)"
-                        />
-
-                        <View style={styles.inlineActions}>
-                          <Pressable
-                            style={[styles.smallButton, plannerEditorChecked && styles.selectedPill]}
-                            onPress={() => setPlannerEditorChecked((prev) => !prev)}
-                          >
-                            <Text
-                              style={[
-                                styles.smallButtonText,
-                                plannerEditorChecked && styles.selectedPillText,
-                              ]}
-                            >
-                              {plannerEditorChecked ? 'Checked' : 'Mark as checked'}
-                            </Text>
-                          </Pressable>
+                        <View style={styles.plannerVariableCard}>
+                          <Text style={styles.savedTitle}>Notes</Text>
+                          <TextInput
+                            style={[styles.input, styles.noteInput]}
+                            value={plannerEditorNotes}
+                            onChangeText={setPlannerEditorNotes}
+                            multiline
+                            placeholder="Notes (optional)"
+                          />
                         </View>
 
-                        <View style={styles.savedList}>
+                        <View style={styles.plannerVariableCard}>
+                          <View style={styles.headerRow}>
+                            <Text style={styles.savedTitle}>Checklist</Text>
+                            <Pressable
+                              style={[styles.smallButton, plannerEditorChecked && styles.selectedPill]}
+                              onPress={() => setPlannerEditorChecked((prev) => !prev)}
+                            >
+                              <Text
+                                style={[
+                                  styles.smallButtonText,
+                                  plannerEditorChecked && styles.selectedPillText,
+                                ]}
+                              >
+                                {plannerEditorChecked ? 'Checked' : 'Mark as checked'}
+                              </Text>
+                            </Pressable>
+                          </View>
+                        </View>
+
+                        <View style={styles.plannerVariableCard}>
                           <View style={styles.headerRow}>
                             <Text style={styles.savedTitle}>Custom Fields</Text>
                             <Pressable
@@ -4070,14 +4299,14 @@ const styles = StyleSheet.create({
   },
   screen: {
     flex: 1,
-    backgroundColor: '#eef3ef',
+    backgroundColor: '#ffffff',
   },
   screenCenter: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
     gap: 10,
-    backgroundColor: '#eef3ef',
+    backgroundColor: '#ffffff',
   },
   contentWrap: {
     padding: 16,
@@ -4465,6 +4694,14 @@ const styles = StyleSheet.create({
   plannerFieldBlock: {
     gap: 6,
   },
+  plannerVariableCard: {
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#d1d5db',
+    backgroundColor: '#ffffff',
+    padding: 12,
+    gap: 8,
+  },
   plannerAddOptionRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -4486,7 +4723,7 @@ const styles = StyleSheet.create({
   },
   plannerEditorSafeArea: {
     flex: 1,
-    backgroundColor: '#eef3ef',
+    backgroundColor: '#ffffff',
   },
   plannerEditorHeader: {
     flexDirection: 'row',
@@ -4685,6 +4922,13 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     color: '#0f172a',
+  },
+  plannerColorPill: {
+    borderColor: '#64748b',
+  },
+  plannerColorPillSelected: {
+    borderColor: '#0f172a',
+    borderWidth: 2,
   },
   shoppingItemRow: {
     borderRadius: 12,
