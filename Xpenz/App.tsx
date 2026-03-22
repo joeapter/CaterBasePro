@@ -49,6 +49,7 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  TouchableOpacity,
   TouchableWithoutFeedback,
   View,
 } from 'react-native';
@@ -80,6 +81,8 @@ type EstimateRow = {
     estimate_flat_print?: string;
     planner?: string;
     planner_print?: string;
+    workflow?: string;
+    workflow_print?: string;
   };
 };
 
@@ -93,7 +96,7 @@ type RootTabParamList = {
   Staff: undefined;
 };
 
-type EstimatePrintVariant = 'estimate' | 'flat' | 'planner';
+type EstimatePrintVariant = 'estimate' | 'flat' | 'planner' | 'workflow';
 
 type EstimateBuilderStep =
   | 'customer'
@@ -923,7 +926,10 @@ function parseMealPlanInput(rawValue: string) {
 }
 
 function normalizeEstimateMealKey(value: string) {
-  return (value || '').trim().toLowerCase();
+  return (value || '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
 }
 
 function parseNonNegativeDecimalInput(rawValue: string) {
@@ -2472,7 +2478,7 @@ function AppShell() {
       'Staff',
     ];
     return (
-      <View style={nativeTabHostStyle} pointerEvents="box-none">
+      <View style={nativeTabHostStyle}>
         <NavigationContainer ref={tabNavigationRef}>
           <Tab.Navigator
             initialRouteName={TAB_NAME_BY_MAIN[mainTab]}
@@ -2490,6 +2496,15 @@ function AppShell() {
               tabBarActiveBackgroundColor: 'transparent',
               tabBarInactiveBackgroundColor: 'transparent',
               tabBarHideOnKeyboard: true,
+              tabBarButton: (props) => (
+                <TouchableOpacity
+                  {...props}
+                  activeOpacity={0.75}
+                  delayPressIn={0}
+                  hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}
+                  style={[props.style, styles.nativeTabButton]}
+                />
+              ),
               tabBarIcon: ({ color }) =>
                 renderMainTabIcon(route.name as keyof RootTabParamList, color, 22),
             })}
@@ -2646,6 +2661,17 @@ function AppShell() {
         if (contentType.includes('application/json')) {
           const payload = await response.json().catch(() => ({}));
           errorMessage = payload?.error || errorMessage;
+        } else {
+          const rawBody = await response.text().catch(() => '');
+          if (rawBody.includes('/admin/login') || rawBody.toLowerCase().includes('login')) {
+            errorMessage = 'Server returned a login page for this print preview. Try again after backend deploy.';
+          } else if (response.status >= 500) {
+            errorMessage = `Print preview failed on the server (${response.status}).`;
+          } else if (response.status === 404) {
+            errorMessage = 'Print endpoint not found on server. Deploy backend updates and retry.';
+          } else if (response.status >= 400) {
+            errorMessage = `Print preview request failed (${response.status}).`;
+          }
         }
         throw new Error(errorMessage);
       }
@@ -2742,6 +2768,12 @@ function AppShell() {
           text: 'Planner Print',
           onPress: () => {
             runPrintFlow('planner', 'Planner Print');
+          },
+        },
+        {
+          text: 'Kitchen Workflow',
+          onPress: () => {
+            runPrintFlow('workflow', 'Kitchen Workflow');
           },
         },
       ]);
@@ -2984,53 +3016,90 @@ function AppShell() {
   }, []);
 
   const buildEstimateBuilderMealOverridesPayload = useCallback(() => {
+    if (!estimateBuilderEstimate) {
+      return {
+        ok: false as const,
+        error: 'Estimate data is not loaded.',
+      };
+    }
     const manualMealTotals: Record<string, string> = {};
     const mealGuestOverrides: Record<string, EstimateBuilderMealGuestOverride> = {};
-    const consumedKeys = new Set<string>();
+    const planMeals = estimateBuilderMealPlan.length ? estimateBuilderMealPlan : ['Signature Menu'];
 
-    for (const mealName of estimateBuilderMealPlan) {
+    const manualByKey = new Map<string, string>();
+    for (const [rawMealName, rawValue] of Object.entries(
+      estimateBuilderEstimate.manual_meal_totals || {},
+    )) {
+      const mealName = (rawMealName || '').trim();
       const mealKey = normalizeEstimateMealKey(mealName);
-      if (!mealKey || consumedKeys.has(mealKey)) {
+      if (!mealName || !mealKey) {
         continue;
       }
-      consumedKeys.add(mealKey);
-      const draft = estimateBuilderMealOverrideDrafts[mealKey];
-      if (!draft) {
-        continue;
-      }
-
-      const priceOverride = parseNonNegativeDecimalInput(draft.override_price);
-      if (Number.isNaN(priceOverride)) {
+      const parsedValue = parseNonNegativeDecimalInput(String(rawValue ?? ''));
+      if (Number.isNaN(parsedValue)) {
         return {
           ok: false as const,
           error: `Price override for "${mealName}" must be a non-negative number.`,
         };
       }
-      if (priceOverride != null) {
-        manualMealTotals[mealName] = priceOverride.toFixed(2);
+      if (parsedValue == null) {
+        continue;
       }
+      manualByKey.set(mealKey, parsedValue.toFixed(2));
+    }
 
-      const adultsOverride = parseNonNegativeIntegerInput(draft.adults);
-      if (Number.isNaN(adultsOverride)) {
+    const guestByKey = new Map<string, EstimateBuilderMealGuestOverride>();
+    for (const [rawMealName, rawRow] of Object.entries(
+      estimateBuilderEstimate.meal_guest_overrides || {},
+    )) {
+      const mealName = (rawMealName || '').trim();
+      const mealKey = normalizeEstimateMealKey(mealName);
+      if (!mealName || !mealKey || !rawRow || typeof rawRow !== 'object') {
+        continue;
+      }
+      const row = rawRow as EstimateBuilderMealGuestOverride;
+      const parsedAdults = parseNonNegativeIntegerInput(String(row.adults ?? ''));
+      if (Number.isNaN(parsedAdults)) {
         return {
           ok: false as const,
           error: `Adults override for "${mealName}" must be a non-negative whole number.`,
         };
       }
-      const kidsOverride = parseNonNegativeIntegerInput(draft.kids);
-      if (Number.isNaN(kidsOverride)) {
+      const parsedKids = parseNonNegativeIntegerInput(String(row.kids ?? ''));
+      if (Number.isNaN(parsedKids)) {
         return {
           ok: false as const,
           error: `Kids override for "${mealName}" must be a non-negative whole number.`,
         };
       }
-      if (adultsOverride != null || kidsOverride != null) {
+      if (parsedAdults == null && parsedKids == null) {
+        continue;
+      }
+      guestByKey.set(mealKey, {
+        ...(parsedAdults != null ? { adults: parsedAdults } : {}),
+        ...(parsedKids != null ? { kids: parsedKids } : {}),
+      });
+    }
+
+    const consumedKeys = new Set<string>();
+    for (const mealName of planMeals) {
+      const mealKey = normalizeEstimateMealKey(mealName);
+      if (!mealKey || consumedKeys.has(mealKey)) {
+        continue;
+      }
+      consumedKeys.add(mealKey);
+      const priceOverride = manualByKey.get(mealKey);
+      if (priceOverride != null) {
+        manualMealTotals[mealName] = priceOverride;
+      }
+      const guestOverride = guestByKey.get(mealKey);
+      if (guestOverride) {
         mealGuestOverrides[mealName] = {};
-        if (adultsOverride != null) {
-          mealGuestOverrides[mealName].adults = adultsOverride;
+        if (guestOverride.adults != null) {
+          mealGuestOverrides[mealName].adults = guestOverride.adults;
         }
-        if (kidsOverride != null) {
-          mealGuestOverrides[mealName].kids = kidsOverride;
+        if (guestOverride.kids != null) {
+          mealGuestOverrides[mealName].kids = guestOverride.kids;
         }
       }
     }
@@ -3040,7 +3109,7 @@ function AppShell() {
       manualMealTotals,
       mealGuestOverrides,
     };
-  }, [estimateBuilderMealOverrideDrafts, estimateBuilderMealPlan]);
+  }, [estimateBuilderEstimate, estimateBuilderMealPlan]);
 
   const saveEstimateBuilder = useCallback(async () => {
     if (!estimateBuilderEstimate || !token) {
@@ -3158,6 +3227,45 @@ function AppShell() {
     return map;
   }, [estimateBuilderEstimate?.meal_sections]);
 
+  const estimateBuilderManualMealTotalsByKey = useMemo(() => {
+    const map = new Map<string, string>();
+    const rows = estimateBuilderEstimate?.manual_meal_totals || {};
+    for (const [rawMealName, rawValue] of Object.entries(rows)) {
+      const mealName = (rawMealName || '').trim();
+      const mealKey = normalizeEstimateMealKey(mealName);
+      const value = String(rawValue ?? '').trim();
+      if (!mealName || !mealKey || !value) {
+        continue;
+      }
+      map.set(mealKey, value);
+    }
+    return map;
+  }, [estimateBuilderEstimate?.manual_meal_totals]);
+
+  const estimateBuilderMealGuestOverridesByKey = useMemo(() => {
+    const map = new Map<string, EstimateBuilderMealGuestOverride>();
+    const rows = estimateBuilderEstimate?.meal_guest_overrides || {};
+    for (const [rawMealName, rawValue] of Object.entries(rows)) {
+      const mealName = (rawMealName || '').trim();
+      const mealKey = normalizeEstimateMealKey(mealName);
+      if (!mealName || !mealKey || !rawValue || typeof rawValue !== 'object') {
+        continue;
+      }
+      const row = rawValue as EstimateBuilderMealGuestOverride;
+      const normalizedRow: EstimateBuilderMealGuestOverride = {};
+      if (row.adults != null && Number.isFinite(Number(row.adults)) && Number(row.adults) >= 0) {
+        normalizedRow.adults = Number(row.adults);
+      }
+      if (row.kids != null && Number.isFinite(Number(row.kids)) && Number(row.kids) >= 0) {
+        normalizedRow.kids = Number(row.kids);
+      }
+      if (normalizedRow.adults != null || normalizedRow.kids != null) {
+        map.set(mealKey, normalizedRow);
+      }
+    }
+    return map;
+  }, [estimateBuilderEstimate?.meal_guest_overrides]);
+
   const activeEstimateBuilderMealKey = useMemo(
     () => normalizeEstimateMealKey(activeEstimateBuilderMeal),
     [activeEstimateBuilderMeal],
@@ -3168,14 +3276,41 @@ function AppShell() {
     [activeEstimateBuilderMealKey, estimateBuilderMealSectionMap],
   );
 
+  const activeEstimateBuilderCommittedPriceOverride = useMemo(
+    () => estimateBuilderManualMealTotalsByKey.get(activeEstimateBuilderMealKey) || '',
+    [activeEstimateBuilderMealKey, estimateBuilderManualMealTotalsByKey],
+  );
+
+  const activeEstimateBuilderCommittedGuestOverride = useMemo(
+    () => estimateBuilderMealGuestOverridesByKey.get(activeEstimateBuilderMealKey) || {},
+    [activeEstimateBuilderMealKey, estimateBuilderMealGuestOverridesByKey],
+  );
+
   const activeEstimateBuilderMealDraft = useMemo(
-    () =>
-      estimateBuilderMealOverrideDrafts[activeEstimateBuilderMealKey] || {
-        override_price: '',
-        adults: '',
-        kids: '',
-      },
-    [activeEstimateBuilderMealKey, estimateBuilderMealOverrideDrafts],
+    () => {
+      const draft = estimateBuilderMealOverrideDrafts[activeEstimateBuilderMealKey];
+      if (draft) {
+        return draft;
+      }
+      return {
+        override_price: activeEstimateBuilderCommittedPriceOverride,
+        adults:
+          activeEstimateBuilderCommittedGuestOverride.adults == null
+            ? ''
+            : String(activeEstimateBuilderCommittedGuestOverride.adults),
+        kids:
+          activeEstimateBuilderCommittedGuestOverride.kids == null
+            ? ''
+            : String(activeEstimateBuilderCommittedGuestOverride.kids),
+      };
+    },
+    [
+      activeEstimateBuilderCommittedGuestOverride.adults,
+      activeEstimateBuilderCommittedGuestOverride.kids,
+      activeEstimateBuilderCommittedPriceOverride,
+      activeEstimateBuilderMealKey,
+      estimateBuilderMealOverrideDrafts,
+    ],
   );
 
   const activeEstimateBuilderMealDefaultAdults = useMemo(() => {
@@ -3201,38 +3336,199 @@ function AppShell() {
   }, [activeEstimateBuilderMealSection?.guest_count_kids, estimateBuilderEstimate?.guest_count_kids]);
 
   const activeEstimateBuilderMealEffectiveAdults = useMemo(() => {
-    const parsed = parseNonNegativeIntegerInput(activeEstimateBuilderMealDraft.adults);
+    const parsed = parseNonNegativeIntegerInput(
+      String(activeEstimateBuilderCommittedGuestOverride.adults ?? ''),
+    );
     if (Number.isNaN(parsed)) {
       return activeEstimateBuilderMealDefaultAdults;
     }
     return parsed == null ? activeEstimateBuilderMealDefaultAdults : parsed;
-  }, [activeEstimateBuilderMealDefaultAdults, activeEstimateBuilderMealDraft.adults]);
+  }, [activeEstimateBuilderCommittedGuestOverride.adults, activeEstimateBuilderMealDefaultAdults]);
 
   const activeEstimateBuilderMealEffectiveKids = useMemo(() => {
-    const parsed = parseNonNegativeIntegerInput(activeEstimateBuilderMealDraft.kids);
+    const parsed = parseNonNegativeIntegerInput(
+      String(activeEstimateBuilderCommittedGuestOverride.kids ?? ''),
+    );
     if (Number.isNaN(parsed)) {
       return activeEstimateBuilderMealDefaultKids;
     }
     return parsed == null ? activeEstimateBuilderMealDefaultKids : parsed;
-  }, [activeEstimateBuilderMealDefaultKids, activeEstimateBuilderMealDraft.kids]);
+  }, [activeEstimateBuilderCommittedGuestOverride.kids, activeEstimateBuilderMealDefaultKids]);
 
-  const activeEstimateBuilderMealEffectivePricePerGuest = useMemo(() => {
-    const overrideValue = parseNonNegativeDecimalInput(activeEstimateBuilderMealDraft.override_price);
-    if (Number.isFinite(overrideValue as number)) {
-      return (overrideValue as number).toFixed(2);
+  const estimateBuilderMenuItemPricingById = useMemo(() => {
+    const map = new Map<
+      number,
+      {
+        pricePerServing: number;
+        defaultServingsPerPerson: number;
+        isKidsCategory: boolean;
+      }
+    >();
+    const categories = estimateBuilderCatalog?.menu_categories || [];
+    for (const category of categories) {
+      const categoryName = String(category?.name || '').toLowerCase();
+      const isKidsCategory = categoryName.includes('kid') || categoryName.includes('child');
+      for (const item of category.items || []) {
+        const parsedPrice = parseNonNegativeDecimalInput(String(item.price_per_serving ?? ''));
+        const parsedDefaultServings = parseNonNegativeDecimalInput(
+          String(item.default_servings_per_person ?? ''),
+        );
+        map.set(Number(item.id), {
+          pricePerServing: Number.isFinite(parsedPrice as number) ? Number(parsedPrice) : 0,
+          defaultServingsPerPerson: Number.isFinite(parsedDefaultServings as number)
+            ? Number(parsedDefaultServings)
+            : 1,
+          isKidsCategory,
+        });
+      }
     }
-    return (activeEstimateBuilderMealSection?.price_per_guest || '').trim();
-  }, [activeEstimateBuilderMealDraft.override_price, activeEstimateBuilderMealSection?.price_per_guest]);
+    return map;
+  }, [estimateBuilderCatalog?.menu_categories]);
 
-  const estimateBuilderHeaderPricePerGuest = useMemo(() => {
-    if (activeEstimateBuilderMealEffectivePricePerGuest) {
-      return activeEstimateBuilderMealEffectivePricePerGuest;
+  const estimateBuilderMealPriceFromSelectionsByKey = useMemo(() => {
+    const totals = new Map<string, number>();
+    const map = new Map<string, string>();
+    const exchangeRateParsed = parseNonNegativeDecimalInput(
+      String(estimateBuilderEstimate?.exchange_rate ?? '1'),
+    );
+    const exchangeRate =
+      Number.isFinite(exchangeRateParsed as number) && Number(exchangeRateParsed) > 0
+        ? Number(exchangeRateParsed)
+        : 1;
+    const defaultMealName = estimateBuilderMealPlan[0] || activeEstimateBuilderMeal || 'Signature Menu';
+
+    for (const choice of estimateBuilderMenuChoices) {
+      if (!choice?.included) {
+        continue;
+      }
+      const mealName = (choice.meal_name || defaultMealName || 'Signature Menu').trim();
+      const mealKey = normalizeEstimateMealKey(mealName);
+      if (!mealKey) {
+        continue;
+      }
+      const itemPricing = estimateBuilderMenuItemPricingById.get(Number(choice.menu_item_id));
+      if (!itemPricing || itemPricing.isKidsCategory) {
+        continue;
+      }
+      const servingsParsed = parseNonNegativeDecimalInput(String(choice.servings_per_person ?? ''));
+      if (Number.isNaN(servingsParsed)) {
+        continue;
+      }
+      const servings =
+        Number.isFinite(servingsParsed as number) && Number(servingsParsed) >= 0
+          ? Number(servingsParsed)
+          : itemPricing.defaultServingsPerPerson;
+      const lineTotal = servings * itemPricing.pricePerServing * exchangeRate;
+      if (!Number.isFinite(lineTotal)) {
+        continue;
+      }
+      totals.set(mealKey, (totals.get(mealKey) || 0) + lineTotal);
     }
-    return (estimateBuilderEstimate?.summary.food_price_per_person || '').trim();
+
+    for (const [mealKey, total] of totals.entries()) {
+      map.set(mealKey, total.toFixed(2));
+    }
+    return map;
   }, [
-    activeEstimateBuilderMealEffectivePricePerGuest,
-    estimateBuilderEstimate?.summary.food_price_per_person,
+    activeEstimateBuilderMeal,
+    estimateBuilderEstimate?.exchange_rate,
+    estimateBuilderMealPlan,
+    estimateBuilderMenuChoices,
+    estimateBuilderMenuItemPricingById,
   ]);
+
+  const estimateBuilderHeaderMealPriceCards = useMemo(() => {
+    const mealSections = estimateBuilderEstimate?.meal_sections || [];
+    const candidateMeals = mergeOptionValues(
+      estimateBuilderMealPlan,
+      mealSections.map((section) => section.name),
+      Object.keys(estimateBuilderEstimate?.manual_meal_totals || {}),
+    );
+    const orderedMeals = candidateMeals.length
+      ? candidateMeals
+      : [activeEstimateBuilderMeal || 'Signature Menu'];
+    const isMultiMeal = orderedMeals.length > 1;
+    return orderedMeals.map((mealName, mealIndex) => {
+      const mealKey = normalizeEstimateMealKey(mealName);
+      const mealSection =
+        estimateBuilderMealSectionMap.get(mealKey) ||
+        (mealSections.length === orderedMeals.length ? mealSections[mealIndex] : undefined);
+      const overrideValue = parseNonNegativeDecimalInput(
+        estimateBuilderManualMealTotalsByKey.get(mealKey) || '',
+      );
+      let pricePerGuest = '';
+      if (Number.isFinite(overrideValue as number)) {
+        pricePerGuest = (overrideValue as number).toFixed(2);
+      } else {
+        const selectionComputedPrice = parseNonNegativeDecimalInput(
+          estimateBuilderMealPriceFromSelectionsByKey.get(mealKey) || '',
+        );
+        if (Number.isFinite(selectionComputedPrice as number)) {
+          pricePerGuest = (selectionComputedPrice as number).toFixed(2);
+        } else {
+          const sectionPrice = parseNonNegativeDecimalInput(String(mealSection?.price_per_guest || ''));
+          if (Number.isFinite(sectionPrice as number)) {
+            pricePerGuest = (sectionPrice as number).toFixed(2);
+          } else {
+            const sectionTotal = parseNonNegativeDecimalInput(String(mealSection?.total || ''));
+            const sectionAdults = parseNonNegativeIntegerInput(String(mealSection?.guest_count || ''));
+            if (
+              Number.isFinite(sectionTotal as number) &&
+              Number.isFinite(sectionAdults as number) &&
+              Number(sectionAdults) > 0
+            ) {
+              pricePerGuest = (Number(sectionTotal) / Number(sectionAdults)).toFixed(2);
+            }
+          }
+        }
+      }
+      if (!pricePerGuest) {
+        pricePerGuest = isMultiMeal
+          ? ''
+          : (estimateBuilderEstimate?.summary.food_price_per_person || '').trim();
+      }
+      return {
+        mealName,
+        pricePerGuest,
+      };
+    });
+  }, [
+    activeEstimateBuilderMeal,
+    estimateBuilderEstimate?.manual_meal_totals,
+    estimateBuilderEstimate?.meal_sections,
+    estimateBuilderEstimate?.summary.food_price_per_person,
+    estimateBuilderManualMealTotalsByKey,
+    estimateBuilderMealPriceFromSelectionsByKey,
+    estimateBuilderMealPlan,
+    estimateBuilderMealSectionMap,
+  ]);
+
+  const estimateBuilderHasMultiMealPrices = estimateBuilderHeaderMealPriceCards.length > 1;
+
+  const estimateBuilderResolvedMealPriceByKey = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const row of estimateBuilderHeaderMealPriceCards) {
+      const mealKey = normalizeEstimateMealKey(row.mealName);
+      if (!mealKey) {
+        continue;
+      }
+      map.set(mealKey, row.pricePerGuest);
+    }
+    return map;
+  }, [estimateBuilderHeaderMealPriceCards]);
+
+  const activeEstimateBuilderMealEffectivePricePerGuest = useMemo(
+    () => estimateBuilderResolvedMealPriceByKey.get(activeEstimateBuilderMealKey) || '',
+    [activeEstimateBuilderMealKey, estimateBuilderResolvedMealPriceByKey],
+  );
+
+  const estimateBuilderHeaderMealPriceCardRows = useMemo(() => {
+    const rows: Array<Array<{ mealName: string; pricePerGuest: string }>> = [];
+    for (let index = 0; index < estimateBuilderHeaderMealPriceCards.length; index += 2) {
+      rows.push(estimateBuilderHeaderMealPriceCards.slice(index, index + 2));
+    }
+    return rows;
+  }, [estimateBuilderHeaderMealPriceCards]);
 
   const updateEstimateBuilderMealOverrideDraft = useCallback(
     (
@@ -3266,13 +3562,36 @@ function AppShell() {
     const parsedValue = parseNonNegativeDecimalInput(draft.override_price);
     if (Number.isNaN(parsedValue)) {
       Alert.alert('Invalid override', 'Override per guest must be a non-negative number.');
-      return false;
+      return;
     }
-    return true;
+    const mealName = activeEstimateBuilderMeal || 'Signature Menu';
+    const mealKey = normalizeEstimateMealKey(mealName);
+    const nextValue = parsedValue == null ? '' : parsedValue.toFixed(2);
+    updateEstimateBuilderMealOverrideDraft(mealName, 'override_price', nextValue);
+    setEstimateBuilderEstimate((previous) => {
+      if (!previous) {
+        return previous;
+      }
+      const nextTotals = { ...(previous.manual_meal_totals || {}) };
+      for (const existingMealName of Object.keys(nextTotals)) {
+        if (normalizeEstimateMealKey(existingMealName) === mealKey) {
+          delete nextTotals[existingMealName];
+        }
+      }
+      if (nextValue) {
+        nextTotals[mealName] = nextValue;
+      }
+      return {
+        ...previous,
+        manual_meal_totals: nextTotals,
+      };
+    });
   }, [
+    activeEstimateBuilderMeal,
     activeEstimateBuilderMealDraft,
     activeEstimateBuilderMealKey,
     estimateBuilderMealOverrideDrafts,
+    updateEstimateBuilderMealOverrideDraft,
   ]);
 
   const applyEstimateBuilderMealGuestOverride = useCallback(() => {
@@ -3282,18 +3601,49 @@ function AppShell() {
     const parsedAdults = parseNonNegativeIntegerInput(draft.adults);
     if (Number.isNaN(parsedAdults)) {
       Alert.alert('Invalid guest count', 'Adults override must be a non-negative whole number.');
-      return false;
+      return;
     }
     const parsedKids = parseNonNegativeIntegerInput(draft.kids);
     if (Number.isNaN(parsedKids)) {
       Alert.alert('Invalid guest count', 'Kids override must be a non-negative whole number.');
-      return false;
+      return;
     }
-    return true;
+    const mealName = activeEstimateBuilderMeal || 'Signature Menu';
+    const mealKey = normalizeEstimateMealKey(mealName);
+    const adultsValue = parsedAdults == null ? '' : String(parsedAdults);
+    const kidsValue = parsedKids == null ? '' : String(parsedKids);
+    updateEstimateBuilderMealOverrideDraft(mealName, 'adults', adultsValue);
+    updateEstimateBuilderMealOverrideDraft(mealName, 'kids', kidsValue);
+    setEstimateBuilderEstimate((previous) => {
+      if (!previous) {
+        return previous;
+      }
+      const nextOverrides = { ...(previous.meal_guest_overrides || {}) };
+      for (const existingMealName of Object.keys(nextOverrides)) {
+        if (normalizeEstimateMealKey(existingMealName) === mealKey) {
+          delete nextOverrides[existingMealName];
+        }
+      }
+      if (parsedAdults != null || parsedKids != null) {
+        nextOverrides[mealName] = {};
+        if (parsedAdults != null) {
+          nextOverrides[mealName].adults = parsedAdults;
+        }
+        if (parsedKids != null) {
+          nextOverrides[mealName].kids = parsedKids;
+        }
+      }
+      return {
+        ...previous,
+        meal_guest_overrides: nextOverrides,
+      };
+    });
   }, [
+    activeEstimateBuilderMeal,
     activeEstimateBuilderMealDraft,
     activeEstimateBuilderMealKey,
     estimateBuilderMealOverrideDrafts,
+    updateEstimateBuilderMealOverrideDraft,
   ]);
 
   const toggleEstimateBuilderMenuItem = useCallback(
@@ -5214,25 +5564,62 @@ function AppShell() {
               <>
                 <ScrollView
                   contentContainerStyle={tabbedContentWrapStyle}
-                  keyboardShouldPersistTaps="handled"
+                  keyboardShouldPersistTaps="always"
                   keyboardDismissMode="on-drag"
                 >
                   <View style={styles.sectionCard}>
                     <View style={styles.builderEstimateHeaderRow}>
-                      <View style={styles.builderEstimateHeaderMain}>
+                      <View
+                        style={[
+                          styles.builderEstimateHeaderMain,
+                          estimateBuilderHasMultiMealPrices && styles.builderEstimateHeaderMainMulti,
+                        ]}
+                      >
                         <Text style={styles.savedTitle}>{estimateBuilderEstimate.job_name}</Text>
                         <Text style={styles.subtleText}>
                           #{estimateBuilderEstimate.estimate_number ?? estimateBuilderEstimate.id} •{' '}
                           {estimateBuilderEstimate.caterer_name}
                         </Text>
                       </View>
-                      <View style={styles.builderEstimatePriceCard}>
-                        <Text style={styles.builderEstimatePriceLabel}>Price / guest</Text>
-                        <Text style={styles.builderEstimatePriceValue}>
-                          {estimateBuilderHeaderPricePerGuest
-                            ? `${SHEKEL_SYMBOL}${estimateBuilderHeaderPricePerGuest}`
-                            : '--'}
-                        </Text>
+                      <View
+                        style={[
+                          styles.builderEstimatePriceGrid,
+                          estimateBuilderHasMultiMealPrices && styles.builderEstimatePriceGridMulti,
+                        ]}
+                      >
+                        {estimateBuilderHeaderMealPriceCardRows.map((cardRow, rowIndex) => (
+                          <View
+                            key={`estimate-builder-meal-price-row-${rowIndex + 1}`}
+                            style={styles.builderEstimatePriceRow}
+                          >
+                            {cardRow.map((row) => (
+                              <View
+                                key={`estimate-builder-meal-price-${normalizeEstimateMealKey(row.mealName)}`}
+                                style={[
+                                  styles.builderEstimatePriceCard,
+                                  estimateBuilderHasMultiMealPrices && styles.builderEstimatePriceCardMulti,
+                                ]}
+                              >
+                                {estimateBuilderHasMultiMealPrices ? (
+                                  <Text
+                                    numberOfLines={1}
+                                    ellipsizeMode="tail"
+                                    style={styles.builderEstimatePriceMealName}
+                                  >
+                                    {row.mealName}
+                                  </Text>
+                                ) : null}
+                                <Text style={styles.builderEstimatePriceLabel}>Price / guest</Text>
+                                <Text style={styles.builderEstimatePriceValue}>
+                                  {row.pricePerGuest ? `${SHEKEL_SYMBOL}${row.pricePerGuest}` : '--'}
+                                </Text>
+                              </View>
+                            ))}
+                            {estimateBuilderHasMultiMealPrices && cardRow.length === 1 ? (
+                              <View style={styles.builderEstimatePriceCardSpacer} />
+                            ) : null}
+                          </View>
+                        ))}
                       </View>
                     </View>
                     {!estimateBuilderEstimate.can_edit ? (
@@ -6503,18 +6890,38 @@ function AppShell() {
                     <Pressable style={styles.smallButton} onPress={() => openEstimatePrintOptions(estimate)}>
                       <Text style={styles.smallButtonText}>Print</Text>
                     </Pressable>
-                    <Pressable
-                      style={styles.smallButton}
-                      onPress={() => handleSelectEstimate(estimate, 'expenses')}
-                    >
-                      <Text style={styles.smallButtonText}>Expenses</Text>
-                    </Pressable>
-                    <Pressable
-                      style={styles.smallButton}
-                      onPress={() => handleSelectEstimate(estimate, 'staff')}
-                    >
-                      <Text style={styles.smallButtonText}>Staff</Text>
-                    </Pressable>
+                    {mainTab === 'estimates' ? (
+                      <>
+                        <Pressable
+                          style={styles.smallButton}
+                          onPress={() => handleSelectEstimate(estimate, 'expenses')}
+                        >
+                          <Text style={styles.smallButtonText}>Expenses</Text>
+                        </Pressable>
+                        <Pressable
+                          style={styles.smallButton}
+                          onPress={() => handleSelectEstimate(estimate, 'staff')}
+                        >
+                          <Text style={styles.smallButtonText}>Staff</Text>
+                        </Pressable>
+                      </>
+                    ) : null}
+                    {mainTab === 'expenses' ? (
+                      <Pressable
+                        style={styles.smallButton}
+                        onPress={() => handleSelectEstimate(estimate, 'expenses')}
+                      >
+                        <Text style={styles.smallButtonText}>Expenses</Text>
+                      </Pressable>
+                    ) : null}
+                    {mainTab === 'staff' ? (
+                      <Pressable
+                        style={styles.smallButton}
+                        onPress={() => handleSelectEstimate(estimate, 'staff')}
+                      >
+                        <Text style={styles.smallButtonText}>Staff</Text>
+                      </Pressable>
+                    ) : null}
                   </View>
                 </Pressable>
               ))}
@@ -8396,6 +8803,26 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: 2,
   },
+  builderEstimateHeaderMainMulti: {
+    flex: 0.9,
+    minWidth: 120,
+  },
+  builderEstimatePriceGrid: {
+    alignItems: 'flex-end',
+    justifyContent: 'flex-start',
+    gap: 8,
+  },
+  builderEstimatePriceGridMulti: {
+    flex: 1.1,
+    minWidth: 170,
+    alignItems: 'stretch',
+    justifyContent: 'flex-start',
+  },
+  builderEstimatePriceRow: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    gap: 8,
+  },
   builderEstimatePriceCard: {
     alignItems: 'center',
     justifyContent: 'center',
@@ -8404,8 +8831,23 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     backgroundColor: '#f8fafc',
     paddingHorizontal: 10,
-    paddingVertical: 6,
+    paddingVertical: 7,
     minWidth: 110,
+  },
+  builderEstimatePriceCardMulti: {
+    flex: 1,
+    minWidth: 0,
+    minHeight: 72,
+  },
+  builderEstimatePriceCardSpacer: {
+    flex: 1,
+  },
+  builderEstimatePriceMealName: {
+    color: '#0f172a',
+    fontSize: 10,
+    fontWeight: '700',
+    textAlign: 'center',
+    width: '100%',
   },
   builderEstimatePriceLabel: {
     color: '#64748b',
@@ -9447,6 +9889,8 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
+    zIndex: 60,
+    elevation: 60,
   },
   nativeTabBar: {
     position: 'absolute',
@@ -9462,6 +9906,14 @@ const styles = StyleSheet.create({
     shadowRadius: 0,
     shadowOffset: { width: 0, height: 0 },
     shadowColor: '#000000',
+    zIndex: 60,
+    elevation: 60,
+  },
+  nativeTabButton: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: TAB_BAR_HEIGHT,
   },
   nativeTabItem: {
     flexDirection: 'column',

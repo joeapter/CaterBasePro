@@ -61,6 +61,12 @@
             margin-top: 2rem;
             font-size: 1.2rem;
         }
+        .item-notes {
+            margin-top: 0.2rem;
+            color: #475569;
+            font-style: italic;
+            font-size: 0.86rem;
+        }
         .meal-chip {
             display: inline-block;
             background: #e2e8f0;
@@ -122,7 +128,6 @@
                         <thead>
                             <tr>
                                 <th>Menu Item</th>
-                                <th>Notes</th>
                                 <th class="status-cell">Shop</th>
                                 <th class="status-cell">Prep</th>
                                 <th class="status-cell">Cook</th>
@@ -132,8 +137,12 @@
                         <tbody>
                             {% for item in section.items %}
                                 <tr>
-                                    <td>{{ item.item }}</td>
-                                    <td>{{ item.notes }}</td>
+                                    <td>
+                                        <div>{{ item.item }}</div>
+                                        {% if item.notes %}
+                                            <div class="item-notes">({{ item.notes }})</div>
+                                        {% endif %}
+                                    </td>
                                     <td class="status-cell"><span class="checkbox"></span></td>
                                     <td class="status-cell"><span class="checkbox"></span></td>
                                     <td class="status-cell"><span class="checkbox"></span></td>

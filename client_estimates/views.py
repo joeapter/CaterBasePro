@@ -588,6 +588,9 @@ def _serialize_mobile_estimate(request, user, estimate, access_map=None):
     planner_print_url = request.build_absolute_uri(
         reverse("admin:client_estimates_estimate_planner_print", args=[estimate.id])
     )
+    workflow_print_url = request.build_absolute_uri(
+        reverse("admin:client_estimates_estimate_workflow", args=[estimate.id])
+    )
 
     return {
         "id": estimate.id,
@@ -614,6 +617,8 @@ def _serialize_mobile_estimate(request, user, estimate, access_map=None):
             "estimate_flat_print": f"{estimate_print_flat_url}?print=1",
             "planner": planner_print_url,
             "planner_print": f"{planner_print_url}?print=1",
+            "workflow": workflow_print_url,
+            "workflow_print": f"{workflow_print_url}?print=1",
         },
     }
 
@@ -2291,7 +2296,7 @@ def xpenz_estimate_print_html(request, estimate_id):
         return _json_error("You do not have access to this estimate.", status=403)
 
     variant = (request.GET.get("variant") or "estimate").strip().lower()
-    if variant not in {"estimate", "flat", "planner"}:
+    if variant not in {"estimate", "flat", "planner", "workflow"}:
         return _json_error("Invalid print variant.", status=400)
 
     # Delegate to admin print rendering so page-breaks, compacting, and styling
@@ -2314,11 +2319,22 @@ def xpenz_estimate_print_html(request, estimate_id):
     request.user = effective_user
     admin_view = EstimateAdmin(Estimate, django_admin.site)
 
-    if variant == "planner":
-        return admin_view.print_planner(request, estimate_id)
-    if variant == "flat":
-        return admin_view.print_estimate_flat(request, estimate_id)
-    return admin_view.print_estimate(request, estimate_id)
+    try:
+        if variant == "planner":
+            return admin_view.print_planner(request, estimate_id)
+        if variant == "flat":
+            return admin_view.print_estimate_flat(request, estimate_id)
+        if variant == "workflow":
+            return admin_view.workflow_view(request, estimate_id)
+        return admin_view.print_estimate(request, estimate_id)
+    except PermissionDenied:
+        return _json_error("You do not have access to this printout.", status=403)
+    except Exception as exc:
+        logger.exception(
+            "xpenz_estimate_print_html failed",
+            extra={"estimate_id": estimate_id, "variant": variant},
+        )
+        return _json_error(f"Print rendering failed: {exc}", status=500)
 
 
 @csrf_exempt

@@ -2579,7 +2579,7 @@ class EstimateAdmin(admin.ModelAdmin):
             meal_bucket.append(
                 {
                     "item": choice.menu_item.name if choice.menu_item else "",
-                    "notes": choice.notes,
+                    "notes": (choice.notes or "").strip(),
                     "category": category,
                     "category_order": order,
                 }

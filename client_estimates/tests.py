@@ -12,7 +12,10 @@ from .models import (
     CatererAccount,
     CatererUserAccess,
     Estimate,
+    EstimateFoodChoice,
     EstimateExpenseEntry,
+    MenuCategory,
+    MenuItem,
     ShoppingList,
     ShoppingListItem,
     EstimateStaffTimeEntry,
@@ -156,6 +159,51 @@ class XpenzApiTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn("text/html", response["Content-Type"])
         self.assertContains(response, self.estimate.customer_name)
+
+    def test_estimate_print_html_endpoint_supports_workflow_variant(self):
+        token = self._login_and_get_token()
+        response = self.client.get(
+            reverse("xpenz_estimate_print_html", args=[self.estimate.id]),
+            {"variant": "workflow"},
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("text/html", response["Content-Type"])
+        self.assertContains(response, "Kitchen Workflow")
+
+    def test_admin_workflow_print_includes_menu_item_notes(self):
+        self.user.is_superuser = True
+        self.user.save(update_fields=["is_superuser"])
+        self.client.force_login(self.user)
+
+        category = MenuCategory.objects.create(
+            caterer=self.caterer,
+            name="Appetizers",
+            sort_order=1,
+        )
+        menu_item = MenuItem.objects.create(
+            caterer=self.caterer,
+            category=category,
+            name="Burger Slider",
+            cost_per_serving=Decimal("1.00"),
+            markup=Decimal("1.00"),
+        )
+        EstimateFoodChoice.objects.create(
+            estimate=self.estimate,
+            menu_item=menu_item,
+            meal_name="Friday Night",
+            included=True,
+            notes="No sesame",
+        )
+        self.estimate.meal_plan = ["Friday Night"]
+        self.estimate.save(update_fields=["meal_plan"])
+
+        response = self.client.get(
+            reverse("admin:client_estimates_estimate_workflow", args=[self.estimate.id]),
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Burger Slider")
+        self.assertContains(response, "(No sesame)")
 
     def test_estimate_builder_saves_per_meal_overrides(self):
         token = self._login_and_get_token()
