@@ -465,6 +465,8 @@ const SHEKEL_SYMBOL = '₪';
 const DEFAULT_SHOPPING_UNIT_OPTIONS = ['Kg', 'Pieces', 'Cans'];
 const NUMERIC_INPUT_ACCESSORY_ID = 'xpenz-numeric-accessory';
 const TAB_BAR_HEIGHT = 49;
+const PDF_A4_WIDTH_POINTS = 595.28;
+const PDF_A4_HEIGHT_POINTS = 841.89;
 const TAB_NAME_BY_MAIN: Record<MainTab, keyof RootTabParamList> = {
   estimates: 'Estimates',
   shopping: 'Shopping',
@@ -2681,10 +2683,19 @@ function AppShell() {
       const htmlWithBase = /<base\s/i.test(html)
         ? html
         : html.replace(/<head(\s[^>]*)?>/i, (match) => `${match}<base href="${baseHref}">`);
+      const htmlForPdf = htmlWithBase.replace(/@media\s+print/gi, '@media all');
       const file = await Print.printToFileAsync({
-        html: htmlWithBase,
+        html: htmlForPdf,
+        width: PDF_A4_WIDTH_POINTS,
+        height: PDF_A4_HEIGHT_POINTS,
+        margins: {
+          top: 0,
+          right: 0,
+          bottom: 0,
+          left: 0,
+        },
       });
-      return { uri: file.uri, html: htmlWithBase };
+      return { uri: file.uri, html: htmlForPdf };
     },
     [apiBaseUrl, token],
   );
