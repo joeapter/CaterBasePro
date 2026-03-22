@@ -51,16 +51,31 @@ from .kiddush_menu import ensure_kiddush_menu, ensure_kiddush_planning_fee_line
 # 🔐 PERMISSIONS & SCOPING
 # ==========================
 def limit_to_user_caterer(queryset, request):
-    if request.user.is_superuser:
+    user = getattr(request, "user", None)
+    if not getattr(user, "is_authenticated", False):
+        return queryset.none()
+    if user.is_superuser:
         return queryset
-    return queryset.filter(caterer__owner=request.user)
+    return queryset.filter(caterer__owner=user)
 
 def user_can_access_caterer(request, obj=None):
-    if request.user.is_superuser:
+    user = getattr(request, "user", None)
+    if not getattr(user, "is_authenticated", False):
+        return False
+    if user.is_superuser:
         return True
     if obj is None:
         return False
-    return obj.owner == request.user
+    return obj.owner == user
+
+
+def user_has_caterer_account(request):
+    user = getattr(request, "user", None)
+    if not getattr(user, "is_authenticated", False):
+        return False
+    if user.is_superuser:
+        return True
+    return CatererAccount.objects.filter(owner=user).exists()
 
 
 def parse_meal_plan(raw_value):
@@ -343,9 +358,7 @@ class ClientInquiryAdmin(admin.ModelAdmin):
         return form
 
     def has_add_permission(self, request):
-        if request.user.is_superuser:
-            return True
-        return CatererAccount.objects.filter(owner=request.user).exists()
+        return user_has_caterer_account(request)
 
 
 @admin.register(ClientProfile)
@@ -384,9 +397,7 @@ class CatererTaskAdmin(admin.ModelAdmin):
         return form
 
     def has_add_permission(self, request):
-        if request.user.is_superuser:
-            return True
-        return CatererAccount.objects.filter(owner=request.user).exists()
+        return user_has_caterer_account(request)
 
 # ==========================
 # MENU ITEM ADMIN + CSV UPLOAD
@@ -483,9 +494,7 @@ class TastingAppointmentAdmin(admin.ModelAdmin):
         return obj and obj.caterer.owner == request.user
 
     def has_add_permission(self, request):
-        if request.user.is_superuser:
-            return True
-        return CatererAccount.objects.filter(owner=request.user).exists()
+        return user_has_caterer_account(request)
 
     def save_model(self, request, obj, form, change):
         if obj.estimate:
@@ -715,7 +724,7 @@ class PlannerOptionIconAdmin(admin.ModelAdmin):
         return limit_to_user_caterer(qs, request)
 
     def has_module_permission(self, request):
-        return request.user.is_superuser or CatererAccount.objects.filter(owner=request.user).exists()
+        return user_has_caterer_account(request)
 
     def has_view_permission(self, request, obj=None):
         if request.user.is_superuser:
