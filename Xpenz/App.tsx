@@ -465,6 +465,7 @@ const SHEKEL_SYMBOL = '₪';
 const DEFAULT_SHOPPING_UNIT_OPTIONS = ['Kg', 'Pieces', 'Cans'];
 const NUMERIC_INPUT_ACCESSORY_ID = 'xpenz-numeric-accessory';
 const TAB_BAR_HEIGHT = 49;
+const TAB_BAR_TOUCH_TOP_EXTRA = 14;
 const PDF_A4_WIDTH_POINTS = 595.28;
 const PDF_A4_HEIGHT_POINTS = 841.89;
 const TAB_NAME_BY_MAIN: Record<MainTab, keyof RootTabParamList> = {
@@ -878,97 +879,6 @@ function apiUrl(baseUrl: string, path: string) {
   const cleanBase = normalizeBaseUrl(baseUrl);
   const cleanPath = path.startsWith('/') ? path : `/${path}`;
   return `${cleanBase}${cleanPath}`;
-}
-
-function forcePdfPageFitRules(html: string) {
-  let output = html.replace(/@media\s+print/gi, '@media all');
-  const styleTag = `
-<style id="xpenz-pdf-page-fit">
-  @page {
-    size: A4 !important;
-    margin: 0 !important;
-  }
-  html, body {
-    width: 210mm !important;
-    margin: 0 !important;
-    padding: 0 !important;
-  }
-  .estimate-sheet,
-  .sheet {
-    width: 210mm !important;
-    min-height: 297mm !important;
-    height: 297mm !important;
-    max-height: 297mm !important;
-    margin: 0 !important;
-    page-break-after: always !important;
-    break-after: page !important;
-    page-break-inside: avoid !important;
-    break-inside: avoid !important;
-    box-sizing: border-box !important;
-    overflow: hidden !important;
-  }
-  .estimate-sheet:last-of-type,
-  .sheet:last-of-type {
-    page-break-after: auto !important;
-    break-after: auto !important;
-  }
-</style>`;
-  if (/<\/head>/i.test(output)) {
-    output = output.replace(/<\/head>/i, `${styleTag}</head>`);
-  } else {
-    output = `${styleTag}${output}`;
-  }
-
-  const scriptTag = `
-<script id="xpenz-pdf-page-fit-script">
-  (function () {
-    var PX_PER_MM = 96 / 25.4;
-    var PAGE_MM_HEIGHT = 297;
-    var MIN_SCALE = 0.72;
-    function clamp(value, min, max) {
-      return Math.min(max, Math.max(min, value));
-    }
-    function fitPage(page) {
-      if (!page) return;
-      page.style.transform = '';
-      page.style.transformOrigin = 'top left';
-      page.style.width = '210mm';
-      page.style.height = '297mm';
-      page.style.minHeight = '297mm';
-      page.style.maxHeight = '297mm';
-      page.style.overflow = 'hidden';
-
-      var availableHeight = page.clientHeight || PAGE_MM_HEIGHT * PX_PER_MM;
-      var contentHeight = page.scrollHeight || 0;
-      if (!contentHeight || contentHeight <= availableHeight + 1) {
-        return;
-      }
-      var scale = clamp(availableHeight / contentHeight, MIN_SCALE, 1);
-      page.style.transform = 'scale(' + scale.toFixed(4) + ')';
-      page.style.width = (210 / scale).toFixed(4) + 'mm';
-    }
-    function fitAllPages() {
-      var pages = document.querySelectorAll('.estimate-sheet, .sheet');
-      pages.forEach(fitPage);
-    }
-    function runFit() {
-      fitAllPages();
-      setTimeout(fitAllPages, 120);
-      setTimeout(fitAllPages, 260);
-    }
-    if (document.readyState === 'complete') {
-      runFit();
-    } else {
-      window.addEventListener('load', runFit);
-    }
-  })();
-</script>`;
-  if (/<\/body>/i.test(output)) {
-    output = output.replace(/<\/body>/i, `${scriptTag}</body>`);
-  } else {
-    output = `${output}${scriptTag}`;
-  }
-  return output;
 }
 
 function localId() {
@@ -2530,7 +2440,10 @@ function AppShell() {
     }
   }, []);
 
-  const tabBarHeight = useMemo(() => TAB_BAR_HEIGHT + insets.bottom, [insets.bottom]);
+  const tabBarHeight = useMemo(
+    () => TAB_BAR_HEIGHT + insets.bottom + TAB_BAR_TOUCH_TOP_EXTRA,
+    [insets.bottom],
+  );
   const modalTopInset = useMemo(() => Math.max(insets.top, 8), [insets.top]);
   const modalHeaderStyle = useMemo(
     () => [styles.plannerEditorHeader, { paddingTop: modalTopInset + 6 }],
@@ -2555,7 +2468,7 @@ function AppShell() {
     () => [
       styles.nativeTabItem,
       {
-        height: TAB_BAR_HEIGHT,
+        height: TAB_BAR_HEIGHT + TAB_BAR_TOUCH_TOP_EXTRA,
       },
     ],
     [],
@@ -2564,22 +2477,22 @@ function AppShell() {
     () => [
       styles.nativeTabButton,
       {
-        height: TAB_BAR_HEIGHT + 14,
+        height: TAB_BAR_HEIGHT + TAB_BAR_TOUCH_TOP_EXTRA,
         marginTop: -10,
       },
     ],
     [],
   );
   const tabbedContentWrapStyle = useMemo(
-    () => [styles.contentWrap, { paddingBottom: insets.bottom + 10 }],
+    () => [styles.contentWrap, { paddingBottom: insets.bottom + TAB_BAR_TOUCH_TOP_EXTRA + 10 }],
     [insets.bottom],
   );
   const tabbedJobsListWrapStyle = useMemo(
-    () => [styles.jobsListWrap, { paddingBottom: insets.bottom + 10 }],
+    () => [styles.jobsListWrap, { paddingBottom: insets.bottom + TAB_BAR_TOUCH_TOP_EXTRA + 10 }],
     [insets.bottom],
   );
   const tabbedNativeContentWrapStyle = useMemo(
-    () => [styles.nativeContentWrap, { paddingBottom: insets.bottom + 10 }],
+    () => [styles.nativeContentWrap, { paddingBottom: insets.bottom + TAB_BAR_TOUCH_TOP_EXTRA + 10 }],
     [insets.bottom],
   );
 
@@ -2796,7 +2709,7 @@ function AppShell() {
       const htmlWithBase = /<base\s/i.test(html)
         ? html
         : html.replace(/<head(\s[^>]*)?>/i, (match) => `${match}<base href="${baseHref}">`);
-      const htmlForPdf = forcePdfPageFitRules(htmlWithBase);
+      const htmlForPdf = htmlWithBase;
       const file = await Print.printToFileAsync({
         html: htmlForPdf,
         width: PDF_A4_WIDTH_POINTS,
