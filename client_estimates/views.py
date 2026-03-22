@@ -1626,13 +1626,8 @@ def _serialize_estimate_builder_payload(request, user, estimate, access_map=None
                 "price_per_serving": _to_decimal_string(item.price_per_serving(), "0.00"),
             }
         )
-    menu_categories = sorted(
-        menu_categories_map.values(),
-        key=lambda row: (
-            row["name"].lower() if row["name"] else "",
-            1 if row["id"] is None else 0,
-        ),
-    )
+    # Keep DB/admin order: category sort order first, then item ordering from queryset.
+    menu_categories = list(menu_categories_map.values())
 
     extra_categories_map = {}
     extra_category_labels = {code: label for code, label in ExtraItem.CATEGORY_CHOICES}

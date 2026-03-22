@@ -8,10 +8,28 @@ import {
   useAudioRecorder,
   useAudioRecorderState,
 } from 'expo-audio';
+import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import {
+  NavigationContainer,
+  type NavigationContainerRef,
+} from '@react-navigation/native';
+import {
+  CalendarCheck2,
+  ChevronRight,
+  CircleEllipsis,
+  FileText,
+  Plus,
+  ReceiptText,
+  RefreshCcw,
+  ShoppingBag,
+  Users,
+} from 'lucide-react-native';
+import {
+  type ReactNode,
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
 import {
@@ -25,7 +43,6 @@ import {
   Modal,
   Platform,
   Pressable,
-  SafeAreaView,
   Share,
   ScrollView,
   StyleSheet,
@@ -34,6 +51,8 @@ import {
   TouchableWithoutFeedback,
   View,
 } from 'react-native';
+import { GestureHandlerRootView, Swipeable } from 'react-native-gesture-handler';
+import { SafeAreaProvider, SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 type EstimateRow = {
   id: number;
@@ -64,6 +83,14 @@ type EstimateRow = {
 };
 
 type MainTab = 'estimates' | 'shopping' | 'planner' | 'expenses' | 'staff';
+
+type RootTabParamList = {
+  Estimates: undefined;
+  Shopping: undefined;
+  Planner: undefined;
+  Expenses: undefined;
+  Staff: undefined;
+};
 
 type EstimateBuilderStep =
   | 'customer'
@@ -273,6 +300,11 @@ type ShoppingCatalogCategory = {
   items: ShoppingCatalogItem[];
 };
 
+type ShoppingCatalogListItem = ShoppingCatalogItem & {
+  category: string;
+  category_label: string;
+};
+
 type PlannerSectionCode =
   | 'DECOR'
   | 'RENTALS'
@@ -397,10 +429,26 @@ type ApiRequestError = Error & {
 
 const TOKEN_KEY = 'xpenz_token';
 const BASE_URL_KEY = 'xpenz_base_url';
+const SHOPPING_LAST_QTY_KEY = 'xpenz_shopping_last_qty';
 const DEFAULT_BASE_URL = 'https://www.caterbasepro.com';
 const SHEKEL_SYMBOL = '₪';
 const DEFAULT_SHOPPING_UNIT_OPTIONS = ['Kg', 'Pieces', 'Cans'];
 const NUMERIC_INPUT_ACCESSORY_ID = 'xpenz-numeric-accessory';
+const TAB_BAR_HEIGHT = 49;
+const TAB_NAME_BY_MAIN: Record<MainTab, keyof RootTabParamList> = {
+  estimates: 'Estimates',
+  shopping: 'Shopping',
+  planner: 'Planner',
+  expenses: 'Expenses',
+  staff: 'Staff',
+};
+const MAIN_TAB_BY_NAME: Record<keyof RootTabParamList, MainTab> = {
+  Estimates: 'estimates',
+  Shopping: 'shopping',
+  Planner: 'planner',
+  Expenses: 'expenses',
+  Staff: 'staff',
+};
 const PLANNER_SECTION_CHOICES: PlannerSectionConfig[] = [
   {
     code: 'DECOR',
@@ -952,7 +1000,65 @@ function plannerFieldsForSelection(
   return group.fields || [];
 }
 
-export default function App() {
+const Tab = createBottomTabNavigator<RootTabParamList>();
+
+type NativeListItemProps = {
+  title: string;
+  subtitle?: string;
+  meta?: string;
+  onPress?: () => void;
+  onLongPress?: () => void;
+  rightSlot?: ReactNode;
+  disabled?: boolean;
+  dimmed?: boolean;
+};
+
+function NativeListItem({
+  title,
+  subtitle,
+  meta,
+  onPress,
+  onLongPress,
+  rightSlot,
+  disabled = false,
+  dimmed = false,
+}: NativeListItemProps) {
+  const isInteractive = !!onPress || !!onLongPress;
+  return (
+    <Pressable
+      style={({ pressed }) => [
+        styles.nativeListRow,
+        isInteractive && pressed && styles.nativeListRowPressed,
+        dimmed && styles.nativeListRowDimmed,
+      ]}
+      onPress={onPress}
+      onLongPress={onLongPress}
+      disabled={disabled || !isInteractive}
+    >
+      <View style={styles.nativeListRowBody}>
+        <Text style={styles.nativeListRowTitle}>{title}</Text>
+        {subtitle ? <Text style={styles.nativeListRowSubtitle}>{subtitle}</Text> : null}
+        {meta ? <Text style={styles.nativeListRowMeta}>{meta}</Text> : null}
+      </View>
+      <View style={styles.nativeListRowRight}>{rightSlot}</View>
+    </Pressable>
+  );
+}
+
+function EmptyTabScreen() {
+  return null;
+}
+
+function renderMainTabIcon(name: keyof RootTabParamList, color: string, size: number) {
+  if (name === 'Estimates') return <FileText size={size} color={color} />;
+  if (name === 'Shopping') return <ShoppingBag size={size} color={color} />;
+  if (name === 'Planner') return <CalendarCheck2 size={size} color={color} />;
+  if (name === 'Expenses') return <ReceiptText size={size} color={color} />;
+  return <Users size={size} color={color} />;
+}
+
+function AppShell() {
+  const insets = useSafeAreaInsets();
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const recorderState = useAudioRecorderState(recorder, 300);
 
@@ -1016,14 +1122,20 @@ export default function App() {
   const [shoppingEstimateRefId, setShoppingEstimateRefId] = useState<number | null>(null);
   const [shoppingListScreenMode, setShoppingListScreenMode] = useState<'manage' | 'list'>('manage');
   const [showEstimatePicker, setShowEstimatePicker] = useState(false);
-  const [newShoppingItemName, setNewShoppingItemName] = useState('');
-  const [newShoppingItemType, setNewShoppingItemType] = useState('');
-  const [newShoppingItemQuantity, setNewShoppingItemQuantity] = useState('');
-  const [newShoppingItemUnit, setNewShoppingItemUnit] = useState('');
-  const [selectedCatalogItem, setSelectedCatalogItem] = useState<ShoppingCatalogItem | null>(null);
-  const [catalogItemType, setCatalogItemType] = useState('');
-  const [catalogItemQuantity, setCatalogItemQuantity] = useState('');
-  const [catalogItemUnit, setCatalogItemUnit] = useState('');
+  const [savedItemSearchText, setSavedItemSearchText] = useState('');
+  const [savedItemExpandedKey, setSavedItemExpandedKey] = useState<string | null>(null);
+  const [savedItemQuickQty, setSavedItemQuickQty] = useState('1');
+  const [savedItemQuickUnit, setSavedItemQuickUnit] = useState('');
+  const [savedItemQuickType, setSavedItemQuickType] = useState('');
+  const [savedItemQuickUnitPickerOpen, setSavedItemQuickUnitPickerOpen] = useState(false);
+  const [savedItemLastQtyByKey, setSavedItemLastQtyByKey] = useState<Record<string, string>>({});
+  const [shoppingItemEditorOpen, setShoppingItemEditorOpen] = useState(false);
+  const [shoppingEditingItemId, setShoppingEditingItemId] = useState<number | null>(null);
+  const [shoppingEditName, setShoppingEditName] = useState('');
+  const [shoppingEditType, setShoppingEditType] = useState('');
+  const [shoppingEditQty, setShoppingEditQty] = useState('');
+  const [shoppingEditUnit, setShoppingEditUnit] = useState('');
+  const [savingShoppingEdit, setSavingShoppingEdit] = useState(false);
   const [openCatalogCategory, setOpenCatalogCategory] = useState<string | null>(null);
   const [selectedPlannerEstimate, setSelectedPlannerEstimate] = useState<EstimateRow | null>(null);
   const [plannerSection, setPlannerSection] = useState<PlannerSectionCode | null>(null);
@@ -1049,6 +1161,8 @@ export default function App() {
   const [plannerEditorFieldCards, setPlannerEditorFieldCards] = useState<PlannerEditorFieldCard[]>([]);
   const [plannerFieldCardsManagerOpen, setPlannerFieldCardsManagerOpen] = useState(false);
   const [plannerNewOptionName, setPlannerNewOptionName] = useState('');
+  const tabNavigationRef = useRef<NavigationContainerRef<RootTabParamList> | null>(null);
+  const savedItemSearchInputRef = useRef<TextInput | null>(null);
 
   const [drafts, setDrafts] = useState<ExpenseDraft[]>([]);
   const [activeRecordingDraftId, setActiveRecordingDraftId] = useState<string | null>(null);
@@ -1225,13 +1339,8 @@ export default function App() {
           : [];
         setShoppingCatalogCategories(categories);
         setOpenCatalogCategory((prev) => {
-          if (!categories.length) {
-            return null;
-          }
-          if (prev && categories.some((category) => category.category === prev)) {
-            return prev;
-          }
-          return categories[0].category;
+          if (prev && categories.some((category) => category.category === prev)) return prev;
+          return null;
         });
       } finally {
         setLoadingShoppingCatalog(false);
@@ -1275,19 +1384,29 @@ export default function App() {
     [estimates, shoppingEstimateRefId],
   );
 
-  const shoppingCatalogItemByName = useMemo(() => {
-    const index = new Map<string, ShoppingCatalogItem>();
+  const shoppingCatalogItemsFlat = useMemo(() => {
+    const rows: ShoppingCatalogListItem[] = [];
     for (const category of shoppingCatalogCategories) {
       for (const item of category.items) {
-        const key = item.item_name.trim().toLowerCase();
-        if (!key || index.has(key)) {
-          continue;
-        }
-        index.set(key, item);
+        rows.push({
+          ...item,
+          category: category.category,
+          category_label: category.category_label,
+        });
       }
     }
-    return index;
+    return rows;
   }, [shoppingCatalogCategories]);
+
+  const shoppingCatalogListItemByName = useMemo(() => {
+    const index = new Map<string, ShoppingCatalogListItem>();
+    for (const item of shoppingCatalogItemsFlat) {
+      const key = item.item_name.trim().toLowerCase();
+      if (!key || index.has(key)) continue;
+      index.set(key, item);
+    }
+    return index;
+  }, [shoppingCatalogItemsFlat]);
 
   const shoppingSections = useMemo(() => {
     const grouped = new Map<string, { label: string; items: ShoppingItem[] }>();
@@ -1300,25 +1419,118 @@ export default function App() {
     return Array.from(grouped.values());
   }, [shoppingItems]);
 
-  const knownUnitOptions = useMemo(() => {
-    const fromCatalog = shoppingCatalogCategories.flatMap((category) =>
-      category.items.flatMap((item) => item.unit_options || []),
-    );
-    return mergeOptionValues(
-      DEFAULT_SHOPPING_UNIT_OPTIONS,
-      fromCatalog,
-      [newShoppingItemUnit],
-    );
-  }, [newShoppingItemUnit, shoppingCatalogCategories]);
+  const shoppingAllUnitOptions = useMemo(() => {
+    const fromCatalog = shoppingCatalogItemsFlat.flatMap((item) => item.unit_options || []);
+    return mergeOptionValues(DEFAULT_SHOPPING_UNIT_OPTIONS, fromCatalog, [savedItemQuickUnit]);
+  }, [savedItemQuickUnit, shoppingCatalogItemsFlat]);
 
-  const selectedCatalogUnitOptions = useMemo(
+  const recentSavedItems = useMemo(() => {
+    const sorted = [...shoppingItems].sort(
+      (left, right) =>
+        new Date(right.created_at || '').getTime() - new Date(left.created_at || '').getTime(),
+    );
+    const seen = new Set<string>();
+    const rows: ShoppingCatalogListItem[] = [];
+    for (const row of sorted) {
+      const key = (row.item_name || '').trim().toLowerCase();
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      const catalog = shoppingCatalogListItemByName.get(key);
+      if (catalog) {
+        rows.push(catalog);
+      } else {
+        rows.push({
+          item_name: row.item_name,
+          category: row.category,
+          category_label: row.category_label,
+          type_options: row.item_type ? [row.item_type] : [],
+          unit_options: row.item_unit ? [row.item_unit] : [],
+          last_used_unit: row.item_unit || '',
+          usage_count: 0,
+        });
+      }
+      if (rows.length >= 8) break;
+    }
+    return rows;
+  }, [shoppingCatalogListItemByName, shoppingItems]);
+
+  const frequentSavedItems = useMemo(() => {
+    const seen = new Set<string>();
+    return [...shoppingCatalogItemsFlat]
+      .sort((left, right) => {
+        if (right.usage_count !== left.usage_count) {
+          return right.usage_count - left.usage_count;
+        }
+        return left.item_name.localeCompare(right.item_name);
+      })
+      .filter((item) => {
+        const key = item.item_name.trim().toLowerCase();
+        if (!key || seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .slice(0, 10);
+  }, [shoppingCatalogItemsFlat]);
+
+  const filteredSavedItems = useMemo(() => {
+    const query = savedItemSearchText.trim().toLowerCase();
+    if (!query) return [] as ShoppingCatalogListItem[];
+    const starts: ShoppingCatalogListItem[] = [];
+    const includes: ShoppingCatalogListItem[] = [];
+    for (const item of shoppingCatalogItemsFlat) {
+      const name = item.item_name.trim().toLowerCase();
+      if (!name.includes(query)) continue;
+      if (name.startsWith(query)) {
+        starts.push(item);
+      } else {
+        includes.push(item);
+      }
+    }
+    const seen = new Set<string>();
+    return [...starts, ...includes].filter((item) => {
+      const key = item.item_name.trim().toLowerCase();
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, [savedItemSearchText, shoppingCatalogItemsFlat]);
+
+  const hasExactSavedItemMatch = useMemo(() => {
+    const query = savedItemSearchText.trim().toLowerCase();
+    if (!query) return true;
+    return shoppingCatalogListItemByName.has(query);
+  }, [savedItemSearchText, shoppingCatalogListItemByName]);
+
+  const quickAddExpandedItem = useMemo(() => {
+    if (!savedItemExpandedKey || savedItemExpandedKey === '__new__') return null;
+    return shoppingCatalogListItemByName.get(savedItemExpandedKey) || null;
+  }, [savedItemExpandedKey, shoppingCatalogListItemByName]);
+
+  const expandedItemInRecent = useMemo(() => {
+    if (!savedItemExpandedKey || savedItemExpandedKey === '__new__') return false;
+    return recentSavedItems.some(
+      (item) => item.item_name.trim().toLowerCase() === savedItemExpandedKey,
+    );
+  }, [recentSavedItems, savedItemExpandedKey]);
+
+  const frequentExpandedItem = useMemo(() => {
+    if (!savedItemExpandedKey || savedItemExpandedKey === '__new__') return null;
+    return (
+      frequentSavedItems.find(
+        (item) => item.item_name.trim().toLowerCase() === savedItemExpandedKey,
+      ) || null
+    );
+  }, [frequentSavedItems, savedItemExpandedKey]);
+
+  const quickAddUnitOptions = useMemo(
     () =>
       mergeOptionValues(
         DEFAULT_SHOPPING_UNIT_OPTIONS,
-        selectedCatalogItem?.unit_options || [],
-        [catalogItemUnit],
+        quickAddExpandedItem?.unit_options || [],
+        shoppingAllUnitOptions,
+        [savedItemQuickUnit],
       ),
-    [catalogItemUnit, selectedCatalogItem],
+    [quickAddExpandedItem?.unit_options, savedItemQuickUnit, shoppingAllUnitOptions],
   );
 
   const estimateBuilderMealPlan = useMemo(
@@ -1859,25 +2071,27 @@ export default function App() {
   }, [plannerOptionCards, plannerSearchText]);
 
   useEffect(() => {
-    const itemNameKey = newShoppingItemName.trim().toLowerCase();
-    if (!itemNameKey || newShoppingItemUnit.trim()) {
-      return;
-    }
-    const matchedItem = shoppingCatalogItemByName.get(itemNameKey);
-    const rememberedUnit = (matchedItem?.last_used_unit || '').trim();
-    if (!rememberedUnit) {
-      return;
-    }
-    setNewShoppingItemUnit(rememberedUnit);
-  }, [newShoppingItemName, newShoppingItemUnit, shoppingCatalogItemByName]);
-
-  useEffect(() => {
     async function bootstrap() {
       try {
-        const [savedToken, savedBase] = await Promise.all([
+        const [savedToken, savedBase, savedQtyDefaults] = await Promise.all([
           SecureStore.getItemAsync(TOKEN_KEY),
           SecureStore.getItemAsync(BASE_URL_KEY),
+          SecureStore.getItemAsync(SHOPPING_LAST_QTY_KEY),
         ]);
+        if (savedQtyDefaults) {
+          try {
+            const parsed = JSON.parse(savedQtyDefaults) as Record<string, unknown>;
+            const next: Record<string, string> = {};
+            for (const [key, value] of Object.entries(parsed || {})) {
+              if (typeof value === 'string') {
+                next[key] = value;
+              }
+            }
+            setSavedItemLastQtyByKey(next);
+          } catch {
+            // Ignore invalid local cache.
+          }
+        }
         if (savedBase) {
           setApiBaseUrl(savedBase);
         }
@@ -1902,6 +2116,12 @@ export default function App() {
 
     bootstrap();
   }, [loadEstimates, loadShoppingCatalog, loadShoppingLists]);
+
+  useEffect(() => {
+    SecureStore.setItemAsync(SHOPPING_LAST_QTY_KEY, JSON.stringify(savedItemLastQtyByKey)).catch(() => {
+      // Ignore storage write failures and keep the in-memory defaults.
+    });
+  }, [savedItemLastQtyByKey]);
 
   useEffect(() => {
     if (shoppingEstimateRefId) {
@@ -1930,8 +2150,8 @@ export default function App() {
           if (payload.deleted || payload.shopping_list?.is_deleted) {
             setSelectedShoppingList(null);
             setShoppingItems([]);
-            setSelectedCatalogItem(null);
-            setCatalogItemUnit('');
+            setSavedItemExpandedKey(null);
+            setSavedItemQuickUnitPickerOpen(false);
             setShoppingListScreenMode('manage');
             await Promise.all([loadShoppingLists(), loadShoppingCatalog()]);
             return;
@@ -1958,8 +2178,8 @@ export default function App() {
           if (status === 404) {
             setSelectedShoppingList(null);
             setShoppingItems([]);
-            setSelectedCatalogItem(null);
-            setCatalogItemUnit('');
+            setSavedItemExpandedKey(null);
+            setSavedItemQuickUnitPickerOpen(false);
             setShoppingListScreenMode('manage');
             await Promise.all([loadShoppingLists(), loadShoppingCatalog()]);
             return;
@@ -1982,6 +2202,16 @@ export default function App() {
     selectedShoppingList?.id,
     token,
   ]);
+
+  useEffect(() => {
+    if (mainTab !== 'shopping' || !selectedShoppingList?.id || shoppingListScreenMode !== 'manage') {
+      return;
+    }
+    const timer = setTimeout(() => {
+      savedItemSearchInputRef.current?.focus();
+    }, 120);
+    return () => clearTimeout(timer);
+  }, [mainTab, selectedShoppingList?.id, shoppingListScreenMode]);
 
   const handleLogin = useCallback(async () => {
     const cleanBase = normalizeBaseUrl(apiBaseUrl);
@@ -2068,14 +2298,20 @@ export default function App() {
       setShoppingListScreenMode('manage');
       setDeletingShoppingListId(null);
       setShowEstimatePicker(false);
-      setNewShoppingItemName('');
-      setNewShoppingItemType('');
-      setNewShoppingItemQuantity('');
-      setNewShoppingItemUnit('');
-      setSelectedCatalogItem(null);
-      setCatalogItemType('');
-      setCatalogItemQuantity('');
-      setCatalogItemUnit('');
+      setSavedItemSearchText('');
+      setSavedItemExpandedKey(null);
+      setSavedItemQuickQty('1');
+      setSavedItemQuickUnit('');
+      setSavedItemQuickType('');
+      setSavedItemQuickUnitPickerOpen(false);
+      setSavedItemLastQtyByKey({});
+      setShoppingItemEditorOpen(false);
+      setShoppingEditingItemId(null);
+      setShoppingEditName('');
+      setShoppingEditType('');
+      setShoppingEditQty('');
+      setShoppingEditUnit('');
+      setSavingShoppingEdit(false);
       setOpenCatalogCategory(null);
       setSelectedPlannerEstimate(null);
       setPlannerSection(null);
@@ -2110,6 +2346,7 @@ export default function App() {
       setSelectedEstimate(estimate);
       if (targetTab === 'expenses' || targetTab === 'staff') {
         setMainTab(targetTab);
+        tabNavigationRef.current?.navigate(TAB_NAME_BY_MAIN[targetTab]);
       }
       setDrafts([]);
       try {
@@ -2124,13 +2361,107 @@ export default function App() {
     [loadEntries, loadStaffSummary],
   );
 
-  const switchMainTab = useCallback((nextTab: MainTab) => {
+  const switchMainTab = useCallback((nextTab: MainTab, syncNavigation = false) => {
     setMainTab(nextTab);
     setMenuOpen(false);
     if (nextTab === 'estimates' || nextTab === 'shopping' || nextTab === 'planner') {
       setSelectedEstimate(null);
     }
+    if (syncNavigation) {
+      tabNavigationRef.current?.navigate(TAB_NAME_BY_MAIN[nextTab]);
+    }
   }, []);
+
+  const tabBarHeight = useMemo(() => TAB_BAR_HEIGHT + insets.bottom, [insets.bottom]);
+  const modalTopInset = useMemo(() => Math.max(insets.top, 8), [insets.top]);
+  const modalHeaderStyle = useMemo(
+    () => [styles.plannerEditorHeader, { paddingTop: modalTopInset + 6 }],
+    [modalTopInset],
+  );
+  const nativeTabHostStyle = useMemo(
+    () => [styles.nativeTabHost, { height: tabBarHeight }],
+    [tabBarHeight],
+  );
+  const nativeTabBarStyle = useMemo(
+    () => [
+      styles.nativeTabBar,
+      {
+        height: tabBarHeight,
+      },
+    ],
+    [tabBarHeight],
+  );
+  const tabbedContentWrapStyle = useMemo(
+    () => [styles.contentWrap, { paddingBottom: insets.bottom + 10 }],
+    [insets.bottom],
+  );
+  const tabbedJobsListWrapStyle = useMemo(
+    () => [styles.jobsListWrap, { paddingBottom: insets.bottom + 10 }],
+    [insets.bottom],
+  );
+  const tabbedNativeContentWrapStyle = useMemo(
+    () => [styles.nativeContentWrap, { paddingBottom: insets.bottom + 10 }],
+    [insets.bottom],
+  );
+
+  const renderNativeBottomTabs = useCallback(() => {
+    const tabNames: Array<keyof RootTabParamList> = [
+      'Estimates',
+      'Shopping',
+      'Planner',
+      'Expenses',
+      'Staff',
+    ];
+    return (
+      <View style={nativeTabHostStyle} pointerEvents="box-none">
+        <NavigationContainer ref={tabNavigationRef}>
+          <Tab.Navigator
+            initialRouteName={TAB_NAME_BY_MAIN[mainTab]}
+            screenOptions={({ route }) => ({
+              headerShown: false,
+              lazy: true,
+              tabBarShowLabel: true,
+              tabBarLabelPosition: 'below-icon',
+              tabBarStyle: nativeTabBarStyle,
+              tabBarItemStyle: styles.nativeTabItem,
+              tabBarIconStyle: styles.nativeTabIcon,
+              tabBarLabelStyle: styles.nativeTabLabel,
+              tabBarActiveTintColor: '#0f766e',
+              tabBarInactiveTintColor: '#8E8E93',
+              tabBarActiveBackgroundColor: 'transparent',
+              tabBarInactiveBackgroundColor: 'transparent',
+              tabBarHideOnKeyboard: true,
+              tabBarIcon: ({ color }) =>
+                renderMainTabIcon(route.name as keyof RootTabParamList, color, 22),
+            })}
+          >
+            {tabNames.map((tabName) => (
+              <Tab.Screen
+                key={tabName}
+                name={tabName}
+                component={EmptyTabScreen}
+                listeners={{
+                  tabPress: (event) => {
+                    const nextTab = MAIN_TAB_BY_NAME[tabName];
+                    if (
+                      nextTab === 'staff' &&
+                      selectedEstimate &&
+                      !selectedEstimate.can_manage_staff
+                    ) {
+                      event.preventDefault();
+                      Alert.alert('No access', 'Your account cannot manage staff on this estimate.');
+                      return;
+                    }
+                    switchMainTab(nextTab);
+                  },
+                }}
+              />
+            ))}
+          </Tab.Navigator>
+        </NavigationContainer>
+      </View>
+    );
+  }, [mainTab, nativeTabBarStyle, nativeTabHostStyle, selectedEstimate, switchMainTab]);
 
   const handleBackChevron = useCallback(() => {
     if (plannerEditorVisible) {
@@ -2148,20 +2479,25 @@ export default function App() {
       return;
     }
     if (mainTab === 'shopping') {
-      if (selectedCatalogItem) {
-        setSelectedCatalogItem(null);
-        setCatalogItemType('');
-        setCatalogItemQuantity('');
-        setCatalogItemUnit('');
+      if (shoppingItemEditorOpen) {
+        setShoppingItemEditorOpen(false);
+        setShoppingEditingItemId(null);
+        setShoppingEditName('');
+        setShoppingEditType('');
+        setShoppingEditQty('');
+        setShoppingEditUnit('');
+        setSavingShoppingEdit(false);
         return;
       }
       if (selectedShoppingList) {
         setSelectedShoppingList(null);
         setShoppingItems([]);
-        setSelectedCatalogItem(null);
-        setCatalogItemType('');
-        setCatalogItemQuantity('');
-        setCatalogItemUnit('');
+        setSavedItemSearchText('');
+        setSavedItemExpandedKey(null);
+        setSavedItemQuickQty('1');
+        setSavedItemQuickUnit('');
+        setSavedItemQuickType('');
+        setSavedItemQuickUnitPickerOpen(false);
         setShoppingListScreenMode('manage');
         return;
       }
@@ -2193,7 +2529,7 @@ export default function App() {
     plannerCategoryCode,
     plannerEditorVisible,
     plannerSection,
-    selectedCatalogItem,
+    shoppingItemEditorOpen,
     selectedEstimate,
     selectedPlannerEstimate,
     selectedShoppingList,
@@ -2202,7 +2538,7 @@ export default function App() {
   const showBackChevron = useMemo(() => {
     if (plannerEditorVisible) return true;
     if (mainTab === 'shopping') {
-      return !!selectedShoppingList || !!selectedCatalogItem;
+      return shoppingItemEditorOpen || !!selectedShoppingList;
     }
     if (mainTab === 'planner') {
       return !!selectedPlannerEstimate || !!plannerSection || !!plannerCategoryCode;
@@ -2216,7 +2552,7 @@ export default function App() {
     plannerCategoryCode,
     plannerEditorVisible,
     plannerSection,
-    selectedCatalogItem,
+    shoppingItemEditorOpen,
     selectedEstimate,
     selectedPlannerEstimate,
     selectedShoppingList,
@@ -2357,11 +2693,15 @@ export default function App() {
     const extraLines = Array.isArray(selections.extra_lines)
       ? (selections.extra_lines as EstimateBuilderExtraLine[])
       : [];
-    const mealPlanValues = mergeOptionValues(
-      Array.isArray(estimate.meal_plan) ? estimate.meal_plan : [],
-      Array.isArray(catalog.meal_plan) ? catalog.meal_plan : [],
-      ['Signature Menu'],
-    );
+    const estimateMeals = Array.isArray(estimate.meal_plan) ? estimate.meal_plan : [];
+    const catalogMeals = Array.isArray(catalog.meal_plan) ? catalog.meal_plan : [];
+    let mealPlanValues = mergeOptionValues(estimateMeals.length ? estimateMeals : catalogMeals);
+    if (mealPlanValues.length > 1) {
+      mealPlanValues = mealPlanValues.filter((name) => name.trim().toLowerCase() !== 'signature menu');
+    }
+    if (!mealPlanValues.length) {
+      mealPlanValues = ['Signature Menu'];
+    }
     setEstimateBuilderEstimate(estimate);
     setEstimateBuilderCatalog(catalog);
     setEstimateBuilderMenuChoices(menuChoices);
@@ -2731,47 +3071,256 @@ export default function App() {
     [apiBaseUrl, loadShoppingCatalog, loadShoppingListDetail, loadShoppingLists, selectedShoppingList, token],
   );
 
-  const handleAddShoppingItem = useCallback(async () => {
-    const added = await submitShoppingItem(
-      newShoppingItemName,
-      newShoppingItemType,
-      newShoppingItemQuantity,
-      newShoppingItemUnit,
-    );
-    if (!added) {
+  const openSavedItemQuickAdd = useCallback(
+    (item: ShoppingCatalogListItem) => {
+      const itemKey = item.item_name.trim().toLowerCase();
+      if (!itemKey) return;
+      if (savedItemExpandedKey === itemKey) {
+        setSavedItemExpandedKey(null);
+        setSavedItemQuickUnitPickerOpen(false);
+        return;
+      }
+      setSavedItemExpandedKey(itemKey);
+      setSavedItemQuickQty(savedItemLastQtyByKey[itemKey] || '1');
+      setSavedItemQuickUnit(
+        (item.last_used_unit || item.unit_options?.[0] || DEFAULT_SHOPPING_UNIT_OPTIONS[0] || '').trim(),
+      );
+      setSavedItemQuickType((item.type_options?.[0] || '').trim());
+      setSavedItemQuickUnitPickerOpen(false);
+    },
+    [savedItemExpandedKey, savedItemLastQtyByKey],
+  );
+
+  const openCustomSavedItemQuickAdd = useCallback(() => {
+    const rawName = savedItemSearchText.trim();
+    if (!rawName) return;
+    const itemKey = rawName.toLowerCase();
+    if (savedItemExpandedKey === '__new__') {
+      setSavedItemExpandedKey(null);
+      setSavedItemQuickUnitPickerOpen(false);
       return;
     }
-    setNewShoppingItemName('');
-    setNewShoppingItemType('');
-    setNewShoppingItemQuantity('');
-    setNewShoppingItemUnit('');
-  }, [newShoppingItemName, newShoppingItemQuantity, newShoppingItemType, newShoppingItemUnit, submitShoppingItem]);
+    setSavedItemExpandedKey('__new__');
+    setSavedItemQuickQty(savedItemLastQtyByKey[itemKey] || '1');
+    setSavedItemQuickUnit(DEFAULT_SHOPPING_UNIT_OPTIONS[0] || 'Pieces');
+    setSavedItemQuickType('');
+    setSavedItemQuickUnitPickerOpen(false);
+  }, [savedItemExpandedKey, savedItemLastQtyByKey, savedItemSearchText]);
 
-  const openCatalogItemEditor = useCallback((item: ShoppingCatalogItem) => {
-    setSelectedCatalogItem(item);
-    setCatalogItemType('');
-    setCatalogItemQuantity('');
-    setCatalogItemUnit((item.last_used_unit || '').trim());
+  const stepSavedItemQuickQty = useCallback(
+    (delta: number) => {
+      const current = Number.parseFloat(savedItemQuickQty || '0');
+      const base = Number.isFinite(current) ? current : 0;
+      const next = Math.max(0, base + delta);
+      if (Number.isInteger(next)) {
+        setSavedItemQuickQty(String(next));
+      } else {
+        setSavedItemQuickQty(next.toFixed(2).replace(/\.00$/, ''));
+      }
+    },
+    [savedItemQuickQty],
+  );
+
+  const handleQuickAddSavedItem = useCallback(
+    async (item: ShoppingCatalogListItem | null) => {
+      const customName = savedItemSearchText.trim();
+      const itemName = (item?.item_name || (savedItemExpandedKey === '__new__' ? customName : '')).trim();
+      if (!itemName) {
+        Alert.alert('Missing item', 'Type an item name to continue.');
+        return;
+      }
+      const itemKey = itemName.toLowerCase();
+      const quantity = (savedItemQuickQty || savedItemLastQtyByKey[itemKey] || '1').trim() || '1';
+      const unit = (
+        savedItemQuickUnit ||
+        item?.last_used_unit ||
+        item?.unit_options?.[0] ||
+        shoppingAllUnitOptions[0] ||
+        ''
+      )
+        .trim();
+      const itemType = (savedItemQuickType || item?.type_options?.[0] || '').trim();
+      const added = await submitShoppingItem(itemName, itemType, quantity, unit);
+      if (!added) {
+        return;
+      }
+      setSavedItemLastQtyByKey((prev) => ({
+        ...prev,
+        [itemKey]: quantity,
+      }));
+      setSavedItemExpandedKey(null);
+      setSavedItemQuickUnitPickerOpen(false);
+      setSavedItemSearchText('');
+      requestAnimationFrame(() => {
+        savedItemSearchInputRef.current?.focus();
+      });
+    },
+    [
+      savedItemExpandedKey,
+      savedItemLastQtyByKey,
+      savedItemQuickQty,
+      savedItemQuickType,
+      savedItemQuickUnit,
+      savedItemSearchText,
+      shoppingAllUnitOptions,
+      submitShoppingItem,
+    ],
+  );
+
+  const renderSavedItemQuickAddRow = useCallback(
+    (item: ShoppingCatalogListItem | null, itemKey: string) => {
+      if (savedItemExpandedKey !== itemKey) return null;
+      return (
+        <View style={styles.savedQuickAddWrap}>
+          <View style={styles.savedQuickAddMainRow}>
+            <Pressable style={styles.savedQuickQtyStepButton} onPress={() => stepSavedItemQuickQty(-1)}>
+              <Text style={styles.savedQuickQtyStepButtonText}>−</Text>
+            </Pressable>
+            <TextInput
+              style={styles.savedQuickQtyInput}
+              value={savedItemQuickQty}
+              onChangeText={setSavedItemQuickQty}
+              keyboardType="decimal-pad"
+              inputAccessoryViewID={Platform.OS === 'ios' ? NUMERIC_INPUT_ACCESSORY_ID : undefined}
+              placeholder="1"
+            />
+            <Pressable style={styles.savedQuickQtyStepButton} onPress={() => stepSavedItemQuickQty(1)}>
+              <Text style={styles.savedQuickQtyStepButtonText}>+</Text>
+            </Pressable>
+            <Pressable
+              style={styles.savedQuickUnitButton}
+              onPress={() => setSavedItemQuickUnitPickerOpen((prev) => !prev)}
+            >
+              <Text style={styles.savedQuickUnitButtonText}>{savedItemQuickUnit || 'Unit'}</Text>
+            </Pressable>
+            <Pressable
+              style={[styles.savedQuickAddButton, addingShoppingItem && styles.buttonDisabled]}
+              onPress={() => handleQuickAddSavedItem(item)}
+              disabled={addingShoppingItem}
+            >
+              {addingShoppingItem ? (
+                <ActivityIndicator color="#ffffff" size="small" />
+              ) : (
+                <Text style={styles.savedQuickAddButtonText}>Add</Text>
+              )}
+            </Pressable>
+          </View>
+          {savedItemQuickUnitPickerOpen ? (
+            <View style={styles.savedQuickUnitChips}>
+              {quickAddUnitOptions.map((option) => {
+                const selected = savedItemQuickUnit.trim().toLowerCase() === option.toLowerCase();
+                return (
+                  <Pressable
+                    key={`${itemKey}-${option}`}
+                    style={[styles.nativeChip, selected && styles.nativeChipSelected]}
+                    onPress={() => {
+                      setSavedItemQuickUnit(option);
+                      setSavedItemQuickUnitPickerOpen(false);
+                    }}
+                  >
+                    <Text style={[styles.nativeChipLabel, selected && styles.nativeChipLabelSelected]}>
+                      {option}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          ) : null}
+        </View>
+      );
+    },
+    [
+      addingShoppingItem,
+      handleQuickAddSavedItem,
+      quickAddUnitOptions,
+      savedItemExpandedKey,
+      savedItemQuickQty,
+      savedItemQuickUnit,
+      savedItemQuickUnitPickerOpen,
+      stepSavedItemQuickQty,
+    ],
+  );
+
+  const closeShoppingItemEditor = useCallback(() => {
+    setShoppingItemEditorOpen(false);
+    setShoppingEditingItemId(null);
+    setShoppingEditName('');
+    setShoppingEditType('');
+    setShoppingEditQty('');
+    setShoppingEditUnit('');
+    setSavingShoppingEdit(false);
   }, []);
 
-  const handleAddCatalogItem = useCallback(async () => {
-    if (!selectedCatalogItem) {
+  const openShoppingItemEditor = useCallback((item: ShoppingItem) => {
+    setShoppingEditingItemId(item.id);
+    setShoppingEditName(item.item_name || '');
+    setShoppingEditType(item.item_type || '');
+    setShoppingEditQty(item.quantity || '');
+    setShoppingEditUnit(item.item_unit || '');
+    setShoppingItemEditorOpen(true);
+  }, []);
+
+  const saveShoppingItemEdit = useCallback(async () => {
+    if (!selectedShoppingList || !token || !shoppingEditingItemId || savingShoppingEdit) {
       return;
     }
-    const added = await submitShoppingItem(
-      selectedCatalogItem.item_name,
-      catalogItemType,
-      catalogItemQuantity,
-      catalogItemUnit,
-    );
-    if (!added) {
-      return;
+    setSavingShoppingEdit(true);
+    try {
+      const added = await submitShoppingItem(
+        shoppingEditName,
+        shoppingEditType,
+        shoppingEditQty,
+        shoppingEditUnit,
+      );
+      if (!added) {
+        return;
+      }
+      const response = await fetch(
+        apiUrl(
+          apiBaseUrl,
+          `/api/xpenz/shopping-lists/${selectedShoppingList.id}/items/${shoppingEditingItemId}/remove/`,
+        ),
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        },
+      );
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || payload.ok === false) {
+        throw new Error(payload.error || 'Unable to replace shopping item.');
+      }
+      await Promise.all([
+        loadShoppingListDetail(selectedShoppingList.id, undefined, undefined, true),
+        loadShoppingLists(),
+      ]);
+      closeShoppingItemEditor();
+      Alert.alert('Saved', 'Shopping item updated.');
+    } catch (error) {
+      Alert.alert(
+        'Save failed',
+        error instanceof Error ? error.message : 'Unable to update shopping item.',
+      );
+      setSavingShoppingEdit(false);
+    } finally {
+      setSavingShoppingEdit(false);
     }
-    setSelectedCatalogItem(null);
-    setCatalogItemType('');
-    setCatalogItemQuantity('');
-    setCatalogItemUnit('');
-  }, [catalogItemQuantity, catalogItemType, catalogItemUnit, selectedCatalogItem, submitShoppingItem]);
+  }, [
+    apiBaseUrl,
+    closeShoppingItemEditor,
+    loadShoppingListDetail,
+    loadShoppingLists,
+    savingShoppingEdit,
+    selectedShoppingList,
+    shoppingEditName,
+    shoppingEditQty,
+    shoppingEditType,
+    shoppingEditUnit,
+    shoppingEditingItemId,
+    submitShoppingItem,
+    token,
+  ]);
 
   const handleRemoveShoppingItem = useCallback(
     async (item: ShoppingItem) => {
@@ -2846,8 +3395,9 @@ export default function App() {
               if (selectedShoppingList?.id === targetList.id) {
                 setSelectedShoppingList(null);
                 setShoppingItems([]);
-                setSelectedCatalogItem(null);
-                setCatalogItemUnit('');
+                setSavedItemSearchText('');
+                setSavedItemExpandedKey(null);
+                setSavedItemQuickUnitPickerOpen(false);
                 setOpenCatalogCategory(null);
                 setShoppingListScreenMode('manage');
               }
@@ -4086,12 +4636,12 @@ export default function App() {
         animationType="slide"
         onRequestClose={() => setEstimateComposerOpen(false)}
       >
-        <SafeAreaView style={styles.screen}>
+        <SafeAreaView style={styles.screen} edges={['left', 'right', 'bottom']}>
           <KeyboardAvoidingView
             style={styles.flexOne}
             behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           >
-            <View style={styles.plannerEditorHeader}>
+            <View style={modalHeaderStyle}>
               <View style={{ flex: 1 }}>
                 <Text style={styles.sectionTitle}>Create Estimate</Text>
                 <Text style={styles.subtleText}>Mobile quick-create. Full edit remains available in admin.</Text>
@@ -4101,7 +4651,7 @@ export default function App() {
               </Pressable>
             </View>
 
-            <ScrollView contentContainerStyle={styles.contentWrap} keyboardShouldPersistTaps="handled">
+            <ScrollView contentContainerStyle={tabbedContentWrapStyle} keyboardShouldPersistTaps="handled">
               {catererChoices.length > 1 ? (
                 <View style={styles.sectionCard}>
                   <Text style={styles.savedTitle}>Company Profile</Text>
@@ -4196,12 +4746,12 @@ export default function App() {
         animationType="slide"
         onRequestClose={closeEstimateBuilder}
       >
-        <SafeAreaView style={styles.screen}>
+        <SafeAreaView style={styles.screen} edges={['left', 'right', 'bottom']}>
           <KeyboardAvoidingView
             style={styles.flexOne}
             behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           >
-            <View style={styles.plannerEditorHeader}>
+            <View style={modalHeaderStyle}>
               <View style={{ flex: 1 }}>
                 <Text style={styles.sectionTitle}>Estimate Builder</Text>
                 <Text style={styles.subtleText}>
@@ -4220,7 +4770,7 @@ export default function App() {
             ) : estimateBuilderEstimate && estimateBuilderCatalog ? (
               <>
                 <ScrollView
-                  contentContainerStyle={styles.contentWrap}
+                  contentContainerStyle={tabbedContentWrapStyle}
                   keyboardShouldPersistTaps="handled"
                   keyboardDismissMode="on-drag"
                 >
@@ -4523,34 +5073,14 @@ export default function App() {
                                     {item.price_per_serving} per serving
                                   </Text>
                                   {choice ? (
-                                    <>
-                                      <TextInput
-                                        style={styles.input}
-                                        value={choice.servings_per_person}
-                                        onChangeText={(value) =>
-                                          updateEstimateBuilderMenuChoice(
-                                            item.id,
-                                            'servings_per_person',
-                                            value,
-                                          )
-                                        }
-                                        keyboardType="decimal-pad"
-                                        inputAccessoryViewID={
-                                          Platform.OS === 'ios'
-                                            ? NUMERIC_INPUT_ACCESSORY_ID
-                                            : undefined
-                                        }
-                                        placeholder="Servings per person"
-                                      />
-                                      <TextInput
-                                        style={styles.input}
-                                        value={choice.notes}
-                                        onChangeText={(value) =>
-                                          updateEstimateBuilderMenuChoice(item.id, 'notes', value)
-                                        }
-                                        placeholder="Notes (optional)"
-                                      />
-                                    </>
+                                    <TextInput
+                                      style={styles.input}
+                                      value={choice.notes}
+                                      onChangeText={(value) =>
+                                        updateEstimateBuilderMenuChoice(item.id, 'notes', value)
+                                      }
+                                      placeholder="Notes (optional)"
+                                    />
                                   ) : null}
                                 </View>
                                 <Pressable
@@ -5312,37 +5842,47 @@ export default function App() {
 
   if (!selectedEstimate || (mainTab !== 'expenses' && mainTab !== 'staff')) {
     return (
-      <SafeAreaView style={styles.screen}>
-        <View style={styles.headerRowTop}>
-          <View style={styles.inlineActions}>
+      <GestureHandlerRootView style={styles.flexOne}>
+      <SafeAreaView style={styles.screen} edges={['top']}>
+        <View style={styles.appHeader}>
+          <View style={styles.appHeaderLeft}>
             {showBackChevron ? (
-              <Pressable style={styles.smallButton} onPress={handleBackChevron}>
-                <Text style={styles.smallButtonText}>‹ Back</Text>
+              <Pressable style={styles.headerIconButton} onPress={handleBackChevron}>
+                <Text style={styles.headerIconGlyph}>‹</Text>
               </Pressable>
-            ) : (
-              <View style={styles.navSpacer} />
-            )}
+            ) : null}
+            <View style={styles.appHeaderTitleWrap}>
+              <Text style={styles.appHeaderTitle}>
+                {mainTab === 'estimates'
+                  ? 'Estimates'
+                  : mainTab === 'shopping'
+                    ? selectedShoppingList
+                      ? selectedShoppingList.title
+                      : 'Shopping'
+                    : mainTab === 'planner'
+                      ? selectedPlannerEstimate
+                        ? plannerSection
+                          ? activePlannerSectionConfig?.label || 'Planner'
+                          : `${selectedPlannerEstimate.job_name} Planner`
+                        : 'Planner'
+                      : mainTab === 'staff'
+                        ? 'Staff'
+                        : 'Expenses'}
+              </Text>
+              <Text style={styles.appHeaderSubtitle}>
+                {mainTab === 'shopping'
+                  ? 'Live list updates'
+                  : mainTab === 'planner'
+                    ? 'Planning board'
+                    : mainTab === 'estimates'
+                      ? 'Build and manage jobs'
+                      : 'Job workspace'}
+              </Text>
+            </View>
           </View>
-          <Text style={[styles.sectionTitle, styles.headerTitleCenter]}>
-            {mainTab === 'estimates'
-              ? 'Estimates'
-              : mainTab === 'shopping'
-                ? selectedShoppingList
-                  ? selectedShoppingList.title
-                  : 'Shopping'
-                : mainTab === 'planner'
-                  ? selectedPlannerEstimate
-                    ? plannerSection
-                      ? activePlannerSectionConfig?.label || 'Planner'
-                      : `${selectedPlannerEstimate.job_name} Planner`
-                    : 'Planner'
-                  : mainTab === 'staff'
-                    ? 'Staff'
-                    : 'Expenses'}
-          </Text>
-          <View style={styles.inlineActions}>
+          <View style={styles.appHeaderRight}>
             <Pressable
-              style={styles.smallButton}
+              style={styles.headerIconButton}
               onPress={() => {
                 if (mainTab === 'estimates' || mainTab === 'expenses' || mainTab === 'staff') {
                   loadEstimates();
@@ -5366,10 +5906,10 @@ export default function App() {
                 }
               }}
             >
-              <Text style={styles.smallButtonText}>Refresh</Text>
+              <RefreshCcw size={18} color="#64748b" />
             </Pressable>
-            <Pressable style={styles.smallButton} onPress={() => setMenuOpen(true)}>
-              <Text style={styles.smallButtonText}>☰</Text>
+            <Pressable style={styles.headerIconButton} onPress={() => setMenuOpen(true)}>
+              <CircleEllipsis size={18} color="#64748b" />
             </Pressable>
           </View>
         </View>
@@ -5381,7 +5921,7 @@ export default function App() {
               <ActivityIndicator size="large" color="#0f766e" />
             </View>
           ) : (
-            <ScrollView contentContainerStyle={styles.jobsListWrap}>
+            <ScrollView contentContainerStyle={tabbedJobsListWrapStyle}>
               {mainTab === 'estimates' ? (
                 <View style={styles.sectionCard}>
                   <Text style={styles.subtleText}>
@@ -5459,351 +5999,464 @@ export default function App() {
         ) : mainTab === 'shopping' ? (
           selectedShoppingList ? (
             <ScrollView
-              contentContainerStyle={styles.contentWrap}
+              contentContainerStyle={tabbedNativeContentWrapStyle}
               keyboardShouldPersistTaps="handled"
               keyboardDismissMode="on-drag"
             >
               <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
-                <View style={styles.contentTapDismissArea}>
-              <View style={styles.sectionCard}>
-                <View style={styles.listHeaderTopRow}>
-                  <Text style={[styles.sectionTitle, styles.listHeaderTitle]} numberOfLines={2}>
-                    {selectedShoppingList.title}
-                  </Text>
-                  <Pressable
-                    style={styles.smallButton}
-                    onPress={() => {
-                      setSelectedShoppingList(null);
-                      setShoppingItems([]);
-                      setSelectedCatalogItem(null);
-                      setCatalogItemUnit('');
-                      setShoppingListScreenMode('manage');
-                    }}
-                  >
-                    <Text style={styles.smallButtonText}>Back to Lists</Text>
-                  </Pressable>
-                </View>
-                <View style={styles.listHeaderMetaRow}>
-                  <View style={styles.listHeaderMetaText}>
-                    <Text style={styles.subtleText}>{selectedShoppingList.caterer_name}</Text>
-                    {selectedShoppingList.estimate_label ? (
-                      <Text style={styles.subtleText}>Linked job: {selectedShoppingList.estimate_label}</Text>
-                    ) : (
-                      <Text style={styles.subtleText}>No linked job (standalone list)</Text>
-                    )}
-                  </View>
-                  <Pressable
-                    style={[
-                      styles.smallButton,
-                      styles.smallAccentButton,
-                    ]}
-                    onPress={() => {
-                      setShoppingListScreenMode((prev) => (prev === 'manage' ? 'list' : 'manage'));
-                    }}
-                  >
-                    <Text style={styles.smallAccentButtonText}>
-                      {shoppingListScreenMode === 'manage' ? 'Shopping List' : 'Manage'}
+                <View style={styles.nativeContentInner}>
+                  <View style={styles.nativeScreenHeader}>
+                    <Text style={styles.nativeScreenTitle} numberOfLines={1}>
+                      {selectedShoppingList.title}
                     </Text>
-                  </Pressable>
-                </View>
-              </View>
-
-              {shoppingListScreenMode === 'manage' ? (
-              <View style={styles.sectionCard}>
-                <Text style={styles.sectionTitle}>Add Item</Text>
-                <TextInput
-                  style={styles.input}
-                  value={newShoppingItemName}
-                  onChangeText={setNewShoppingItemName}
-                  placeholder="Item (e.g. mushrooms)"
-                />
-                <TextInput
-                  style={styles.input}
-                  value={newShoppingItemType}
-                  onChangeText={setNewShoppingItemType}
-                  placeholder="Item type (optional, e.g. pack, fresh, jar)"
-                />
-                <TextInput
-                  style={styles.input}
-                  value={newShoppingItemQuantity}
-                  onChangeText={setNewShoppingItemQuantity}
-                  keyboardType="decimal-pad"
-                  inputAccessoryViewID={
-                    Platform.OS === 'ios' ? NUMERIC_INPUT_ACCESSORY_ID : undefined
-                  }
-                  placeholder="Quantity (default 1)"
-                />
-                <TextInput
-                  style={styles.input}
-                  value={newShoppingItemUnit}
-                  onChangeText={setNewShoppingItemUnit}
-                  placeholder="Kg, Pieces, Cans"
-                />
-                <View style={styles.catalogItemWrap}>
-                  {knownUnitOptions.map((option) => {
-                    const selected = newShoppingItemUnit.trim().toLowerCase() === option.toLowerCase();
-                    return (
+                    <Text style={styles.nativeScreenSubtitle}>
+                      {selectedShoppingList.estimate_label
+                        ? `${selectedShoppingList.caterer_name} • ${selectedShoppingList.estimate_label}`
+                        : selectedShoppingList.caterer_name}
+                    </Text>
+                    <View style={styles.nativeHeaderActions}>
                       <Pressable
-                        key={`manual-unit-${option}`}
-                        style={[styles.catalogTypePill, selected && styles.selectedPill]}
-                        onPress={() => setNewShoppingItemUnit(option)}
+                        style={styles.headerIconButton}
+                        onPress={() =>
+                          Promise.all([
+                            loadShoppingListDetail(selectedShoppingList.id),
+                            loadShoppingCatalog(),
+                          ])
+                        }
                       >
-                        <Text
-                          style={[
-                            styles.catalogTypePillText,
-                            selected && styles.selectedPillText,
-                          ]}
-                        >
-                          {option}
+                        <RefreshCcw size={18} color="#64748b" />
+                      </Pressable>
+                      <Pressable
+                        style={styles.headerTextButton}
+                        onPress={() =>
+                          setShoppingListScreenMode((prev) => (prev === 'manage' ? 'list' : 'manage'))
+                        }
+                      >
+                        <Text style={styles.headerTextButtonLabel}>
+                          {shoppingListScreenMode === 'manage' ? 'View list' : 'Manage'}
                         </Text>
                       </Pressable>
-                    );
-                  })}
-                </View>
-                <Pressable
-                  style={[styles.primaryButton, addingShoppingItem && styles.buttonDisabled]}
-                  onPress={handleAddShoppingItem}
-                  disabled={addingShoppingItem}
-                >
-                  {addingShoppingItem ? (
-                    <ActivityIndicator color="#ffffff" />
-                  ) : (
-                    <Text style={styles.primaryButtonText}>Add To List</Text>
-                  )}
-                </Pressable>
-                <View style={styles.headerRow}>
-                  <Text style={styles.sectionTitle}>Saved Items</Text>
-                  <Pressable style={styles.smallButton} onPress={() => loadShoppingCatalog()}>
-                    <Text style={styles.smallButtonText}>Refresh</Text>
-                  </Pressable>
-                </View>
-                <Text style={styles.subtleText}>
-                  Tap a saved item, then choose type, quantity, and unit.
-                </Text>
-                {loadingShoppingCatalog ? (
-                  <ActivityIndicator color="#0f766e" />
-                ) : (
-                  <View style={styles.savedList}>
-                    {shoppingCatalogCategories.map((category) => (
-                      <View key={category.category} style={styles.catalogCategoryBlock}>
-                        <Pressable
-                          style={[
-                            styles.catalogCategoryToggle,
-                            openCatalogCategory === category.category && styles.catalogCategoryToggleActive,
-                          ]}
-                          onPress={() => setOpenCatalogCategory(category.category)}
-                        >
-                          <Text
-                            style={[
-                              styles.catalogCategoryTitle,
-                              openCatalogCategory === category.category &&
-                                styles.catalogCategoryTitleActive,
-                            ]}
-                          >
-                            {category.category_label} ({category.items.length})
-                          </Text>
-                          <Text
-                            style={[
-                              styles.catalogCategoryToggleIcon,
-                              openCatalogCategory === category.category &&
-                                styles.catalogCategoryToggleIconActive,
-                            ]}
-                          >
-                            {openCatalogCategory === category.category ? '−' : '+'}
-                          </Text>
+                      <Pressable
+                        style={styles.headerTextButton}
+                        onPress={() => {
+                          setSelectedShoppingList(null);
+                          setShoppingItems([]);
+                          setSavedItemSearchText('');
+                          setSavedItemExpandedKey(null);
+                          setSavedItemQuickUnitPickerOpen(false);
+                          setShoppingListScreenMode('manage');
+                        }}
+                      >
+                        <Text style={styles.headerTextButtonLabel}>Lists</Text>
+                      </Pressable>
+                    </View>
+                  </View>
+
+                  {shoppingListScreenMode === 'manage' ? (
+                    <View style={styles.nativeFormGroup}>
+                      <View style={styles.nativeRowBetween}>
+                        <Text style={styles.nativeSectionHeading}>Saved Items</Text>
+                        <Pressable style={styles.headerTextButton} onPress={() => loadShoppingCatalog()}>
+                          <Text style={styles.headerTextButtonLabel}>Refresh</Text>
                         </Pressable>
-                        {openCatalogCategory === category.category ? (
-                          <View style={styles.catalogItemWrap}>
-                            {category.items.map((item) => (
-                              <Pressable
-                                key={`${category.category}-${item.item_name}`}
-                                style={styles.catalogItemPill}
-                                onPress={() => openCatalogItemEditor(item)}
+                      </View>
+                      <TextInput
+                        ref={savedItemSearchInputRef}
+                        style={styles.nativeInput}
+                        value={savedItemSearchText}
+                        onChangeText={(value) => {
+                          setSavedItemSearchText(value);
+                          setSavedItemExpandedKey(null);
+                          setSavedItemQuickUnitPickerOpen(false);
+                        }}
+                        placeholder="Add item..."
+                        autoCorrect={false}
+                        autoCapitalize="none"
+                        returnKeyType="search"
+                      />
+                      {!!savedItemSearchText.trim() ? (
+                        <Text style={styles.subtleText}>
+                          Search results update instantly as you type.
+                        </Text>
+                      ) : (
+                        <Text style={styles.subtleText}>
+                          Search, tap an item, adjust qty, then add in one step.
+                        </Text>
+                      )}
+                    </View>
+                  ) : null}
+
+                  {shoppingListScreenMode === 'manage' && !!savedItemSearchText.trim() ? (
+                    <View style={styles.nativeFormGroup}>
+                      <View style={styles.nativeSectionBlock}>
+                        <Text style={styles.nativeSectionHeading}>RESULTS</Text>
+                        <View style={styles.nativeListSurface}>
+                          {filteredSavedItems.map((item, index) => {
+                            const itemKey = item.item_name.trim().toLowerCase();
+                            return (
+                              <View key={`result-top-${itemKey}`} style={index > 0 ? styles.nativeListDivider : undefined}>
+                                <NativeListItem
+                                  title={item.item_name}
+                                  subtitle={
+                                    item.last_used_unit
+                                      ? `Default unit: ${item.last_used_unit}`
+                                      : 'Default unit: none'
+                                  }
+                                  onPress={() => openSavedItemQuickAdd(item)}
+                                  rightSlot={<Plus size={16} color="#64748b" />}
+                                />
+                                {renderSavedItemQuickAddRow(item, itemKey)}
+                              </View>
+                            );
+                          })}
+                          {!filteredSavedItems.length && !hasExactSavedItemMatch ? (
+                            <>
+                              <NativeListItem
+                                title={`Create "${savedItemSearchText.trim()}"`}
+                                subtitle="New item with quick defaults"
+                                onPress={openCustomSavedItemQuickAdd}
+                                rightSlot={<Plus size={16} color="#64748b" />}
+                              />
+                              {renderSavedItemQuickAddRow(null, '__new__')}
+                            </>
+                          ) : null}
+                          {!filteredSavedItems.length && hasExactSavedItemMatch ? (
+                            <Text style={styles.subtleText}>No saved items match this search.</Text>
+                          ) : null}
+                        </View>
+                      </View>
+                    </View>
+                  ) : null}
+
+                  {loadingShoppingItems ? (
+                    <View style={styles.nativeListLoading}>
+                      <ActivityIndicator color="#0f766e" />
+                    </View>
+                  ) : (
+                    <View style={styles.nativeListGroupWrap}>
+                      {shoppingSections.map((section) => (
+                        <View key={section.label} style={styles.nativeSectionBlock}>
+                          <Text style={styles.nativeSectionHeading}>{section.label.toUpperCase()}</Text>
+                          <View style={styles.nativeListSurface}>
+                            {section.items.map((item, index) => (
+                              <Swipeable
+                                key={item.id}
+                                overshootRight={false}
+                                renderRightActions={() => (
+                                  <Pressable
+                                    style={[
+                                      styles.swipeDeleteAction,
+                                      removingShoppingItemId === item.id && styles.buttonDisabled,
+                                    ]}
+                                    onPress={() => handleRemoveShoppingItem(item)}
+                                    disabled={removingShoppingItemId === item.id}
+                                  >
+                                    <Text style={styles.swipeDeleteActionText}>Delete</Text>
+                                  </Pressable>
+                                )}
                               >
-                                <Text style={styles.catalogItemPillText}>{item.item_name}</Text>
-                              </Pressable>
+                                <View
+                                  style={[
+                                    index > 0 && styles.nativeListDivider,
+                                    removingShoppingItemId === item.id && styles.buttonDisabled,
+                                  ]}
+                                >
+                                  <NativeListItem
+                                    title={item.item_name}
+                                    subtitle={`Qty ${item.quantity}${item.item_unit ? ` ${item.item_unit}` : ''}${
+                                      item.item_type ? ` • ${item.item_type}` : ''
+                                    }`}
+                                    meta={item.collaboration_note || undefined}
+                                    rightSlot={
+                                      <View style={styles.shoppingRowActions}>
+                                        {shoppingListScreenMode === 'manage' ? (
+                                          <Pressable
+                                            style={styles.shoppingRowEditButton}
+                                            onPress={(event) => {
+                                              event.stopPropagation();
+                                              openShoppingItemEditor(item);
+                                            }}
+                                          >
+                                            <Text style={styles.shoppingRowEditButtonText}>Edit</Text>
+                                          </Pressable>
+                                        ) : null}
+                                        <Pressable
+                                          style={[
+                                            styles.shoppingRowDeleteButton,
+                                            removingShoppingItemId === item.id && styles.buttonDisabled,
+                                          ]}
+                                          onPress={(event) => {
+                                            event.stopPropagation();
+                                            handleRemoveShoppingItem(item);
+                                          }}
+                                          disabled={removingShoppingItemId === item.id}
+                                        >
+                                          <Text style={styles.shoppingRowDeleteButtonText}>
+                                            {removingShoppingItemId === item.id ? '…' : '✕'}
+                                          </Text>
+                                        </Pressable>
+                                      </View>
+                                    }
+                                  />
+                                </View>
+                              </Swipeable>
                             ))}
                           </View>
-                        ) : null}
-                      </View>
-                    ))}
-                    {!shoppingCatalogCategories.length && (
-                      <Text style={styles.subtleText}>
-                        No saved items yet. Add a few items and they will appear here.
-                      </Text>
-                    )}
-                  </View>
-                )}
-              </View>
-              ) : null}
+                        </View>
+                      ))}
+                      {!shoppingItems.length ? (
+                        <Text style={styles.subtleText}>No items yet. Add the first item above.</Text>
+                      ) : null}
+                    </View>
+                  )}
 
-              <View style={styles.sectionCard}>
-                <Text style={styles.sectionTitle}>
-                  {shoppingListScreenMode === 'list' ? 'Shopping List' : 'Execute List'}
-                </Text>
-                <Text style={styles.subtleText}>Tap X to remove an item when purchased.</Text>
-                {loadingShoppingItems ? (
-                  <ActivityIndicator color="#0f766e" />
-                ) : (
-                  <View style={styles.savedList}>
-                    {shoppingSections.map((section) => (
-                      <View key={section.label} style={styles.shoppingCategoryBlock}>
-                        <Text style={styles.shoppingCategoryTitle}>{section.label}</Text>
-                        {section.items.map((item) => (
-                          <View
-                            key={item.id}
-                            style={[
-                              styles.shoppingItemRow,
-                              removingShoppingItemId === item.id && styles.buttonDisabled,
-                            ]}
-                          >
-                            <View style={styles.shoppingItemTextWrap}>
-                              <Text style={styles.shoppingItemMain}>
-                                {item.item_name}
-                                {item.item_type ? ` (${item.item_type})` : ''}
-                                {item.collaboration_note
-                                  ? ` (${item.collaboration_note.toLowerCase()})`
-                                  : ''}
-                              </Text>
-                              <Text style={styles.subtleText}>
-                                Qty: {item.quantity}
-                                {item.item_unit ? ` ${item.item_unit}` : ''}
-                              </Text>
+                  {shoppingListScreenMode === 'manage' ? (
+                    <View style={styles.nativeFormGroup}>
+                      {loadingShoppingCatalog ? (
+                        <ActivityIndicator color="#0f766e" />
+                      ) : (
+                        <>
+                          {recentSavedItems.length ? (
+                            <View style={styles.nativeSectionBlock}>
+                              <Text style={styles.nativeSectionHeading}>RECENT</Text>
+                              <View style={styles.nativeListSurface}>
+                                {recentSavedItems.map((item, index) => {
+                                  const itemKey = item.item_name.trim().toLowerCase();
+                                  return (
+                                    <View key={`recent-${itemKey}`} style={index > 0 ? styles.nativeListDivider : undefined}>
+                                      <NativeListItem
+                                        title={item.item_name}
+                                        subtitle={
+                                          item.last_used_unit
+                                            ? `Default unit: ${item.last_used_unit}`
+                                            : 'Default unit: none'
+                                        }
+                                        onPress={() => openSavedItemQuickAdd(item)}
+                                        rightSlot={<Plus size={16} color="#64748b" />}
+                                      />
+                                      {renderSavedItemQuickAddRow(item, itemKey)}
+                                    </View>
+                                  );
+                                })}
+                              </View>
                             </View>
-                            <Pressable
-                              style={styles.shoppingItemRemove}
-                              onPress={(event) => {
-                                event.stopPropagation();
-                                handleRemoveShoppingItem(item);
-                              }}
-                              disabled={removingShoppingItemId === item.id}
-                            >
-                              <Text style={styles.shoppingItemRemoveText}>✕</Text>
-                            </Pressable>
+                          ) : null}
+
+                          {frequentSavedItems.length ? (
+                            <View style={styles.nativeSectionBlock}>
+                              <Text style={styles.nativeSectionHeading}>FREQUENT</Text>
+                              <View style={styles.savedQuickChipsWrap}>
+                                {frequentSavedItems.map((item) => (
+                                  <Pressable
+                                    key={`freq-${item.item_name}`}
+                                    style={styles.savedQuickItemChip}
+                                    onPress={() => openSavedItemQuickAdd(item)}
+                                  >
+                                    <Text style={styles.savedQuickItemChipText}>{item.item_name}</Text>
+                                  </Pressable>
+                                ))}
+                              </View>
+                              {frequentExpandedItem && !expandedItemInRecent
+                                ? renderSavedItemQuickAddRow(
+                                    frequentExpandedItem,
+                                    frequentExpandedItem.item_name.trim().toLowerCase(),
+                                  )
+                                : null}
+                            </View>
+                          ) : null}
+
+                          <View style={styles.nativeSectionBlock}>
+                            <Text style={styles.nativeSectionHeading}>CATEGORIES</Text>
+                            {shoppingCatalogCategories.map((category) => (
+                              <View key={category.category} style={styles.nativeSectionBlock}>
+                                <Pressable
+                                  style={styles.nativeCategoryToggle}
+                                  onPress={() =>
+                                    setOpenCatalogCategory((prev) =>
+                                      prev === category.category ? null : category.category,
+                                    )
+                                  }
+                                >
+                                  <Text style={styles.nativeSectionHeading}>
+                                    {category.category_label.toUpperCase()}
+                                  </Text>
+                                  <ChevronRight
+                                    size={16}
+                                    color="#94a3b8"
+                                    style={[
+                                      styles.nativeCategoryChevron,
+                                      openCatalogCategory === category.category &&
+                                        styles.nativeCategoryChevronOpen,
+                                    ]}
+                                  />
+                                </Pressable>
+                                {openCatalogCategory === category.category ? (
+                                  <View style={styles.nativeListSurface}>
+                                    {category.items.map((item, index) => {
+                                      const itemKey = item.item_name.trim().toLowerCase();
+                                      const catalogRow: ShoppingCatalogListItem = {
+                                        ...item,
+                                        category: category.category,
+                                        category_label: category.category_label,
+                                      };
+                                      return (
+                                        <View
+                                          key={`${category.category}-${item.item_name}`}
+                                          style={index > 0 ? styles.nativeListDivider : undefined}
+                                        >
+                                          <NativeListItem
+                                            title={item.item_name}
+                                            subtitle={
+                                              item.last_used_unit
+                                                ? `Default unit: ${item.last_used_unit}`
+                                                : 'Default unit: none'
+                                            }
+                                            onPress={() => openSavedItemQuickAdd(catalogRow)}
+                                            rightSlot={<Plus size={16} color="#64748b" />}
+                                          />
+                                          {renderSavedItemQuickAddRow(catalogRow, itemKey)}
+                                        </View>
+                                      );
+                                    })}
+                                  </View>
+                                ) : null}
+                              </View>
+                            ))}
+                            {!shoppingCatalogCategories.length ? (
+                              <Text style={styles.subtleText}>
+                                No saved items yet. Add a new item name from search.
+                              </Text>
+                            ) : null}
                           </View>
-                        ))}
-                      </View>
-                    ))}
-                    {!shoppingItems.length && (
-                      <Text style={styles.subtleText}>No items yet. Add the first shopping item above.</Text>
-                    )}
-                  </View>
-                )}
-              </View>
+                        </>
+                      )}
+                    </View>
+                  ) : null}
                 </View>
               </TouchableWithoutFeedback>
             </ScrollView>
           ) : (
             <ScrollView
-              contentContainerStyle={styles.contentWrap}
+              contentContainerStyle={tabbedNativeContentWrapStyle}
               keyboardShouldPersistTaps="handled"
               keyboardDismissMode="on-drag"
             >
-              <View style={styles.sectionCard}>
-                <Text style={styles.sectionTitle}>Create Shopping List</Text>
-                <TextInput
-                  style={styles.input}
-                  value={shoppingListTitle}
-                  onChangeText={setShoppingListTitle}
-                  placeholder="List title (optional)"
-                />
-                {catererChoices.length > 1 && !shoppingEstimateRefId ? (
-                  <View style={styles.savedList}>
-                    <Text style={styles.subtleText}>Select caterer</Text>
-                    <View style={styles.inlineActions}>
+              <View style={styles.nativeContentInner}>
+                <View style={styles.nativeScreenHeader}>
+                  <Text style={styles.nativeScreenTitle}>Shopping Lists</Text>
+                  <Text style={styles.nativeScreenSubtitle}>
+                    Create and open live shared shopping checklists.
+                  </Text>
+                </View>
+                <View style={styles.nativeFormGroup}>
+                  <Text style={styles.nativeSectionHeading}>Create List</Text>
+                  <TextInput
+                    style={styles.nativeInput}
+                    value={shoppingListTitle}
+                    onChangeText={setShoppingListTitle}
+                    placeholder="List title"
+                  />
+                  {catererChoices.length > 1 && !shoppingEstimateRefId ? (
+                    <ScrollView
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      contentContainerStyle={styles.nativeChipRow}
+                    >
                       {catererChoices.map((choice) => (
                         <Pressable
                           key={choice.id}
                           style={[
-                            styles.smallButton,
-                            shoppingCatererId === choice.id && styles.selectedPill,
+                            styles.nativeChip,
+                            shoppingCatererId === choice.id && styles.nativeChipSelected,
                           ]}
                           onPress={() => setShoppingCatererId(choice.id)}
                         >
                           <Text
                             style={[
-                              styles.smallButtonText,
-                              shoppingCatererId === choice.id && styles.selectedPillText,
+                              styles.nativeChipLabel,
+                              shoppingCatererId === choice.id && styles.nativeChipLabelSelected,
                             ]}
                           >
                             {choice.name}
                           </Text>
                         </Pressable>
                       ))}
-                    </View>
-                  </View>
-                ) : null}
-                <View style={styles.inlineActions}>
-                  <Pressable style={styles.secondaryButton} onPress={() => setShowEstimatePicker(true)}>
-                    <Text style={styles.secondaryButtonText}>
-                      {selectedEstimateReference
-                        ? `Linked Job: #${selectedEstimateReference.estimate_number ?? selectedEstimateReference.id}`
-                        : 'Link Job (Optional)'}
-                    </Text>
-                  </Pressable>
-                  {selectedEstimateReference ? (
-                    <Pressable
-                      style={styles.smallButton}
-                      onPress={() => {
-                        setShoppingEstimateRefId(null);
-                      }}
-                    >
-                      <Text style={styles.smallButtonText}>Clear Job</Text>
-                    </Pressable>
+                    </ScrollView>
                   ) : null}
-                </View>
-                <Pressable
-                  style={[styles.primaryButton, creatingShoppingList && styles.buttonDisabled]}
-                  onPress={handleCreateShoppingList}
-                  disabled={creatingShoppingList}
-                >
-                  {creatingShoppingList ? (
-                    <ActivityIndicator color="#ffffff" />
-                  ) : (
-                    <Text style={styles.primaryButtonText}>Create Shopping List</Text>
-                  )}
-                </Pressable>
-              </View>
-
-              <View style={styles.sectionCard}>
-                <Text style={styles.sectionTitle}>Open Shopping List</Text>
-                {loadingShoppingLists ? (
-                  <ActivityIndicator color="#0f766e" />
-                ) : (
-                  <View style={styles.savedList}>
-                    {shoppingLists.map((row) => (
-                      <View key={row.id} style={styles.savedCard}>
-                        <View style={styles.listRowHeader}>
-                          <Pressable style={styles.listRowOpenArea} onPress={() => openShoppingList(row)}>
-                            <Text style={styles.savedTitle}>{row.title}</Text>
-                          </Pressable>
-                          <Pressable
-                            style={[
-                              styles.listDeleteButton,
-                              deletingShoppingListId === row.id && styles.buttonDisabled,
-                            ]}
-                            onPress={() => handleDeleteShoppingList(row)}
-                            disabled={deletingShoppingListId === row.id}
-                          >
-                            <Text style={styles.listDeleteButtonText}>
-                              {deletingShoppingListId === row.id ? '...' : '✕'}
-                            </Text>
-                          </Pressable>
-                        </View>
-                        <Pressable style={styles.listRowOpenArea} onPress={() => openShoppingList(row)}>
-                          <Text style={styles.subtleText}>
-                            {row.item_count} items
-                            {row.estimate_label ? ` • ${row.estimate_label}` : ''}
-                          </Text>
-                          <Text style={styles.subtleText}>{row.caterer_name}</Text>
-                        </Pressable>
-                      </View>
-                    ))}
-                    {!shoppingLists.length ? (
-                      <Text style={styles.subtleText}>No shopping lists yet.</Text>
+                  <View style={styles.nativeRowBetween}>
+                    <Pressable style={styles.headerTextButton} onPress={() => setShowEstimatePicker(true)}>
+                      <Text style={styles.headerTextButtonLabel}>
+                        {selectedEstimateReference
+                          ? `Linked: #${selectedEstimateReference.estimate_number ?? selectedEstimateReference.id}`
+                          : 'Link job (optional)'}
+                      </Text>
+                    </Pressable>
+                    {selectedEstimateReference ? (
+                      <Pressable style={styles.headerTextButton} onPress={() => setShoppingEstimateRefId(null)}>
+                        <Text style={styles.headerTextButtonLabel}>Clear</Text>
+                      </Pressable>
                     ) : null}
                   </View>
-                )}
+                  <Pressable
+                    style={[styles.inlinePrimaryAction, creatingShoppingList && styles.buttonDisabled]}
+                    onPress={handleCreateShoppingList}
+                    disabled={creatingShoppingList}
+                  >
+                    {creatingShoppingList ? (
+                      <ActivityIndicator color="#ffffff" />
+                    ) : (
+                      <>
+                        <Plus size={16} color="#ffffff" />
+                        <Text style={styles.inlinePrimaryActionText}>Create shopping list</Text>
+                      </>
+                    )}
+                  </Pressable>
+                </View>
+                <View style={styles.nativeSectionBlock}>
+                  <View style={styles.nativeRowBetween}>
+                    <Text style={styles.nativeSectionHeading}>Your Lists</Text>
+                    <Pressable style={styles.headerIconButton} onPress={() => loadShoppingLists()}>
+                      <RefreshCcw size={16} color="#64748b" />
+                    </Pressable>
+                  </View>
+                  {loadingShoppingLists ? (
+                    <ActivityIndicator color="#0f766e" />
+                  ) : (
+                    <View style={styles.nativeListSurface}>
+                      {shoppingLists.map((row, index) => (
+                        <Swipeable
+                          key={row.id}
+                          overshootRight={false}
+                          renderRightActions={() => (
+                            <Pressable
+                              style={[
+                                styles.swipeDeleteAction,
+                                deletingShoppingListId === row.id && styles.buttonDisabled,
+                              ]}
+                              onPress={() => handleDeleteShoppingList(row)}
+                              disabled={deletingShoppingListId === row.id}
+                            >
+                              <Text style={styles.swipeDeleteActionText}>Delete</Text>
+                            </Pressable>
+                          )}
+                        >
+                          <View style={index > 0 ? styles.nativeListDivider : undefined}>
+                            <NativeListItem
+                              title={row.title}
+                              subtitle={`${row.item_count} items${row.estimate_label ? ` • ${row.estimate_label}` : ''}`}
+                              meta={row.caterer_name}
+                              onPress={() => openShoppingList(row)}
+                              rightSlot={<ChevronRight size={17} color="#94a3b8" />}
+                            />
+                          </View>
+                        </Swipeable>
+                      ))}
+                      {!shoppingLists.length ? (
+                        <Text style={styles.subtleText}>No shopping lists yet.</Text>
+                      ) : null}
+                    </View>
+                  )}
+                </View>
               </View>
             </ScrollView>
           )
@@ -5814,7 +6467,7 @@ export default function App() {
                 <ActivityIndicator size="large" color="#0f766e" />
               </View>
             ) : (
-              <ScrollView contentContainerStyle={styles.jobsListWrap}>
+              <ScrollView contentContainerStyle={tabbedJobsListWrapStyle}>
                 {estimates.map((estimate) => (
                   <Pressable
                     key={estimate.id}
@@ -5834,7 +6487,7 @@ export default function App() {
               </ScrollView>
             )
           ) : !plannerSection ? (
-            <ScrollView contentContainerStyle={styles.contentWrap}>
+            <ScrollView contentContainerStyle={tabbedContentWrapStyle}>
               <View style={styles.sectionCard}>
                 <View style={styles.listHeaderTopRow}>
                   <Text style={[styles.sectionTitle, styles.listHeaderTitle]} numberOfLines={2}>
@@ -5895,7 +6548,7 @@ export default function App() {
             </ScrollView>
           ) : (
             <ScrollView
-              contentContainerStyle={styles.contentWrap}
+              contentContainerStyle={tabbedContentWrapStyle}
               keyboardShouldPersistTaps="handled"
               keyboardDismissMode="on-drag"
             >
@@ -6212,48 +6865,7 @@ export default function App() {
           )}
         </View>
 
-        <View style={styles.bottomTabs}>
-          <Pressable
-            style={styles.bottomTabButton}
-            onPress={() => switchMainTab('estimates')}
-          >
-            <Text style={styles.bottomTabLabel}>
-              Estimates
-            </Text>
-          </Pressable>
-          <Pressable
-            style={styles.bottomTabButton}
-            onPress={() => switchMainTab('shopping')}
-          >
-            <Text style={styles.bottomTabLabel}>
-              Shopping
-            </Text>
-          </Pressable>
-          <Pressable
-            style={styles.bottomTabButton}
-            onPress={() => switchMainTab('planner')}
-          >
-            <Text style={styles.bottomTabLabel}>
-              Planner
-            </Text>
-          </Pressable>
-          <Pressable
-            style={[styles.bottomTabButton, mainTab === 'expenses' && styles.bottomTabButtonActive]}
-            onPress={() => switchMainTab('expenses')}
-          >
-            <Text style={[styles.bottomTabLabel, mainTab === 'expenses' && styles.bottomTabLabelActive]}>
-              Expenses
-            </Text>
-          </Pressable>
-          <Pressable
-            style={[styles.bottomTabButton, mainTab === 'staff' && styles.bottomTabButtonActive]}
-            onPress={() => switchMainTab('staff')}
-          >
-            <Text style={[styles.bottomTabLabel, mainTab === 'staff' && styles.bottomTabLabelActive]}>
-              Staff
-            </Text>
-          </Pressable>
-        </View>
+        {renderNativeBottomTabs()}
 
         <Modal
           visible={showEstimatePicker}
@@ -6307,111 +6919,58 @@ export default function App() {
           </View>
         </Modal>
         <Modal
-          visible={!!selectedCatalogItem}
+          visible={shoppingItemEditorOpen}
           transparent
           animationType="slide"
-          onRequestClose={() => {
-            setSelectedCatalogItem(null);
-            setCatalogItemUnit('');
-          }}
+          onRequestClose={closeShoppingItemEditor}
         >
           <View style={styles.modalBackdrop}>
             <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
               <View style={styles.modalCard}>
-              <Text style={styles.sectionTitle}>{selectedCatalogItem?.item_name || 'Add Item'}</Text>
-              <Text style={styles.subtleText}>Select type, quantity, and unit for this list.</Text>
-              {selectedCatalogItem?.type_options?.length ? (
-                <View style={styles.savedList}>
-                  <Text style={styles.subtleText}>Saved types</Text>
-                  <View style={styles.catalogItemWrap}>
-                    {selectedCatalogItem.type_options.map((option) => (
-                      <Pressable
-                        key={option}
-                        style={[
-                          styles.catalogTypePill,
-                          catalogItemType.trim().toLowerCase() === option.toLowerCase() && styles.selectedPill,
-                        ]}
-                        onPress={() => setCatalogItemType(option)}
-                      >
-                        <Text
-                          style={[
-                            styles.catalogTypePillText,
-                            catalogItemType.trim().toLowerCase() === option.toLowerCase() &&
-                              styles.selectedPillText,
-                          ]}
-                        >
-                          {option}
-                        </Text>
-                      </Pressable>
-                    ))}
-                  </View>
+                <Text style={styles.sectionTitle}>Edit Item</Text>
+                <Text style={styles.subtleText}>Update and save this shopping row.</Text>
+                <TextInput
+                  style={styles.input}
+                  value={shoppingEditName}
+                  onChangeText={setShoppingEditName}
+                  placeholder="Item name"
+                />
+                <TextInput
+                  style={styles.input}
+                  value={shoppingEditType}
+                  onChangeText={setShoppingEditType}
+                  placeholder="Type (optional)"
+                />
+                <TextInput
+                  style={styles.input}
+                  value={shoppingEditQty}
+                  onChangeText={setShoppingEditQty}
+                  keyboardType="decimal-pad"
+                  inputAccessoryViewID={Platform.OS === 'ios' ? NUMERIC_INPUT_ACCESSORY_ID : undefined}
+                  placeholder="Quantity"
+                />
+                <TextInput
+                  style={styles.input}
+                  value={shoppingEditUnit}
+                  onChangeText={setShoppingEditUnit}
+                  placeholder="Unit"
+                />
+                <View style={styles.inlineActions}>
+                  <Pressable
+                    style={[styles.primaryButton, savingShoppingEdit && styles.buttonDisabled]}
+                    onPress={saveShoppingItemEdit}
+                    disabled={savingShoppingEdit}
+                  >
+                    {savingShoppingEdit ? (
+                      <ActivityIndicator color="#ffffff" />
+                    ) : (
+                      <Text style={styles.primaryButtonText}>Save</Text>
+                    )}
+                  </Pressable>
+                  <Pressable style={styles.smallButton} onPress={closeShoppingItemEditor}>
+                    <Text style={styles.smallButtonText}>Cancel</Text>
+                  </Pressable>
                 </View>
-              ) : null}
-              <TextInput
-                style={styles.input}
-                value={catalogItemType}
-                onChangeText={setCatalogItemType}
-                placeholder="Item type (optional)"
-              />
-              <TextInput
-                style={styles.input}
-                value={catalogItemQuantity}
-                onChangeText={setCatalogItemQuantity}
-                keyboardType="decimal-pad"
-                inputAccessoryViewID={
-                  Platform.OS === 'ios' ? NUMERIC_INPUT_ACCESSORY_ID : undefined
-                }
-                placeholder="Quantity (default 1)"
-              />
-              <TextInput
-                style={styles.input}
-                value={catalogItemUnit}
-                onChangeText={setCatalogItemUnit}
-                placeholder="Kg, Pieces, Cans"
-              />
-              <View style={styles.catalogItemWrap}>
-                {selectedCatalogUnitOptions.map((option) => {
-                  const selected = catalogItemUnit.trim().toLowerCase() === option.toLowerCase();
-                  return (
-                    <Pressable
-                      key={`catalog-unit-${option}`}
-                      style={[styles.catalogTypePill, selected && styles.selectedPill]}
-                      onPress={() => setCatalogItemUnit(option)}
-                    >
-                      <Text
-                        style={[
-                          styles.catalogTypePillText,
-                          selected && styles.selectedPillText,
-                        ]}
-                      >
-                        {option}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
-              <View style={styles.inlineActions}>
-                <Pressable
-                  style={[styles.primaryButton, addingShoppingItem && styles.buttonDisabled]}
-                  onPress={handleAddCatalogItem}
-                  disabled={addingShoppingItem}
-                >
-                  {addingShoppingItem ? (
-                    <ActivityIndicator color="#ffffff" />
-                  ) : (
-                    <Text style={styles.primaryButtonText}>Add Item</Text>
-                  )}
-                </Pressable>
-                <Pressable
-                  style={styles.smallButton}
-                  onPress={() => {
-                    setSelectedCatalogItem(null);
-                    setCatalogItemUnit('');
-                  }}
-                >
-                  <Text style={styles.smallButtonText}>Cancel</Text>
-                </Pressable>
-              </View>
               </View>
             </TouchableWithoutFeedback>
           </View>
@@ -6421,12 +6980,12 @@ export default function App() {
           animationType="slide"
           onRequestClose={closePlannerEditor}
         >
-          <SafeAreaView style={styles.plannerEditorSafeArea}>
+          <SafeAreaView style={styles.plannerEditorSafeArea} edges={['left', 'right', 'bottom']}>
             <KeyboardAvoidingView
               style={styles.flexOne}
               behavior={Platform.OS === 'ios' ? 'padding' : undefined}
             >
-              <View style={styles.plannerEditorHeader}>
+              <View style={modalHeaderStyle}>
                 <View style={styles.flexOne}>
                   <Text style={styles.sectionTitle}>
                     {plannerEditingEntryId ? 'Edit Planner Item' : 'Add Planner Item'}
@@ -6861,25 +7420,28 @@ export default function App() {
         {shellModals}
         <StatusBar style="dark" />
       </SafeAreaView>
+      </GestureHandlerRootView>
     );
   }
 
   return (
-    <SafeAreaView style={styles.screen}>
+    <GestureHandlerRootView style={styles.flexOne}>
+    <SafeAreaView style={styles.screen} edges={['top']}>
       <View style={styles.flexOne}>
-        <ScrollView contentContainerStyle={styles.contentWrap}>
-          <View style={styles.headerRowTop}>
-            <View style={styles.inlineActions}>
-              <Pressable style={styles.smallButton} onPress={handleBackChevron}>
-                <Text style={styles.smallButtonText}>‹ Back</Text>
+        <ScrollView contentContainerStyle={tabbedContentWrapStyle}>
+          <View style={styles.appHeader}>
+            <View style={styles.appHeaderLeft}>
+              <Pressable style={styles.headerIconButton} onPress={handleBackChevron}>
+                <Text style={styles.headerIconGlyph}>‹</Text>
               </Pressable>
+              <View style={styles.appHeaderTitleWrap}>
+                <Text style={styles.appHeaderTitle}>{mainTab === 'staff' ? 'Staff' : 'Expenses'}</Text>
+                <Text style={styles.appHeaderSubtitle}>{selectedEstimate.job_name}</Text>
+              </View>
             </View>
-            <Text style={[styles.sectionTitle, styles.headerTitleCenter]}>
-              {mainTab === 'staff' ? 'Staff' : 'Expenses'}
-            </Text>
-            <View style={styles.inlineActions}>
+            <View style={styles.appHeaderRight}>
               <Pressable
-                style={styles.smallButton}
+                style={styles.headerIconButton}
                 onPress={() => {
                   if (mainTab === 'staff') {
                     loadStaffSummary(selectedEstimate.id);
@@ -6888,10 +7450,10 @@ export default function App() {
                   }
                 }}
               >
-                <Text style={styles.smallButtonText}>Refresh</Text>
+                <RefreshCcw size={18} color="#64748b" />
               </Pressable>
-              <Pressable style={styles.smallButton} onPress={() => setMenuOpen(true)}>
-                <Text style={styles.smallButtonText}>☰</Text>
+              <Pressable style={styles.headerIconButton} onPress={() => setMenuOpen(true)}>
+                <CircleEllipsis size={18} color="#64748b" />
               </Pressable>
             </View>
           </View>
@@ -7152,58 +7714,7 @@ export default function App() {
           )}
         </ScrollView>
 
-        <View style={styles.bottomTabs}>
-          <Pressable
-            style={styles.bottomTabButton}
-            onPress={() => switchMainTab('estimates')}
-          >
-            <Text style={styles.bottomTabLabel}>
-              Estimates
-            </Text>
-          </Pressable>
-          <Pressable
-            style={styles.bottomTabButton}
-            onPress={() => switchMainTab('shopping')}
-          >
-            <Text style={styles.bottomTabLabel}>
-              Shopping
-            </Text>
-          </Pressable>
-          <Pressable
-            style={styles.bottomTabButton}
-            onPress={() => switchMainTab('planner')}
-          >
-            <Text style={styles.bottomTabLabel}>
-              Planner
-            </Text>
-          </Pressable>
-          <Pressable
-            style={[styles.bottomTabButton, mainTab === 'expenses' && styles.bottomTabButtonActive]}
-            onPress={() => switchMainTab('expenses')}
-          >
-            <Text style={[styles.bottomTabLabel, mainTab === 'expenses' && styles.bottomTabLabelActive]}>
-              Expenses
-            </Text>
-          </Pressable>
-          <Pressable
-            style={[
-              styles.bottomTabButton,
-              mainTab === 'staff' && styles.bottomTabButtonActive,
-              !selectedEstimate.can_manage_staff && styles.buttonDisabled,
-            ]}
-            onPress={() => {
-              if (!selectedEstimate.can_manage_staff) {
-                Alert.alert('No access', 'Your account cannot manage staff on this estimate.');
-                return;
-              }
-              switchMainTab('staff');
-            }}
-          >
-            <Text style={[styles.bottomTabLabel, mainTab === 'staff' && styles.bottomTabLabelActive]}>
-              Staff
-            </Text>
-          </Pressable>
-        </View>
+        {renderNativeBottomTabs()}
       </View>
 
       <Modal
@@ -7242,6 +7753,7 @@ export default function App() {
       {shellModals}
       <StatusBar style="dark" />
     </SafeAreaView>
+    </GestureHandlerRootView>
   );
 }
 
@@ -7251,19 +7763,20 @@ const styles = StyleSheet.create({
   },
   screen: {
     flex: 1,
-    backgroundColor: '#ffffff',
+    backgroundColor: '#f7f7f7',
   },
   screenCenter: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
     gap: 10,
-    backgroundColor: '#ffffff',
+    backgroundColor: '#f7f7f7',
   },
   contentWrap: {
-    padding: 16,
-    gap: 14,
-    paddingBottom: 96,
+    paddingHorizontal: 14,
+    paddingTop: 8,
+    gap: 10,
+    paddingBottom: 12,
   },
   contentTapDismissArea: {
     gap: 14,
@@ -7341,23 +7854,21 @@ const styles = StyleSheet.create({
     opacity: 0.5,
   },
   sectionCard: {
-    borderRadius: 16,
+    borderRadius: 12,
     backgroundColor: '#ffffff',
-    padding: 14,
-    gap: 10,
-    shadowColor: '#0f172a',
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 4 },
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    padding: 12,
+    gap: 8,
   },
   sectionTitle: {
-    fontSize: 18,
-    fontWeight: '700',
+    fontSize: 20,
+    fontWeight: '600',
     color: '#0f172a',
     flexShrink: 1,
   },
   subtleText: {
-    color: '#475569',
+    color: '#64748b',
     fontSize: 13,
   },
   headerRow: {
@@ -7448,19 +7959,19 @@ const styles = StyleSheet.create({
   jobsListWrap: {
     padding: 16,
     gap: 12,
-    paddingBottom: 140,
+    paddingBottom: 12,
   },
   jobCard: {
-    borderRadius: 14,
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#d1d5db',
+    borderColor: '#e2e8f0',
     backgroundColor: '#ffffff',
-    padding: 12,
+    padding: 11,
     gap: 4,
   },
   jobTitle: {
-    fontSize: 16,
-    fontWeight: '700',
+    fontSize: 17,
+    fontWeight: '500',
     color: '#0f172a',
   },
   plannerGrid: {
@@ -7777,10 +8288,10 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   savedCard: {
-    borderRadius: 12,
+    borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#d1d5db',
-    backgroundColor: '#f8fafc',
+    borderColor: '#e2e8f0',
+    backgroundColor: '#ffffff',
     padding: 10,
     gap: 6,
   },
@@ -7972,37 +8483,415 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
   },
-  bottomTabs: {
-    borderTopWidth: 1,
-    borderTopColor: '#e2e8f0',
-    backgroundColor: '#ffffff',
+  appHeader: {
     flexDirection: 'row',
-    paddingHorizontal: 10,
-    paddingTop: 8,
-    paddingBottom: 10,
-    gap: 8,
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 14,
+    paddingTop: 4,
+    paddingBottom: 8,
+    backgroundColor: '#f7f7f7',
+    gap: 10,
   },
-  bottomTabButton: {
+  appHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
     flex: 1,
-    borderRadius: 14,
-    paddingVertical: 8,
+    minWidth: 0,
+  },
+  appHeaderTitleWrap: {
+    flex: 1,
+    minWidth: 0,
+    gap: 1,
+  },
+  appHeaderTitle: {
+    fontSize: 22,
+    color: '#0f172a',
+    fontWeight: '600',
+  },
+  appHeaderSubtitle: {
+    fontSize: 13,
+    color: '#94a3b8',
+  },
+  appHeaderRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  headerIconButton: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#f1f5f9',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
   },
-  bottomTabButtonActive: {
-    backgroundColor: '#dcfce7',
-    borderColor: '#22c55e',
+  headerIconGlyph: {
+    fontSize: 24,
+    color: '#64748b',
+    lineHeight: 24,
+    marginTop: -1,
   },
-  bottomTabLabel: {
-    fontSize: 11,
-    fontWeight: '700',
+  headerTextButton: {
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: 10,
+    backgroundColor: '#e2e8f0',
+  },
+  headerTextButtonLabel: {
+    fontSize: 12,
+    fontWeight: '600',
     color: '#334155',
   },
-  bottomTabLabelActive: {
-    color: '#166534',
+  nativeContentWrap: {
+    paddingHorizontal: 14,
+    paddingTop: 8,
+    paddingBottom: 12,
+  },
+  nativeContentInner: {
+    gap: 12,
+  },
+  nativeScreenHeader: {
+    gap: 4,
+  },
+  nativeScreenTitle: {
+    fontSize: 22,
+    fontWeight: '600',
+    color: '#0f172a',
+  },
+  nativeScreenSubtitle: {
+    fontSize: 13,
+    color: '#94a3b8',
+  },
+  nativeHeaderActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingTop: 4,
+  },
+  nativeFormGroup: {
+    backgroundColor: '#ffffff',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    padding: 12,
+    gap: 8,
+  },
+  nativeSectionHeading: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#94a3b8',
+    letterSpacing: 0.5,
+  },
+  nativeFormInline: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  nativeInput: {
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: '#f8fafc',
+  },
+  nativeInputInline: {
+    flex: 1,
+  },
+  nativeChipRow: {
+    paddingVertical: 2,
+    gap: 8,
+  },
+  nativeChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#d1d5db',
+    backgroundColor: '#ffffff',
+  },
+  nativeChipSelected: {
+    borderColor: '#0f766e',
+    backgroundColor: '#ecfdf5',
+  },
+  nativeChipLabel: {
+    fontSize: 12,
+    color: '#334155',
+  },
+  nativeChipLabelSelected: {
+    color: '#0f766e',
+    fontWeight: '600',
+  },
+  inlinePrimaryAction: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: 6,
+    backgroundColor: '#0f766e',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+  },
+  inlinePrimaryActionText: {
+    color: '#ffffff',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  nativeListLoading: {
+    paddingVertical: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  nativeListGroupWrap: {
+    gap: 10,
+  },
+  nativeSectionBlock: {
+    gap: 8,
+  },
+  nativeListSurface: {
+    borderRadius: 12,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    backgroundColor: '#ffffff',
+  },
+  nativeListDivider: {
+    borderTopWidth: 1,
+    borderTopColor: '#edf2f7',
+  },
+  nativeListRow: {
+    minHeight: 62,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  nativeListRowPressed: {
+    opacity: 0.65,
+  },
+  nativeListRowDimmed: {
+    opacity: 0.5,
+  },
+  nativeListRowBody: {
+    flex: 1,
+    minWidth: 0,
+    gap: 1,
+  },
+  nativeListRowTitle: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#0f172a',
+  },
+  nativeListRowSubtitle: {
+    fontSize: 13,
+    color: '#475569',
+  },
+  nativeListRowMeta: {
+    fontSize: 13,
+    color: '#94a3b8',
+  },
+  nativeListRowRight: {
+    minWidth: 26,
+    marginLeft: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+  },
+  shoppingRowActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  shoppingRowEditButton: {
+    borderRadius: 999,
+    backgroundColor: '#e2e8f0',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  shoppingRowEditButtonText: {
+    color: '#334155',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  shoppingRowDeleteButton: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    borderWidth: 1,
+    borderColor: '#fecaca',
+    backgroundColor: '#fff1f2',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  shoppingRowDeleteButtonText: {
+    color: '#b91c1c',
+    fontSize: 15,
+    fontWeight: '700',
+    lineHeight: 16,
+  },
+  savedQuickChipsWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  savedQuickItemChip: {
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#d1d5db',
+    backgroundColor: '#ffffff',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  savedQuickItemChipText: {
+    fontSize: 13,
+    color: '#334155',
+    fontWeight: '500',
+  },
+  savedQuickAddWrap: {
+    borderTopWidth: 1,
+    borderTopColor: '#edf2f7',
+    backgroundColor: '#f8fafc',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    gap: 8,
+  },
+  savedQuickAddMainRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  savedQuickQtyStepButton: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    borderWidth: 1,
+    borderColor: '#d1d5db',
+    backgroundColor: '#ffffff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  savedQuickQtyStepButtonText: {
+    fontSize: 17,
+    lineHeight: 19,
+    color: '#334155',
+    fontWeight: '600',
+  },
+  savedQuickQtyInput: {
+    width: 68,
+    height: 34,
+    borderWidth: 1,
+    borderColor: '#d1d5db',
+    borderRadius: 8,
+    backgroundColor: '#ffffff',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    fontSize: 14,
+    color: '#0f172a',
+    textAlign: 'center',
+  },
+  savedQuickUnitButton: {
+    minWidth: 72,
+    height: 34,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#d1d5db',
+    backgroundColor: '#ffffff',
+    paddingHorizontal: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  savedQuickUnitButtonText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#334155',
+  },
+  savedQuickAddButton: {
+    marginLeft: 'auto',
+    borderRadius: 8,
+    backgroundColor: '#0f766e',
+    minWidth: 60,
+    height: 34,
+    paddingHorizontal: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  savedQuickAddButtonText: {
+    color: '#ffffff',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  savedQuickUnitChips: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  swipeDeleteAction: {
+    width: 86,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#ef4444',
+  },
+  swipeDeleteActionText: {
+    color: '#ffffff',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  nativeRowBetween: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  nativeCategoryToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  nativeCategoryChevron: {
+    transform: [{ rotate: '0deg' }],
+  },
+  nativeCategoryChevronOpen: {
+    transform: [{ rotate: '90deg' }],
+  },
+  nativeTabHost: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
+  nativeTabBar: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    borderTopColor: '#E5E5EA',
+    borderTopWidth: 0.5,
+    backgroundColor: '#ffffff',
+    elevation: 0,
+    shadowOpacity: 0,
+    shadowRadius: 0,
+    shadowOffset: { width: 0, height: 0 },
+    shadowColor: '#000000',
+  },
+  nativeTabItem: {
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  nativeTabIcon: {
+    marginTop: 0,
+    marginBottom: 0,
+  },
+  nativeTabLabel: {
+    fontSize: 10,
+    fontWeight: '500',
+    marginTop: 2,
+    marginBottom: 2,
   },
   modalBackdrop: {
     flex: 1,
@@ -8031,3 +8920,11 @@ const styles = StyleSheet.create({
     backgroundColor: '#f8fafc',
   },
 });
+
+export default function App() {
+  return (
+    <SafeAreaProvider>
+      <AppShell />
+    </SafeAreaProvider>
+  );
+}
