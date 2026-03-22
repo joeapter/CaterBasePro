@@ -187,6 +187,18 @@ class XpenzApiTests(TestCase):
         self.assertIn("text/html", response["Content-Type"])
         self.assertContains(response, "Kitchen Workflow")
 
+    def test_estimate_print_html_endpoint_injects_mobile_a4_clamp(self):
+        token = self._login_and_get_token()
+        response = self.client.get(
+            reverse("xpenz_estimate_print_html", args=[self.estimate.id]),
+            {"variant": "estimate"},
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("text/html", response["Content-Type"])
+        self.assertContains(response, 'id="xpenz-mobile-print-clamp"')
+        self.assertContains(response, "@media all")
+
     def test_admin_workflow_print_includes_menu_item_notes(self):
         self.user.is_superuser = True
         self.user.save(update_fields=["is_superuser"])

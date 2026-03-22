@@ -424,6 +424,71 @@ def _json_error(message, status=400):
     return JsonResponse({"ok": False, "error": message}, status=status)
 
 
+def _clamp_mobile_print_html(response):
+    """
+    Enforce A4-safe print layout for the mobile print-html endpoint only.
+    We keep admin template rules, but force print media rules to apply during
+    Expo HTML->PDF rendering and lock sheet/page dimensions.
+    """
+    content_type = (response.headers.get("Content-Type") or "").lower()
+    if "text/html" not in content_type:
+        return response
+
+    encoding = response.charset or "utf-8"
+    try:
+        html = response.content.decode(encoding, errors="ignore")
+    except Exception:
+        return response
+
+    if "@media print" in html:
+        html = html.replace("@media print", "@media all")
+
+    if 'id="xpenz-mobile-print-clamp"' not in html:
+        clamp_style = """
+<style id="xpenz-mobile-print-clamp">
+  @page {
+    size: A4 !important;
+    margin: 0 !important;
+  }
+  html, body {
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 210mm !important;
+  }
+  .estimate-sheet,
+  .sheet {
+    box-sizing: border-box !important;
+    width: 210mm !important;
+    min-height: 297mm !important;
+    margin: 0 !important;
+    page-break-after: always !important;
+    break-after: page !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid-page !important;
+  }
+  .estimate-sheet:last-of-type,
+  .sheet:last-of-type {
+    page-break-after: auto !important;
+    break-after: auto !important;
+  }
+  .estimate-sheet[class*="sheet-bg--"] {
+    background-repeat: no-repeat !important;
+    background-size: cover !important;
+    background-position: center top !important;
+    background-attachment: local !important;
+  }
+</style>
+"""
+        if "</head>" in html:
+            html = html.replace("</head>", f"{clamp_style}</head>", 1)
+        else:
+            html = f"{clamp_style}{html}"
+
+    response.content = html.encode(encoding)
+    response["Content-Length"] = str(len(response.content))
+    return response
+
+
 def _xpenz_authenticated_user(request):
     auth_header = request.headers.get("Authorization", "")
     if not auth_header.lower().startswith("bearer "):
@@ -2320,12 +2385,16 @@ def xpenz_estimate_print_html(request, estimate_id):
 
     try:
         if variant == "planner":
-            return admin_view.print_planner(request, estimate_id)
+            response = admin_view.print_planner(request, estimate_id)
+            return _clamp_mobile_print_html(response)
         if variant == "flat":
-            return admin_view.print_estimate_flat(request, estimate_id)
+            response = admin_view.print_estimate_flat(request, estimate_id)
+            return _clamp_mobile_print_html(response)
         if variant == "workflow":
-            return admin_view.workflow_view(request, estimate_id)
-        return admin_view.print_estimate(request, estimate_id)
+            response = admin_view.workflow_view(request, estimate_id)
+            return _clamp_mobile_print_html(response)
+        response = admin_view.print_estimate(request, estimate_id)
+        return _clamp_mobile_print_html(response)
     except PermissionDenied:
         return _json_error("You do not have access to this printout.", status=403)
     except Exception as exc:

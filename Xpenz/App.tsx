@@ -881,50 +881,6 @@ function apiUrl(baseUrl: string, path: string) {
   return `${cleanBase}${cleanPath}`;
 }
 
-function enforceA4PageClamp(html: string) {
-  const clampStyles = `
-<style id="xpenz-a4-clamp">
-  @page {
-    size: 595pt 842pt !important;
-    margin: 0 !important;
-  }
-  html, body {
-    width: 595pt !important;
-    margin: 0 !important;
-    padding: 0 !important;
-  }
-  .estimate-sheet,
-  .sheet {
-    box-sizing: border-box !important;
-    width: 595pt !important;
-    min-height: 842pt !important;
-    height: 842pt !important;
-    max-height: 842pt !important;
-    margin: 0 !important;
-    overflow: hidden !important;
-    page-break-inside: avoid !important;
-    break-inside: avoid-page !important;
-    page-break-after: always !important;
-    break-after: page !important;
-  }
-  .estimate-sheet:last-of-type,
-  .sheet:last-of-type {
-    page-break-after: auto !important;
-    break-after: auto !important;
-  }
-  .estimate-sheet[class*="sheet-bg--"] {
-    background-repeat: no-repeat !important;
-    background-size: 100% 100% !important;
-    background-position: center top !important;
-  }
-</style>`;
-
-  if (/<\/head>/i.test(html)) {
-    return html.replace(/<\/head>/i, `${clampStyles}</head>`);
-  }
-  return `${clampStyles}${html}`;
-}
-
 function localId() {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
@@ -2804,7 +2760,7 @@ function AppShell() {
       const htmlWithBase = /<base\s/i.test(html)
         ? html
         : html.replace(/<head(\s[^>]*)?>/i, (match) => `${match}<base href="${baseHref}">`);
-      const htmlForPdf = enforceA4PageClamp(htmlWithBase);
+      const htmlForPdf = htmlWithBase;
       const file = await Print.printToFileAsync({
         html: htmlForPdf,
         width: PDF_A4_WIDTH_POINTS,
