@@ -199,6 +199,62 @@ class XpenzApiTests(TestCase):
         self.assertContains(response, 'id="xpenz-mobile-print-clamp"')
         self.assertContains(response, "@media all")
 
+    def test_estimate_print_html_endpoint_compacts_dense_non_first_meal(self):
+        category = MenuCategory.objects.create(
+            caterer=self.caterer,
+            name="Appetizers",
+            sort_order=1,
+        )
+        light_items = []
+        dense_items = []
+        for index in range(5):
+            light_items.append(
+                MenuItem.objects.create(
+                    caterer=self.caterer,
+                    category=category,
+                    name=f"Light Item {index + 1}",
+                    cost_per_serving=Decimal("1.00"),
+                    markup=Decimal("1.00"),
+                )
+            )
+        for index in range(16):
+            dense_items.append(
+                MenuItem.objects.create(
+                    caterer=self.caterer,
+                    category=category,
+                    name=f"Dense Item {index + 1}",
+                    cost_per_serving=Decimal("1.00"),
+                    markup=Decimal("1.00"),
+                )
+            )
+        for item in light_items:
+            EstimateFoodChoice.objects.create(
+                estimate=self.estimate,
+                menu_item=item,
+                meal_name="Friday Night",
+                included=True,
+            )
+        for item in dense_items:
+            EstimateFoodChoice.objects.create(
+                estimate=self.estimate,
+                menu_item=item,
+                meal_name="Shabbos Day",
+                included=True,
+            )
+        self.estimate.meal_plan = ["Friday Night", "Shabbos Day"]
+        self.estimate.save(update_fields=["meal_plan"])
+
+        token = self._login_and_get_token()
+        response = self.client.get(
+            reverse("xpenz_estimate_print_html", args=[self.estimate.id]),
+            {"variant": "estimate"},
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("text/html", response["Content-Type"])
+        self.assertContains(response, "Shabbos Day")
+        self.assertContains(response, "meal-card--tight")
+
     def test_admin_workflow_print_includes_menu_item_notes(self):
         self.user.is_superuser = True
         self.user.save(update_fields=["is_superuser"])

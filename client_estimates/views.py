@@ -1,6 +1,7 @@
 import logging
 import json
 import time
+import re
 from datetime import timedelta
 from decimal import Decimal, InvalidOperation
 from urllib.parse import quote_plus
@@ -424,6 +425,37 @@ def _json_error(message, status=400):
     return JsonResponse({"ok": False, "error": message}, status=status)
 
 
+_MOBILE_MEAL_CARD_RE = re.compile(
+    r'(<article class="(?P<class>[^"]*\bmeal-card\b[^"]*)">)(?P<body>.*?)(</article>)',
+    re.DOTALL,
+)
+
+
+def _apply_mobile_meal_density_compaction(html):
+    """
+    Apply compact/tight meal-card class by per-card menu item count.
+    This mirrors the admin intent (auto compact when list is long) but
+    runs per page for mobile PDF output.
+    """
+
+    def _compact_match(match):
+        class_attr = match.group("class") or ""
+        body = match.group("body") or ""
+        li_count = body.count("<li")
+        next_classes = class_attr
+        if li_count >= 16:
+            if "meal-card--tight" not in next_classes:
+                next_classes = f"{next_classes} meal-card--tight".strip()
+        elif li_count >= 13:
+            if "meal-card--compact" not in next_classes and "meal-card--tight" not in next_classes:
+                next_classes = f"{next_classes} meal-card--compact".strip()
+        if next_classes == class_attr:
+            return match.group(0)
+        return f'<article class="{next_classes}">{body}</article>'
+
+    return _MOBILE_MEAL_CARD_RE.sub(_compact_match, html)
+
+
 def _clamp_mobile_print_html(response):
     """
     Enforce A4-safe print layout for the mobile print-html endpoint only.
@@ -439,6 +471,8 @@ def _clamp_mobile_print_html(response):
         html = response.content.decode(encoding, errors="ignore")
     except Exception:
         return response
+
+    html = _apply_mobile_meal_density_compaction(html)
 
     if "@media print" in html:
         html = html.replace("@media print", "@media all")
