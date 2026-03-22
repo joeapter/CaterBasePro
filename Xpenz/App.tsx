@@ -880,6 +880,97 @@ function apiUrl(baseUrl: string, path: string) {
   return `${cleanBase}${cleanPath}`;
 }
 
+function forcePdfPageFitRules(html: string) {
+  let output = html.replace(/@media\s+print/gi, '@media all');
+  const styleTag = `
+<style id="xpenz-pdf-page-fit">
+  @page {
+    size: A4 !important;
+    margin: 0 !important;
+  }
+  html, body {
+    width: 210mm !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+  .estimate-sheet,
+  .sheet {
+    width: 210mm !important;
+    min-height: 297mm !important;
+    height: 297mm !important;
+    max-height: 297mm !important;
+    margin: 0 !important;
+    page-break-after: always !important;
+    break-after: page !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    box-sizing: border-box !important;
+    overflow: hidden !important;
+  }
+  .estimate-sheet:last-of-type,
+  .sheet:last-of-type {
+    page-break-after: auto !important;
+    break-after: auto !important;
+  }
+</style>`;
+  if (/<\/head>/i.test(output)) {
+    output = output.replace(/<\/head>/i, `${styleTag}</head>`);
+  } else {
+    output = `${styleTag}${output}`;
+  }
+
+  const scriptTag = `
+<script id="xpenz-pdf-page-fit-script">
+  (function () {
+    var PX_PER_MM = 96 / 25.4;
+    var PAGE_MM_HEIGHT = 297;
+    var MIN_SCALE = 0.72;
+    function clamp(value, min, max) {
+      return Math.min(max, Math.max(min, value));
+    }
+    function fitPage(page) {
+      if (!page) return;
+      page.style.transform = '';
+      page.style.transformOrigin = 'top left';
+      page.style.width = '210mm';
+      page.style.height = '297mm';
+      page.style.minHeight = '297mm';
+      page.style.maxHeight = '297mm';
+      page.style.overflow = 'hidden';
+
+      var availableHeight = page.clientHeight || PAGE_MM_HEIGHT * PX_PER_MM;
+      var contentHeight = page.scrollHeight || 0;
+      if (!contentHeight || contentHeight <= availableHeight + 1) {
+        return;
+      }
+      var scale = clamp(availableHeight / contentHeight, MIN_SCALE, 1);
+      page.style.transform = 'scale(' + scale.toFixed(4) + ')';
+      page.style.width = (210 / scale).toFixed(4) + 'mm';
+    }
+    function fitAllPages() {
+      var pages = document.querySelectorAll('.estimate-sheet, .sheet');
+      pages.forEach(fitPage);
+    }
+    function runFit() {
+      fitAllPages();
+      setTimeout(fitAllPages, 120);
+      setTimeout(fitAllPages, 260);
+    }
+    if (document.readyState === 'complete') {
+      runFit();
+    } else {
+      window.addEventListener('load', runFit);
+    }
+  })();
+</script>`;
+  if (/<\/body>/i.test(output)) {
+    output = output.replace(/<\/body>/i, `${scriptTag}</body>`);
+  } else {
+    output = `${output}${scriptTag}`;
+  }
+  return output;
+}
+
 function localId() {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
@@ -2454,9 +2545,30 @@ function AppShell() {
       styles.nativeTabBar,
       {
         height: tabBarHeight,
+        paddingTop: 2,
+        paddingBottom: insets.bottom,
       },
     ],
-    [tabBarHeight],
+    [insets.bottom, tabBarHeight],
+  );
+  const nativeTabItemStyle = useMemo(
+    () => [
+      styles.nativeTabItem,
+      {
+        height: TAB_BAR_HEIGHT,
+      },
+    ],
+    [],
+  );
+  const nativeTabButtonStyle = useMemo(
+    () => [
+      styles.nativeTabButton,
+      {
+        height: TAB_BAR_HEIGHT + 14,
+        marginTop: -10,
+      },
+    ],
+    [],
   );
   const tabbedContentWrapStyle = useMemo(
     () => [styles.contentWrap, { paddingBottom: insets.bottom + 10 }],
@@ -2490,7 +2602,7 @@ function AppShell() {
               tabBarShowLabel: true,
               tabBarLabelPosition: 'below-icon',
               tabBarStyle: nativeTabBarStyle,
-              tabBarItemStyle: styles.nativeTabItem,
+              tabBarItemStyle: nativeTabItemStyle,
               tabBarIconStyle: styles.nativeTabIcon,
               tabBarLabelStyle: styles.nativeTabLabel,
               tabBarActiveTintColor: '#0f766e',
@@ -2503,8 +2615,9 @@ function AppShell() {
                   {...props}
                   activeOpacity={0.75}
                   delayPressIn={0}
-                  hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}
-                  style={[props.style, styles.nativeTabButton]}
+                  hitSlop={{ top: 22, bottom: 10, left: 8, right: 8 }}
+                  pressRetentionOffset={{ top: 22, bottom: 12, left: 12, right: 12 }}
+                  style={[props.style, nativeTabButtonStyle]}
                 />
               ),
               tabBarIcon: ({ color }) =>
@@ -2683,11 +2796,12 @@ function AppShell() {
       const htmlWithBase = /<base\s/i.test(html)
         ? html
         : html.replace(/<head(\s[^>]*)?>/i, (match) => `${match}<base href="${baseHref}">`);
-      const htmlForPdf = htmlWithBase.replace(/@media\s+print/gi, '@media all');
+      const htmlForPdf = forcePdfPageFitRules(htmlWithBase);
       const file = await Print.printToFileAsync({
         html: htmlForPdf,
         width: PDF_A4_WIDTH_POINTS,
         height: PDF_A4_HEIGHT_POINTS,
+        orientation: Print.Orientation.portrait,
         margins: {
           top: 0,
           right: 0,
@@ -9919,14 +10033,15 @@ const styles = StyleSheet.create({
     shadowColor: '#000000',
     zIndex: 60,
     elevation: 60,
+    overflow: 'visible',
   },
   nativeTabButton: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    minHeight: TAB_BAR_HEIGHT,
   },
   nativeTabItem: {
+    flex: 1,
     flexDirection: 'column',
     alignItems: 'center',
     justifyContent: 'center',
