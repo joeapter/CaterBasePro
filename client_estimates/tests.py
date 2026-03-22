@@ -333,6 +333,65 @@ class XpenzApiTests(TestCase):
         self.assertEqual(payload["estimate"]["manual_meal_totals"]["Friday Night"], "145.50")
         self.assertEqual(payload["estimate"]["meal_guest_overrides"]["Friday Night"]["adults"], 100)
 
+    def test_estimate_builder_saves_per_meal_logistics(self):
+        token = self._login_and_get_token()
+        self.estimate.meal_plan = ["Friday Night", "Shabbos Day"]
+        self.estimate.save(update_fields=["meal_plan"])
+
+        response = self.client.post(
+            reverse("xpenz_estimate_builder", args=[self.estimate.id]),
+            data=json.dumps(
+                {
+                    "estimate": {
+                        "meal_service_details": {
+                            "Friday Night": {
+                                "wants_real_dishes": True,
+                                "real_dishes_price_per_person": "14.5",
+                                "staff_hours": "4.25",
+                                "wait_staff_count": "3",
+                                "staff_tip_per_waiter": "120",
+                            },
+                            "Shabbos Day": {
+                                "staff_hours": "5",
+                                "wait_staff_count": "4",
+                            },
+                        }
+                    }
+                }
+            ),
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.estimate.refresh_from_db()
+        self.assertEqual(
+            self.estimate.meal_service_details,
+            {
+                "Friday Night": {
+                    "wants_real_dishes": True,
+                    "real_dishes_price_per_person": "14.50",
+                    "staff_hours": "4.25",
+                    "wait_staff_count": 3,
+                    "staff_tip_per_waiter": "120.00",
+                },
+                "Shabbos Day": {
+                    "staff_hours": "5.00",
+                    "wait_staff_count": 4,
+                },
+            },
+        )
+        payload = response.json()
+        self.assertEqual(
+            payload["estimate"]["meal_service_details"]["Friday Night"][
+                "real_dishes_price_per_person"
+            ],
+            "14.50",
+        )
+        self.assertEqual(
+            payload["estimate"]["meal_service_details"]["Friday Night"]["wait_staff_count"],
+            3,
+        )
+
     def test_expense_upload_requires_receipt_file(self):
         token = self._login_and_get_token()
         response = self.client.post(

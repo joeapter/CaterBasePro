@@ -46,6 +46,7 @@ import {
   Platform,
   Pressable,
   ScrollView,
+  Share,
   StyleSheet,
   Text,
   TextInput,
@@ -183,6 +184,14 @@ type EstimateBuilderMealGuestOverride = {
   kids?: number;
 };
 
+type EstimateBuilderMealServiceDetail = {
+  wants_real_dishes?: boolean;
+  real_dishes_price_per_person?: string;
+  staff_hours?: string;
+  wait_staff_count?: string;
+  staff_tip_per_waiter?: string;
+};
+
 type EstimateBuilderMealOverrideDraft = {
   override_price: string;
   adults: string;
@@ -223,6 +232,7 @@ type EstimateBuilderEstimate = EstimateRow & {
   meal_plan: string[];
   manual_meal_totals: Record<string, string>;
   meal_guest_overrides: Record<string, EstimateBuilderMealGuestOverride>;
+  meal_service_details: Record<string, EstimateBuilderMealServiceDetail>;
   meal_sections: EstimateBuilderMealSection[];
   tablecloth_details: Record<string, unknown>;
   summary: EstimateBuilderSummary;
@@ -958,6 +968,21 @@ function parseNonNegativeIntegerInput(rawValue: string) {
   return parsed;
 }
 
+function hasEstimateBuilderMealServiceValues(row?: EstimateBuilderMealServiceDetail | null) {
+  if (!row) {
+    return false;
+  }
+  if (row.wants_real_dishes) {
+    return true;
+  }
+  return (
+    !!String(row.real_dishes_price_per_person ?? '').trim() ||
+    !!String(row.staff_hours ?? '').trim() ||
+    !!String(row.wait_staff_count ?? '').trim() ||
+    !!String(row.staff_tip_per_waiter ?? '').trim()
+  );
+}
+
 function buildPlannerFieldCardsPayload(
   rows: PlannerEditorFieldCard[],
 ): { cards: PlannerFieldCardPayloadRow[]; validationError: string | null } {
@@ -1138,6 +1163,7 @@ function AppShell() {
   const [token, setToken] = useState('');
   const [mainTab, setMainTab] = useState<MainTab>('estimates');
   const [menuOpen, setMenuOpen] = useState(false);
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const [estimates, setEstimates] = useState<EstimateRow[]>([]);
   const [selectedEstimate, setSelectedEstimate] = useState<EstimateRow | null>(null);
   const [estimateComposerOpen, setEstimateComposerOpen] = useState(false);
@@ -1265,6 +1291,7 @@ function AppShell() {
       setSavedEntries([]);
       setStaffEntries([]);
       setMenuOpen(false);
+      setAccountMenuOpen(false);
       setMainTab('estimates');
       Alert.alert(
         accessRemoved ? 'Mobile access removed' : 'Session expired',
@@ -2378,6 +2405,7 @@ function AppShell() {
       setToken('');
       setMainTab('estimates');
       setMenuOpen(false);
+      setAccountMenuOpen(false);
       setSelectedEstimate(null);
       setEstimateComposerOpen(false);
       setCreatingEstimate(false);
@@ -2483,6 +2511,7 @@ function AppShell() {
   const switchMainTab = useCallback((nextTab: MainTab, syncNavigation = false) => {
     setMainTab(nextTab);
     setMenuOpen(false);
+    setAccountMenuOpen(false);
     if (nextTab === 'estimates' || nextTab === 'shopping' || nextTab === 'planner') {
       setSelectedEstimate(null);
     }
@@ -2574,16 +2603,22 @@ function AppShell() {
               tabBarActiveBackgroundColor: 'transparent',
               tabBarInactiveBackgroundColor: 'transparent',
               tabBarHideOnKeyboard: true,
-              tabBarButton: (props) => (
-                <TouchableOpacity
-                  {...props}
-                  activeOpacity={0.75}
-                  delayPressIn={0}
-                  hitSlop={{ top: 22, bottom: 10, left: 8, right: 8 }}
-                  pressRetentionOffset={{ top: 22, bottom: 12, left: 12, right: 12 }}
-                  style={[props.style, nativeTabButtonStyle]}
-                />
-              ),
+              tabBarButton: (props) => {
+                const { delayLongPress, ...rest } = props;
+                return (
+                  <TouchableOpacity
+                    {...(rest as any)}
+                    delayLongPress={
+                      typeof delayLongPress === 'number' ? delayLongPress : undefined
+                    }
+                    activeOpacity={0.75}
+                    delayPressIn={0}
+                    hitSlop={{ top: 22, bottom: 10, left: 8, right: 8 }}
+                    pressRetentionOffset={{ top: 22, bottom: 12, left: 12, right: 12 }}
+                    style={[props.style, nativeTabButtonStyle]}
+                  />
+                );
+              },
               tabBarIcon: ({ color }) =>
                 renderMainTabIcon(route.name as keyof RootTabParamList, color, 22),
             })}
@@ -2765,7 +2800,6 @@ function AppShell() {
         html: htmlForPdf,
         width: PDF_A4_WIDTH_POINTS,
         height: PDF_A4_HEIGHT_POINTS,
-        orientation: Print.Orientation.portrait,
         margins: {
           top: 0,
           right: 0,
@@ -2807,8 +2841,28 @@ function AppShell() {
                   if (!isSharingAvailable) {
                     throw new Error('Sharing is not available on this device.');
                   }
+                  if (Platform.OS === 'ios') {
+                    try {
+                      await Sharing.shareAsync(pdf.uri, {
+                        dialogTitle: title,
+                        UTI: 'com.adobe.pdf',
+                        mimeType: 'application/pdf',
+                      });
+                    } catch {
+                      const result = await Share.share({
+                        title,
+                        message: `${title}`,
+                        url: pdf.uri,
+                      });
+                      if (result.action === Share.dismissedAction) {
+                        return;
+                      }
+                    }
+                    return;
+                  }
                   await Sharing.shareAsync(pdf.uri, {
                     dialogTitle: title,
+                    mimeType: 'application/pdf',
                   });
                 } catch (error) {
                   Alert.alert(
@@ -3002,6 +3056,44 @@ function AppShell() {
       }
     }
 
+    const rawMealServiceDetails =
+      estimate.meal_service_details && typeof estimate.meal_service_details === 'object'
+        ? (estimate.meal_service_details as Record<string, unknown>)
+        : {};
+    const normalizedMealServiceDetails: Record<string, EstimateBuilderMealServiceDetail> = {};
+    for (const [rawMealName, rawValue] of Object.entries(rawMealServiceDetails)) {
+      const mealName = (rawMealName || '').trim();
+      if (!mealName || !rawValue || typeof rawValue !== 'object') {
+        continue;
+      }
+      const row = rawValue as Record<string, unknown>;
+      const normalizedRow: EstimateBuilderMealServiceDetail = {};
+      if (row.wants_real_dishes === true || row.wants_real_dishes === 'true' || row.wants_real_dishes === 1 || row.wants_real_dishes === '1') {
+        normalizedRow.wants_real_dishes = true;
+      }
+      const dishValue = parseNonNegativeDecimalInput(
+        String(row.real_dishes_price_per_person ?? ''),
+      );
+      if (Number.isFinite(dishValue as number)) {
+        normalizedRow.real_dishes_price_per_person = (dishValue as number).toFixed(2);
+      }
+      const hoursValue = parseNonNegativeDecimalInput(String(row.staff_hours ?? ''));
+      if (Number.isFinite(hoursValue as number)) {
+        normalizedRow.staff_hours = (hoursValue as number).toFixed(2);
+      }
+      const waitersValue = parseNonNegativeIntegerInput(String(row.wait_staff_count ?? ''));
+      if (Number.isFinite(waitersValue as number)) {
+        normalizedRow.wait_staff_count = String(waitersValue);
+      }
+      const tipValue = parseNonNegativeDecimalInput(String(row.staff_tip_per_waiter ?? ''));
+      if (Number.isFinite(tipValue as number)) {
+        normalizedRow.staff_tip_per_waiter = (tipValue as number).toFixed(2);
+      }
+      if (hasEstimateBuilderMealServiceValues(normalizedRow)) {
+        normalizedMealServiceDetails[mealName] = normalizedRow;
+      }
+    }
+
     const mealSections = Array.isArray(estimate.meal_sections)
       ? estimate.meal_sections.filter(
           (row) =>
@@ -3015,6 +3107,7 @@ function AppShell() {
       ...estimate,
       manual_meal_totals: normalizedManualMealTotals,
       meal_guest_overrides: normalizedMealGuestOverrides,
+      meal_service_details: normalizedMealServiceDetails,
       meal_sections: mealSections,
     };
 
@@ -3200,6 +3293,96 @@ function AppShell() {
     };
   }, [estimateBuilderEstimate, estimateBuilderMealPlan]);
 
+  const buildEstimateBuilderMealServicePayload = useCallback(() => {
+    if (!estimateBuilderEstimate) {
+      return {
+        ok: false as const,
+        error: 'Estimate data is not loaded.',
+      };
+    }
+    const rawRows = estimateBuilderEstimate.meal_service_details || {};
+    const normalizedByKey = new Map<string, EstimateBuilderMealServiceDetail>();
+    for (const [rawMealName, rawRawRow] of Object.entries(rawRows)) {
+      const mealName = (rawMealName || '').trim();
+      const mealKey = normalizeEstimateMealKey(mealName);
+      if (!mealName || !mealKey || !rawRawRow || typeof rawRawRow !== 'object') {
+        continue;
+      }
+      const rawRow = rawRawRow as EstimateBuilderMealServiceDetail;
+      const nextRow: EstimateBuilderMealServiceDetail = {};
+      if (rawRow.wants_real_dishes) {
+        nextRow.wants_real_dishes = true;
+      }
+      const dish = parseNonNegativeDecimalInput(String(rawRow.real_dishes_price_per_person ?? ''));
+      if (Number.isNaN(dish)) {
+        return {
+          ok: false as const,
+          error: `Per-meal logistics for "${mealName}" has an invalid dishes price per guest.`,
+        };
+      }
+      if (dish != null) {
+        nextRow.real_dishes_price_per_person = dish.toFixed(2);
+      }
+      const hours = parseNonNegativeDecimalInput(String(rawRow.staff_hours ?? ''));
+      if (Number.isNaN(hours)) {
+        return {
+          ok: false as const,
+          error: `Per-meal logistics for "${mealName}" has an invalid staff hours value.`,
+        };
+      }
+      if (hours != null) {
+        nextRow.staff_hours = hours.toFixed(2);
+      }
+      const waiters = parseNonNegativeIntegerInput(String(rawRow.wait_staff_count ?? ''));
+      if (Number.isNaN(waiters)) {
+        return {
+          ok: false as const,
+          error: `Per-meal logistics for "${mealName}" has an invalid wait staff qty.`,
+        };
+      }
+      if (waiters != null) {
+        nextRow.wait_staff_count = String(waiters);
+      }
+      const tip = parseNonNegativeDecimalInput(String(rawRow.staff_tip_per_waiter ?? ''));
+      if (Number.isNaN(tip)) {
+        return {
+          ok: false as const,
+          error: `Per-meal logistics for "${mealName}" has an invalid tip per waiter.`,
+        };
+      }
+      if (tip != null) {
+        nextRow.staff_tip_per_waiter = tip.toFixed(2);
+      }
+      if (hasEstimateBuilderMealServiceValues(nextRow)) {
+        normalizedByKey.set(mealKey, nextRow);
+      }
+    }
+
+    const details: Record<string, EstimateBuilderMealServiceDetail> = {};
+    const consumedKeys = new Set<string>();
+    const orderedMeals = mergeOptionValues(
+      estimateBuilderMealPlan.length ? estimateBuilderMealPlan : ['Signature Menu'],
+      Object.keys(rawRows),
+    );
+    for (const mealName of orderedMeals) {
+      const mealKey = normalizeEstimateMealKey(mealName);
+      if (!mealKey || consumedKeys.has(mealKey)) {
+        continue;
+      }
+      consumedKeys.add(mealKey);
+      const row = normalizedByKey.get(mealKey);
+      if (!row) {
+        continue;
+      }
+      details[mealName] = row;
+    }
+
+    return {
+      ok: true as const,
+      details,
+    };
+  }, [estimateBuilderEstimate, estimateBuilderMealPlan]);
+
   const saveEstimateBuilder = useCallback(async () => {
     if (!estimateBuilderEstimate || !token) {
       return;
@@ -3215,6 +3398,11 @@ function AppShell() {
     const mealOverridePayload = buildEstimateBuilderMealOverridesPayload();
     if (!mealOverridePayload.ok) {
       Alert.alert('Invalid meal override', mealOverridePayload.error);
+      return;
+    }
+    const mealServicePayload = buildEstimateBuilderMealServicePayload();
+    if (!mealServicePayload.ok) {
+      Alert.alert('Invalid per-meal logistics', mealServicePayload.error);
       return;
     }
     setEstimateBuilderSaving(true);
@@ -3266,6 +3454,7 @@ function AppShell() {
               signature_date: estimateBuilderEstimate.signature_date,
               manual_meal_totals: mealOverridePayload.manualMealTotals,
               meal_guest_overrides: mealOverridePayload.mealGuestOverrides,
+              meal_service_details: mealServicePayload.details,
               tablecloth_details: estimateBuilderEstimate.tablecloth_details,
             },
             meal_plan: estimateBuilderMealPlan,
@@ -3289,6 +3478,7 @@ function AppShell() {
     applyEstimateBuilderPayload,
     authFetchJson,
     buildEstimateBuilderMealOverridesPayload,
+    buildEstimateBuilderMealServicePayload,
     estimateBuilderEstimate,
     estimateBuilderExtraLines,
     estimateBuilderMealPlan,
@@ -3354,6 +3544,52 @@ function AppShell() {
     }
     return map;
   }, [estimateBuilderEstimate?.meal_guest_overrides]);
+
+  const estimateBuilderMealServiceDetailsByKey = useMemo(() => {
+    const map = new Map<string, EstimateBuilderMealServiceDetail>();
+    const rows = estimateBuilderEstimate?.meal_service_details || {};
+    for (const [rawMealName, rawValue] of Object.entries(rows)) {
+      const mealName = (rawMealName || '').trim();
+      const mealKey = normalizeEstimateMealKey(mealName);
+      if (!mealName || !mealKey || !rawValue || typeof rawValue !== 'object') {
+        continue;
+      }
+      const row = rawValue as EstimateBuilderMealServiceDetail;
+      const normalizedRow: EstimateBuilderMealServiceDetail = {};
+      if (row.wants_real_dishes) {
+        normalizedRow.wants_real_dishes = true;
+      }
+      const dishes = parseNonNegativeDecimalInput(String(row.real_dishes_price_per_person ?? ''));
+      if (Number.isFinite(dishes as number)) {
+        normalizedRow.real_dishes_price_per_person = (dishes as number).toFixed(2);
+      }
+      const hours = parseNonNegativeDecimalInput(String(row.staff_hours ?? ''));
+      if (Number.isFinite(hours as number)) {
+        normalizedRow.staff_hours = (hours as number).toFixed(2);
+      }
+      const waiters = parseNonNegativeIntegerInput(String(row.wait_staff_count ?? ''));
+      if (Number.isFinite(waiters as number)) {
+        normalizedRow.wait_staff_count = String(waiters);
+      }
+      const tip = parseNonNegativeDecimalInput(String(row.staff_tip_per_waiter ?? ''));
+      if (Number.isFinite(tip as number)) {
+        normalizedRow.staff_tip_per_waiter = (tip as number).toFixed(2);
+      }
+      if (hasEstimateBuilderMealServiceValues(normalizedRow)) {
+        map.set(mealKey, normalizedRow);
+      }
+    }
+    return map;
+  }, [estimateBuilderEstimate?.meal_service_details]);
+
+  const estimateBuilderMealServiceMeals = useMemo(
+    () =>
+      mergeOptionValues(
+        estimateBuilderMealPlan.length ? estimateBuilderMealPlan : ['Signature Menu'],
+        Object.keys(estimateBuilderEstimate?.meal_service_details || {}),
+      ),
+    [estimateBuilderEstimate?.meal_service_details, estimateBuilderMealPlan],
+  );
 
   const activeEstimateBuilderMealKey = useMemo(
     () => normalizeEstimateMealKey(activeEstimateBuilderMeal),
@@ -3734,6 +3970,94 @@ function AppShell() {
     estimateBuilderMealOverrideDrafts,
     updateEstimateBuilderMealOverrideDraft,
   ]);
+
+  const updateEstimateBuilderMealServiceField = useCallback(
+    (
+      mealName: string,
+      field: keyof Omit<EstimateBuilderMealServiceDetail, 'wants_real_dishes'>,
+      value: string,
+    ) => {
+      const mealKey = normalizeEstimateMealKey(mealName);
+      if (!mealKey) {
+        return;
+      }
+      setEstimateBuilderEstimate((previous) => {
+        if (!previous) {
+          return previous;
+        }
+        const nextDetails: Record<string, EstimateBuilderMealServiceDetail> = {};
+        const currentDetails = previous.meal_service_details || {};
+        let existingRow: EstimateBuilderMealServiceDetail = {};
+        for (const [existingMealName, existingRawRow] of Object.entries(currentDetails)) {
+          const existingKey = normalizeEstimateMealKey(existingMealName);
+          if (!existingKey || !existingRawRow || typeof existingRawRow !== 'object') {
+            continue;
+          }
+          const row = existingRawRow as EstimateBuilderMealServiceDetail;
+          if (existingKey === mealKey) {
+            existingRow = { ...row };
+            continue;
+          }
+          nextDetails[existingMealName] = { ...row };
+        }
+        const nextRow: EstimateBuilderMealServiceDetail = { ...existingRow };
+        const nextValue = value.trim();
+        if (nextValue) {
+          nextRow[field] = nextValue;
+        } else {
+          delete nextRow[field];
+        }
+        if (hasEstimateBuilderMealServiceValues(nextRow)) {
+          nextDetails[mealName] = nextRow;
+        }
+        return {
+          ...previous,
+          meal_service_details: nextDetails,
+        };
+      });
+    },
+    [],
+  );
+
+  const toggleEstimateBuilderMealServiceDishes = useCallback((mealName: string) => {
+    const mealKey = normalizeEstimateMealKey(mealName);
+    if (!mealKey) {
+      return;
+    }
+    setEstimateBuilderEstimate((previous) => {
+      if (!previous) {
+        return previous;
+      }
+      const nextDetails: Record<string, EstimateBuilderMealServiceDetail> = {};
+      const currentDetails = previous.meal_service_details || {};
+      let existingRow: EstimateBuilderMealServiceDetail = {};
+      for (const [existingMealName, existingRawRow] of Object.entries(currentDetails)) {
+        const existingKey = normalizeEstimateMealKey(existingMealName);
+        if (!existingKey || !existingRawRow || typeof existingRawRow !== 'object') {
+          continue;
+        }
+        const row = existingRawRow as EstimateBuilderMealServiceDetail;
+        if (existingKey === mealKey) {
+          existingRow = { ...row };
+          continue;
+        }
+        nextDetails[existingMealName] = { ...row };
+      }
+      const nextRow: EstimateBuilderMealServiceDetail = { ...existingRow };
+      if (nextRow.wants_real_dishes) {
+        delete nextRow.wants_real_dishes;
+      } else {
+        nextRow.wants_real_dishes = true;
+      }
+      if (hasEstimateBuilderMealServiceValues(nextRow)) {
+        nextDetails[mealName] = nextRow;
+      }
+      return {
+        ...previous,
+        meal_service_details: nextDetails,
+      };
+    });
+  }, []);
 
   const toggleEstimateBuilderMenuItem = useCallback(
     (item: EstimateBuilderMenuItem) => {
@@ -5415,19 +5739,10 @@ function AppShell() {
                 style={styles.smallButton}
                 onPress={() => {
                   setMenuOpen(false);
-                  openAdminPath('/admin/client_estimates/catereraccount/');
+                  setAccountMenuOpen(true);
                 }}
               >
                 <Text style={styles.smallButtonText}>Account / Company Profile</Text>
-              </Pressable>
-              <Pressable
-                style={styles.smallButton}
-                onPress={() => {
-                  setMenuOpen(false);
-                  openAdminPath('/admin/auth/user/');
-                }}
-              >
-                <Text style={styles.smallButtonText}>Delete Account (Admin)</Text>
               </Pressable>
               <Pressable
                 style={styles.smallButton}
@@ -5464,6 +5779,49 @@ function AppShell() {
                 }}
               >
                 <Text style={styles.smallDangerButtonText}>Log Out</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={accountMenuOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setAccountMenuOpen(false)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <Text style={styles.sectionTitle}>Account</Text>
+            <Text style={styles.subtleText}>Company profile and account controls.</Text>
+            <View style={styles.savedList}>
+              <Pressable
+                style={styles.smallButton}
+                onPress={() => {
+                  setAccountMenuOpen(false);
+                  openAdminPath('/admin/client_estimates/catereraccount/');
+                }}
+              >
+                <Text style={styles.smallButtonText}>Account / Company Profile</Text>
+              </Pressable>
+              <Pressable
+                style={styles.smallButton}
+                onPress={() => {
+                  setAccountMenuOpen(false);
+                  setMenuOpen(true);
+                }}
+              >
+                <Text style={styles.smallButtonText}>Back to Menu</Text>
+              </Pressable>
+              <Pressable
+                style={styles.smallDangerButton}
+                onPress={() => {
+                  setAccountMenuOpen(false);
+                  openAdminPath('/admin/auth/user/');
+                }}
+              >
+                <Text style={styles.smallDangerButtonText}>Delete Account (Admin)</Text>
               </Pressable>
             </View>
           </View>
@@ -6286,6 +6644,11 @@ function AppShell() {
                           </Text>
                         </Pressable>
                       </View>
+                      <Text style={styles.savedTitle}>Manual Overrides</Text>
+                      <Text style={styles.subtleText}>
+                        Staff, deposit, and per-meal logistics overrides for totals.
+                      </Text>
+                      <Text style={styles.labelInline}>Staff hours</Text>
                       <TextInput
                         style={styles.input}
                         value={estimateBuilderEstimate.staff_hours}
@@ -6305,6 +6668,7 @@ function AppShell() {
                         }
                         placeholder="Staff hours"
                       />
+                      <Text style={styles.labelInline}>Extra waiters</Text>
                       <TextInput
                         style={styles.input}
                         value={String(estimateBuilderEstimate.extra_waiters || '')}
@@ -6324,6 +6688,7 @@ function AppShell() {
                         }
                         placeholder="Extra waiters"
                       />
+                      <Text style={styles.labelInline}>Staff count override</Text>
                       <TextInput
                         style={styles.input}
                         value={estimateBuilderEstimate.staff_count_override == null ? '' : String(estimateBuilderEstimate.staff_count_override)}
@@ -6440,6 +6805,7 @@ function AppShell() {
                         }
                         placeholder="Deposit %"
                       />
+                      <Text style={styles.labelInline}>Deposit received</Text>
                       <TextInput
                         style={styles.input}
                         value={estimateBuilderEstimate.deposit_received}
@@ -6459,6 +6825,105 @@ function AppShell() {
                         }
                         placeholder="Deposit received"
                       />
+                      <View style={styles.savedCard}>
+                        <Text style={styles.savedTitle}>Per-meal logistics</Text>
+                        <Text style={styles.subtleText}>
+                          Override dishes/staffing by meal when each service is different.
+                        </Text>
+                        {(estimateBuilderMealServiceMeals.length
+                          ? estimateBuilderMealServiceMeals
+                          : ['Signature Menu']
+                        ).map((mealName) => {
+                          const mealKey = normalizeEstimateMealKey(mealName);
+                          const row = estimateBuilderMealServiceDetailsByKey.get(mealKey) || {};
+                          return (
+                            <View
+                              key={`builder-meal-service-${mealKey || mealName}`}
+                              style={styles.builderMealOverrideCard}
+                            >
+                              <Text style={styles.savedTitle}>{mealName}</Text>
+                              <View style={styles.inlineActions}>
+                                <Pressable
+                                  style={[
+                                    styles.smallButton,
+                                    row.wants_real_dishes && styles.selectedPill,
+                                  ]}
+                                  onPress={() => toggleEstimateBuilderMealServiceDishes(mealName)}
+                                >
+                                  <Text
+                                    style={[
+                                      styles.smallButtonText,
+                                      row.wants_real_dishes && styles.selectedPillText,
+                                    ]}
+                                  >
+                                    Real dishes
+                                  </Text>
+                                </Pressable>
+                              </View>
+                              <TextInput
+                                style={styles.input}
+                                value={row.real_dishes_price_per_person || ''}
+                                onChangeText={(value) =>
+                                  updateEstimateBuilderMealServiceField(
+                                    mealName,
+                                    'real_dishes_price_per_person',
+                                    value,
+                                  )
+                                }
+                                keyboardType="decimal-pad"
+                                inputAccessoryViewID={
+                                  Platform.OS === 'ios' ? NUMERIC_INPUT_ACCESSORY_ID : undefined
+                                }
+                                placeholder="Price per guest"
+                              />
+                              <TextInput
+                                style={styles.input}
+                                value={row.staff_hours || ''}
+                                onChangeText={(value) =>
+                                  updateEstimateBuilderMealServiceField(mealName, 'staff_hours', value)
+                                }
+                                keyboardType="decimal-pad"
+                                inputAccessoryViewID={
+                                  Platform.OS === 'ios' ? NUMERIC_INPUT_ACCESSORY_ID : undefined
+                                }
+                                placeholder="Staff hours"
+                              />
+                              <TextInput
+                                style={styles.input}
+                                value={row.wait_staff_count || ''}
+                                onChangeText={(value) =>
+                                  updateEstimateBuilderMealServiceField(
+                                    mealName,
+                                    'wait_staff_count',
+                                    value,
+                                  )
+                                }
+                                keyboardType="number-pad"
+                                inputAccessoryViewID={
+                                  Platform.OS === 'ios' ? NUMERIC_INPUT_ACCESSORY_ID : undefined
+                                }
+                                placeholder="Wait staff qty"
+                              />
+                              <TextInput
+                                style={styles.input}
+                                value={row.staff_tip_per_waiter || ''}
+                                onChangeText={(value) =>
+                                  updateEstimateBuilderMealServiceField(
+                                    mealName,
+                                    'staff_tip_per_waiter',
+                                    value,
+                                  )
+                                }
+                                keyboardType="decimal-pad"
+                                inputAccessoryViewID={
+                                  Platform.OS === 'ios' ? NUMERIC_INPUT_ACCESSORY_ID : undefined
+                                }
+                                placeholder="Tip per waiter"
+                              />
+                            </View>
+                          );
+                        })}
+                      </View>
                       <View style={styles.savedCard}>
                         <Text style={styles.savedTitle}>Totals</Text>
                         <Text style={styles.subtleText}>
@@ -6876,7 +7341,13 @@ function AppShell() {
             >
               <RefreshCcw size={18} color="#64748b" />
             </Pressable>
-            <Pressable style={styles.headerIconButton} onPress={() => setMenuOpen(true)}>
+            <Pressable
+              style={styles.headerIconButton}
+              onPress={() => {
+                setAccountMenuOpen(false);
+                setMenuOpen(true);
+              }}
+            >
               <CircleEllipsis size={18} color="#64748b" />
             </Pressable>
           </View>
@@ -8456,7 +8927,13 @@ function AppShell() {
               >
                 <RefreshCcw size={18} color="#64748b" />
               </Pressable>
-              <Pressable style={styles.headerIconButton} onPress={() => setMenuOpen(true)}>
+              <Pressable
+                style={styles.headerIconButton}
+                onPress={() => {
+                  setAccountMenuOpen(false);
+                  setMenuOpen(true);
+                }}
+              >
                 <CircleEllipsis size={18} color="#64748b" />
               </Pressable>
             </View>
@@ -9979,7 +10456,6 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 0 },
     shadowColor: '#000000',
     zIndex: 60,
-    elevation: 60,
     overflow: 'visible',
   },
   nativeTabButton: {

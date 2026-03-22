@@ -1877,6 +1877,32 @@ def _serialize_estimate_builder_payload(request, user, estimate, access_map=None
         if normalized_row:
             meal_guest_overrides[meal_name] = normalized_row
 
+    meal_service_details = {}
+    for raw_meal, raw_row in (estimate.meal_service_details or {}).items():
+        meal_name = _normalize_item_text(raw_meal)
+        if not meal_name or not isinstance(raw_row, dict):
+            continue
+        normalized_row = {}
+        if _to_bool(raw_row.get("wants_real_dishes")):
+            normalized_row["wants_real_dishes"] = True
+        for key in (
+            "real_dishes_price_per_person",
+            "staff_hours",
+            "staff_tip_per_waiter",
+        ):
+            parsed_value = Estimate._clean_decimal(raw_row.get(key), None)
+            if parsed_value is None:
+                continue
+            normalized_row[key] = _to_decimal_string(
+                parsed_value.quantize(Decimal("0.01")),
+                "0.00",
+            )
+        parsed_waiters = Estimate._clean_int(raw_row.get("wait_staff_count"), None)
+        if parsed_waiters is not None:
+            normalized_row["wait_staff_count"] = int(parsed_waiters)
+        if normalized_row:
+            meal_service_details[meal_name] = normalized_row
+
     return {
         "ok": True,
         "estimate_id": estimate.id,
@@ -1918,6 +1944,7 @@ def _serialize_estimate_builder_payload(request, user, estimate, access_map=None
             "meal_plan": meal_plan,
             "manual_meal_totals": manual_meal_totals,
             "meal_guest_overrides": meal_guest_overrides,
+            "meal_service_details": meal_service_details,
             "meal_sections": meal_sections,
             "tablecloth_details": estimate.tablecloth_details or {},
             "summary": summary,
@@ -2266,6 +2293,71 @@ def xpenz_estimate_builder(request, estimate_id):
             if parsed_row:
                 parsed_guest_overrides[meal_name] = parsed_row
         estimate.meal_guest_overrides = parsed_guest_overrides
+
+    if "meal_service_details" in estimate_payload:
+        raw_service_details = estimate_payload.get("meal_service_details")
+        if isinstance(raw_service_details, str):
+            try:
+                raw_service_details = (
+                    json.loads(raw_service_details) if raw_service_details else {}
+                )
+            except (json.JSONDecodeError, TypeError, ValueError):
+                raw_service_details = {}
+        if not isinstance(raw_service_details, dict):
+            return _json_error("Per-meal logistics must be a JSON object.", status=400)
+
+        ordered_meals = list(meal_plan)
+        raw_service_by_meal = {}
+        for key in raw_service_details.keys():
+            meal_name = _normalize_item_text(key)
+            if meal_name and meal_name not in ordered_meals:
+                ordered_meals.append(meal_name)
+            row = raw_service_details.get(key)
+            if meal_name and isinstance(row, dict):
+                raw_service_by_meal[meal_name] = row
+
+        parsed_service_details = {}
+        decimal_field_labels = {
+            "real_dishes_price_per_person": "Real dishes price per guest",
+            "staff_hours": "Staff hours",
+            "staff_tip_per_waiter": "Tip per waiter",
+        }
+        for meal_name in ordered_meals:
+            raw_row = raw_service_by_meal.get(meal_name)
+            if not isinstance(raw_row, dict):
+                continue
+            parsed_row = {}
+            if _to_bool(raw_row.get("wants_real_dishes")):
+                parsed_row["wants_real_dishes"] = True
+
+            for key, label in decimal_field_labels.items():
+                raw_value = raw_row.get(key)
+                value_text = str(raw_value).strip() if raw_value is not None else ""
+                if not value_text:
+                    continue
+                parsed_value = _parse_decimal(value_text, allow_none=True)
+                if parsed_value is None:
+                    return _json_error(
+                        f'{label} for "{meal_name}" must be a non-negative number.',
+                        status=400,
+                    )
+                parsed_row[key] = str(parsed_value)
+
+            raw_waiters = raw_row.get("wait_staff_count")
+            waiters_text = str(raw_waiters).strip() if raw_waiters is not None else ""
+            if waiters_text:
+                parsed_waiters = _parse_positive_int(waiters_text, allow_none=True)
+                if parsed_waiters is None:
+                    return _json_error(
+                        f'Wait staff qty for "{meal_name}" must be a non-negative integer.',
+                        status=400,
+                    )
+                parsed_row["wait_staff_count"] = parsed_waiters
+
+            if parsed_row:
+                parsed_service_details[meal_name] = parsed_row
+
+        estimate.meal_service_details = parsed_service_details
 
     estimate.save()
 
