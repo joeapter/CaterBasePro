@@ -2744,7 +2744,7 @@ function AppShell() {
               text: 'Print',
               onPress: async () => {
                 try {
-                  await Print.printAsync({ html: pdf.html });
+                  await Print.printAsync({ uri: pdf.uri });
                 } catch {
                   Alert.alert('Print failed', 'Unable to open the print dialog.');
                 }
