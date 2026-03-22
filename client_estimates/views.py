@@ -17,7 +17,7 @@ from django.core.mail import send_mail
 from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
-from django.utils.dateparse import parse_datetime
+from django.utils.dateparse import parse_date, parse_datetime
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 
@@ -27,10 +27,16 @@ from .forms import ClientInquiryForm
 from .models import (
     CatererAccount,
     CatererUserAccess,
+    ExtraItem,
     Estimate,
+    EstimateExtraItem,
+    EstimateFoodChoice,
+    MenuItem,
     EstimatePlannerEntry,
     EstimateExpenseEntry,
     EstimateStaffTimeEntry,
+    PAYMENT_METHOD_CHOICES,
+    PlasticwareOption,
     PlannerFieldCard,
     PlannerFieldMemory,
     PlannerOptionCard,
@@ -40,6 +46,7 @@ from .models import (
     ShoppingListItem,
     STAFF_ROLE_CHOICES,
     SHOPPING_CATEGORY_CHOICES,
+    TableclothOption,
     TrialRequest,
     XpenzMobileToken,
 )
@@ -497,8 +504,28 @@ def _can_manage_staff(user, estimate, access_map=None):
     return bool(access and access.get("can_manage_staff"))
 
 
+def _can_edit_estimate_mobile(user, estimate, access_map=None):
+    if user.is_superuser:
+        return True
+    access = _mobile_access_for_caterer(user, estimate.caterer_id, access_map=access_map)
+    if not access:
+        return False
+    if access.get("is_owner"):
+        return True
+    return bool(access.get("can_view_job_billing"))
+
+
 def _to_bool(value):
     return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _to_decimal_string(value, default=""):
+    if value is None:
+        return default
+    try:
+        return str(value)
+    except Exception:
+        return default
 
 
 def _serialize_expense_entry(request, entry):
@@ -537,6 +564,56 @@ def _serialize_staff_entry(entry):
         "total_cost": str(entry.total_cost or Decimal("0.00")),
         "applied_to_expenses": bool(entry.applied_to_expenses),
         "expense_entry_id": entry.expense_entry_id,
+    }
+
+
+def _serialize_mobile_estimate(request, user, estimate, access_map=None):
+    event_type = (estimate.event_type or "Event").strip()
+    access = _mobile_access_for_caterer(user, estimate.caterer_id, access_map=access_map)
+    can_view_billing = bool(access and access.get("can_view_job_billing"))
+    can_add_expenses = bool(access and access.get("can_add_expenses"))
+    can_manage_staff = bool(access and access.get("can_manage_staff"))
+    if user.is_superuser:
+        can_view_billing = True
+        can_add_expenses = True
+        can_manage_staff = True
+
+    estimate_print_url = request.build_absolute_uri(
+        reverse("admin:client_estimates_estimate_print", args=[estimate.id])
+    )
+    estimate_print_flat_url = request.build_absolute_uri(
+        reverse("admin:client_estimates_estimate_print_flat", args=[estimate.id])
+    )
+    planner_print_url = request.build_absolute_uri(
+        reverse("admin:client_estimates_estimate_planner_print", args=[estimate.id])
+    )
+
+    return {
+        "id": estimate.id,
+        "estimate_number": estimate.estimate_number,
+        "job_name": f"{estimate.customer_name} - {event_type}",
+        "customer_name": estimate.customer_name,
+        "event_type": estimate.event_type,
+        "event_date": estimate.event_date.isoformat() if estimate.event_date else "",
+        "event_location": estimate.event_location,
+        "guest_count": estimate.guest_count,
+        "guest_count_kids": estimate.guest_count_kids,
+        "caterer_id": estimate.caterer_id,
+        "caterer_name": estimate.caterer.name if estimate.caterer_id else "",
+        "currency": estimate.currency,
+        "grand_total": _to_decimal_string(estimate.grand_total) if can_view_billing else "",
+        "expense_count": int(getattr(estimate, "expense_count", 0) or 0),
+        "can_view_billing": can_view_billing,
+        "can_add_expenses": can_add_expenses,
+        "can_manage_staff": can_manage_staff,
+        "print_urls": {
+            "estimate": estimate_print_url,
+            "estimate_print": f"{estimate_print_url}?print=1",
+            "estimate_flat": estimate_print_flat_url,
+            "estimate_flat_print": f"{estimate_print_flat_url}?print=1",
+            "planner": planner_print_url,
+            "planner_print": f"{planner_print_url}?print=1",
+        },
     }
 
 
@@ -1296,12 +1373,155 @@ def xpenz_estimate_list(request):
     user = _xpenz_authenticated_user(request)
     if not user:
         return _json_error("Authentication required.", status=401)
-    if request.method != "GET":
-        return _json_error("Method not allowed.", status=405)
-
     access_map = _mobile_access_map_for_user(user)
     if not user.is_superuser and not access_map:
         return _json_error("No mobile app access is configured for this user.", status=403)
+
+    if request.method == "POST":
+        payload = {}
+        if request.content_type and "application/json" in request.content_type.lower():
+            try:
+                payload = json.loads(request.body.decode("utf-8"))
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                payload = {}
+
+        customer_name = (
+            (payload.get("customer_name") if isinstance(payload, dict) else None)
+            or request.POST.get("customer_name")
+            or ""
+        ).strip()
+        if not customer_name:
+            return _json_error("Customer name is required.", status=400)
+
+        requested_caterer_id = (
+            (payload.get("caterer_id") if isinstance(payload, dict) else None)
+            or request.POST.get("caterer_id")
+            or ""
+        )
+        requested_caterer_id = str(requested_caterer_id).strip()
+
+        if user.is_superuser:
+            if requested_caterer_id:
+                try:
+                    caterer = CatererAccount.objects.get(pk=int(requested_caterer_id))
+                except (ValueError, CatererAccount.DoesNotExist):
+                    return _json_error("Valid caterer is required.", status=400)
+            else:
+                caterer = CatererAccount.objects.order_by("name", "id").first()
+                if not caterer:
+                    return _json_error("Create a company profile first.", status=400)
+        else:
+            allowed_caterer_ids = sorted(access_map.keys())
+            if not allowed_caterer_ids:
+                return _json_error("No mobile app access is configured for this user.", status=403)
+            if requested_caterer_id:
+                try:
+                    requested_id_int = int(requested_caterer_id)
+                except ValueError:
+                    return _json_error("Invalid caterer.", status=400)
+                if requested_id_int not in access_map:
+                    return _json_error("You do not have access to that company profile.", status=403)
+                selected_caterer_id = requested_id_int
+            else:
+                selected_caterer_id = allowed_caterer_ids[0]
+            caterer = get_object_or_404(CatererAccount, pk=selected_caterer_id)
+
+        event_type = (
+            (payload.get("event_type") if isinstance(payload, dict) else None)
+            or request.POST.get("event_type")
+            or "Event"
+        ).strip()
+        event_location = (
+            (payload.get("event_location") if isinstance(payload, dict) else None)
+            or request.POST.get("event_location")
+            or ""
+        ).strip()
+        customer_phone = (
+            (payload.get("customer_phone") if isinstance(payload, dict) else None)
+            or request.POST.get("customer_phone")
+            or ""
+        ).strip()
+        customer_email = (
+            (payload.get("customer_email") if isinstance(payload, dict) else None)
+            or request.POST.get("customer_email")
+            or ""
+        ).strip()
+        event_date_raw = (
+            (payload.get("event_date") if isinstance(payload, dict) else None)
+            or request.POST.get("event_date")
+            or ""
+        ).strip()
+        event_date = parse_date(event_date_raw) if event_date_raw else timezone.localdate()
+        if event_date_raw and not event_date:
+            return _json_error("Event date must be YYYY-MM-DD.", status=400)
+
+        def _safe_int(raw_value, default_value=0):
+            try:
+                parsed = int(str(raw_value).strip())
+            except (TypeError, ValueError):
+                return default_value
+            return max(parsed, 0)
+
+        guest_count = _safe_int(
+            (payload.get("guest_count") if isinstance(payload, dict) else None)
+            or request.POST.get("guest_count")
+            or 0
+        )
+        guest_count_kids = _safe_int(
+            (payload.get("guest_count_kids") if isinstance(payload, dict) else None)
+            or request.POST.get("guest_count_kids")
+            or 0
+        )
+
+        estimate_type = (
+            (payload.get("estimate_type") if isinstance(payload, dict) else None)
+            or request.POST.get("estimate_type")
+            or "STANDARD"
+        ).strip().upper()
+        valid_estimate_types = {choice[0] for choice in Estimate._meta.get_field("estimate_type").choices}
+        if estimate_type not in valid_estimate_types:
+            estimate_type = "STANDARD"
+
+        currency = (
+            (payload.get("currency") if isinstance(payload, dict) else None)
+            or request.POST.get("currency")
+            or caterer.default_currency
+        ).strip().upper()
+        valid_currencies = {choice[0] for choice in Estimate.CURRENCY_CHOICES}
+        if currency not in valid_currencies:
+            currency = caterer.default_currency
+
+        counter = caterer.estimate_number_counter or 1000
+        estimate = Estimate.objects.create(
+            caterer=caterer,
+            estimate_number=counter,
+            customer_name=customer_name,
+            customer_phone=customer_phone,
+            customer_email=customer_email,
+            event_type=event_type,
+            event_date=event_date,
+            event_location=event_location,
+            guest_count=guest_count,
+            guest_count_kids=guest_count_kids,
+            estimate_type=estimate_type,
+            currency=currency,
+            is_ala_carte=_to_bool(
+                (payload.get("is_ala_carte") if isinstance(payload, dict) else None)
+                or request.POST.get("is_ala_carte")
+                or "0"
+            ),
+        )
+        caterer.estimate_number_counter = counter + 1
+        caterer.save(update_fields=["estimate_number_counter"])
+        estimate.refresh_from_db()
+        estimate.expense_count = 0
+        return JsonResponse(
+            {"ok": True, "estimate": _serialize_mobile_estimate(request, user, estimate, access_map=access_map)},
+            status=201,
+        )
+
+    if request.method != "GET":
+        return _json_error("Method not allowed.", status=405)
 
     estimates = (
         Estimate.objects.select_related("caterer")
@@ -1314,38 +1534,623 @@ def xpenz_estimate_list(request):
     if not user.is_superuser:
         estimates = estimates.filter(caterer_id__in=list(access_map.keys()))
 
-    results = []
-    for estimate in estimates:
-        event_type = (estimate.event_type or "Event").strip()
-        access = _mobile_access_for_caterer(user, estimate.caterer_id, access_map=access_map)
-        can_view_billing = bool(access and access.get("can_view_job_billing"))
-        can_add_expenses = bool(access and access.get("can_add_expenses"))
-        can_manage_staff = bool(access and access.get("can_manage_staff"))
-        if user.is_superuser:
-            can_view_billing = True
-            can_add_expenses = True
-            can_manage_staff = True
-        results.append(
+    results = [
+        _serialize_mobile_estimate(request, user, estimate, access_map=access_map)
+        for estimate in estimates
+    ]
+
+    return JsonResponse({"ok": True, "estimates": results})
+
+
+def _parse_mobile_meal_plan(raw_value, fallback=None):
+    names = []
+    if isinstance(raw_value, list):
+        names = [_normalize_item_text(part) for part in raw_value]
+    elif isinstance(raw_value, str):
+        normalized = raw_value.replace(",", "\n")
+        names = [_normalize_item_text(part) for part in normalized.splitlines()]
+    elif fallback:
+        names = [_normalize_item_text(part) for part in fallback]
+    cleaned = []
+    seen = set()
+    for name in names:
+        if not name:
+            continue
+        key = name.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        cleaned.append(name)
+    if not cleaned:
+        cleaned = ["Signature Menu"]
+    return cleaned
+
+
+def _remember_material_choices_for_estimate(estimate):
+    if not estimate.caterer_id:
+        return
+    for row in estimate.tablecloth_rows():
+        option_name = _normalize_item_text(row.get("name"))
+        if not option_name:
+            continue
+        option, created = TableclothOption.objects.get_or_create(
+            caterer_id=estimate.caterer_id,
+            name=option_name,
+        )
+        if not created:
+            option.save(update_fields=["last_used_at"])
+
+    plasticware_value = _normalize_item_text(estimate.plasticware_color)
+    if plasticware_value:
+        option, created = PlasticwareOption.objects.get_or_create(
+            caterer_id=estimate.caterer_id,
+            name=plasticware_value,
+        )
+        if not created:
+            option.save(update_fields=["last_used_at"])
+
+
+def _serialize_estimate_builder_payload(request, user, estimate, access_map=None):
+    base = _serialize_mobile_estimate(request, user, estimate, access_map=access_map)
+    can_view_billing = bool(base.get("can_view_billing"))
+    can_edit = _can_edit_estimate_mobile(user, estimate, access_map=access_map)
+    estimate.recalc_totals()
+
+    menu_items = list(
+        MenuItem.objects.filter(
+            caterer_id=estimate.caterer_id,
+            is_active=True,
+            menu_type=estimate.estimate_type,
+        )
+        .select_related("category")
+        .order_by("category__sort_order", "category__name", "sort_order_override", "name")
+    )
+    menu_categories_map = {}
+    for item in menu_items:
+        category_key = item.category_id or 0
+        category_name = item.category.name if item.category_id else "Chef's Selection"
+        if category_key not in menu_categories_map:
+            menu_categories_map[category_key] = {
+                "id": item.category_id,
+                "name": category_name,
+                "items": [],
+            }
+        menu_categories_map[category_key]["items"].append(
             {
-                "id": estimate.id,
-                "estimate_number": estimate.estimate_number,
-                "job_name": f"{estimate.customer_name} - {event_type}",
-                "customer_name": estimate.customer_name,
-                "event_type": estimate.event_type,
-                "event_date": estimate.event_date.isoformat() if estimate.event_date else "",
-                "event_location": estimate.event_location,
-                "caterer_id": estimate.caterer_id,
-                "caterer_name": estimate.caterer.name,
-                "currency": estimate.currency,
-                "grand_total": str(estimate.grand_total) if can_view_billing else "",
-                "expense_count": estimate.expense_count,
-                "can_view_billing": can_view_billing,
-                "can_add_expenses": can_add_expenses,
-                "can_manage_staff": can_manage_staff,
+                "id": item.id,
+                "name": item.name,
+                "description": item.description or "",
+                "default_servings_per_person": _to_decimal_string(item.default_servings_per_person, "1.00"),
+                "cost_per_serving": _to_decimal_string(item.cost_per_serving, "0.00"),
+                "markup": _to_decimal_string(item.markup, "0.00"),
+                "price_per_serving": _to_decimal_string(item.price_per_serving(), "0.00"),
+            }
+        )
+    menu_categories = sorted(
+        menu_categories_map.values(),
+        key=lambda row: (
+            row["name"].lower() if row["name"] else "",
+            1 if row["id"] is None else 0,
+        ),
+    )
+
+    extra_categories_map = {}
+    extra_category_labels = {code: label for code, label in ExtraItem.CATEGORY_CHOICES}
+    extra_charge_labels = {code: label for code, label in ExtraItem.CHARGE_TYPE_CHOICES}
+    extra_items = list(
+        ExtraItem.objects.filter(caterer_id=estimate.caterer_id, is_active=True).order_by(
+            "category", "name"
+        )
+    )
+    for item in extra_items:
+        category_code = item.category or "OTHER"
+        if category_code not in extra_categories_map:
+            extra_categories_map[category_code] = {
+                "code": category_code,
+                "label": extra_category_labels.get(category_code, category_code.title()),
+                "items": [],
+            }
+        extra_categories_map[category_code]["items"].append(
+            {
+                "id": item.id,
+                "name": item.name,
+                "category": category_code,
+                "category_label": extra_category_labels.get(category_code, category_code.title()),
+                "charge_type": item.charge_type,
+                "charge_type_label": extra_charge_labels.get(item.charge_type, item.charge_type),
+                "price": _to_decimal_string(item.price, "0.00"),
+                "cost": _to_decimal_string(item.cost, "0.00"),
+                "notes": item.notes or "",
+            }
+        )
+    extra_categories = sorted(
+        extra_categories_map.values(),
+        key=lambda row: row["label"].lower(),
+    )
+
+    meal_plan = estimate.get_meal_plan()
+    default_meal_name = meal_plan[0] if meal_plan else estimate.default_meal_name()
+    menu_choices = []
+    for row in estimate.food_choices.select_related("menu_item").order_by(
+        "meal_name",
+        "menu_item__name",
+    ):
+        if not row.menu_item_id:
+            continue
+        menu_choices.append(
+            {
+                "menu_item_id": row.menu_item_id,
+                "meal_name": row.meal_name or default_meal_name,
+                "servings_per_person": _to_decimal_string(
+                    row.servings_per_person or row.menu_item.default_servings_per_person,
+                    "1.00",
+                ),
+                "notes": row.notes or "",
+                "included": bool(row.included),
             }
         )
 
-    return JsonResponse({"ok": True, "estimates": results})
+    extra_lines = []
+    for row in estimate.extra_lines.select_related("extra_item").order_by("extra_item__name"):
+        if not row.extra_item_id:
+            continue
+        extra_lines.append(
+            {
+                "extra_item_id": row.extra_item_id,
+                "quantity": _to_decimal_string(row.quantity, "1.00"),
+                "override_price": _to_decimal_string(row.override_price),
+                "notes": row.notes or "",
+                "included": True,
+            }
+        )
+
+    summary = {
+        "waiter_count": int(estimate.total_waiter_count() or 0),
+        "food_total": _to_decimal_string(estimate.meal_grand_total(), "0.00") if can_view_billing else "",
+        "food_price_per_person": _to_decimal_string(estimate.food_price_per_person, "0.00")
+        if can_view_billing
+        else "",
+        "extras_total": _to_decimal_string(estimate.extras_total, "0.00") if can_view_billing else "",
+        "staff_total": _to_decimal_string(estimate.staff_total, "0.00") if can_view_billing else "",
+        "dishes_total": _to_decimal_string(estimate.dishes_total, "0.00") if can_view_billing else "",
+        "grand_total": _to_decimal_string(estimate.grand_total, "0.00") if can_view_billing else "",
+        "deposit_amount": _to_decimal_string(estimate.deposit_amount, "0.00") if can_view_billing else "",
+        "balance_due": _to_decimal_string(estimate.balance_due, "0.00") if can_view_billing else "",
+    }
+
+    return {
+        "ok": True,
+        "estimate_id": estimate.id,
+        "estimate": {
+            **base,
+            "can_edit": can_edit,
+            "customer_phone": estimate.customer_phone or "",
+            "customer_email": estimate.customer_email or "",
+            "event_date": estimate.event_date.isoformat() if estimate.event_date else "",
+            "is_ala_carte": bool(estimate.is_ala_carte),
+            "include_premium_plastic": bool(estimate.include_premium_plastic),
+            "include_premium_tablecloths": bool(estimate.include_premium_tablecloths),
+            "plasticware_color": estimate.plasticware_color or "",
+            "wants_real_dishes": bool(estimate.wants_real_dishes),
+            "real_dishes_price_per_person": _to_decimal_string(estimate.real_dishes_price_per_person),
+            "real_dishes_flat_fee": _to_decimal_string(estimate.real_dishes_flat_fee),
+            "staff_hours": _to_decimal_string(estimate.staff_hours, "0.00"),
+            "extra_waiters": int(estimate.extra_waiters or 0),
+            "staff_count_override": (
+                int(estimate.staff_count_override) if estimate.staff_count_override is not None else None
+            ),
+            "staff_hourly_rate": _to_decimal_string(estimate.staff_hourly_rate),
+            "staff_tip_per_waiter": _to_decimal_string(estimate.staff_tip_per_waiter),
+            "client_tipped_at_event": bool(estimate.client_tipped_at_event),
+            "notes_internal": estimate.notes_internal or "",
+            "notes_for_customer": estimate.notes_for_customer or "",
+            "payment_terms": estimate.payment_terms or "",
+            "payment_method": estimate.payment_method or "",
+            "payment_instructions": estimate.payment_instructions or "",
+            "contract_terms": estimate.contract_terms or "",
+            "terms_acknowledged": bool(estimate.terms_acknowledged),
+            "signature_name": estimate.signature_name or "",
+            "signature_title": estimate.signature_title or "",
+            "signature_date": estimate.signature_date.isoformat() if estimate.signature_date else "",
+            "deposit_percentage": _to_decimal_string(estimate.deposit_percentage, "0.00"),
+            "deposit_received": _to_decimal_string(estimate.deposit_received, "0.00"),
+            "kids_discount_percentage": _to_decimal_string(estimate.kids_discount_percentage, "0.00"),
+            "exchange_rate": _to_decimal_string(estimate.exchange_rate, "1.0000"),
+            "meal_plan": meal_plan,
+            "tablecloth_details": estimate.tablecloth_details or {},
+            "summary": summary,
+        },
+        "catalog": {
+            "currencies": [
+                {"code": code, "label": label} for code, label in Estimate.CURRENCY_CHOICES
+            ],
+            "payment_methods": [
+                {"code": code, "label": label} for code, label in PAYMENT_METHOD_CHOICES
+            ],
+            "meal_plan": meal_plan,
+            "menu_categories": menu_categories,
+            "extra_categories": extra_categories,
+            "tablecloth_options": list(
+                TableclothOption.objects.filter(caterer_id=estimate.caterer_id)
+                .order_by("name")
+                .values_list("name", flat=True)
+            ),
+            "plasticware_options": list(
+                PlasticwareOption.objects.filter(caterer_id=estimate.caterer_id)
+                .order_by("name")
+                .values_list("name", flat=True)
+            ),
+        },
+        "selections": {
+            "menu_choices": menu_choices,
+            "extra_lines": extra_lines,
+        },
+    }
+
+
+@csrf_exempt
+def xpenz_estimate_builder(request, estimate_id):
+    user = _xpenz_authenticated_user(request)
+    if not user:
+        return _json_error("Authentication required.", status=401)
+
+    access_map = _mobile_access_map_for_user(user)
+    if not user.is_superuser and not access_map:
+        return _json_error("No mobile app access is configured for this user.", status=403)
+
+    estimate = get_object_or_404(
+        Estimate.objects.select_related("caterer", "caterer__owner"),
+        pk=estimate_id,
+    )
+    if not _can_access_estimate(user, estimate, access_map=access_map):
+        return _json_error("You do not have access to this estimate.", status=403)
+
+    if request.method == "GET":
+        return JsonResponse(
+            _serialize_estimate_builder_payload(request, user, estimate, access_map=access_map)
+        )
+
+    if request.method != "POST":
+        return _json_error("Method not allowed.", status=405)
+
+    if not _can_edit_estimate_mobile(user, estimate, access_map=access_map):
+        return _json_error("You do not have permission to edit this estimate.", status=403)
+
+    payload = {}
+    if request.body:
+        try:
+            payload = json.loads(request.body.decode("utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            payload = {}
+    if not isinstance(payload, dict):
+        payload = {}
+
+    estimate_payload = payload.get("estimate")
+    if not isinstance(estimate_payload, dict):
+        estimate_payload = payload
+    if not isinstance(estimate_payload, dict):
+        estimate_payload = {}
+
+    def _parse_positive_int(value, allow_none=False):
+        if value in (None, ""):
+            return None if allow_none else 0
+        try:
+            parsed = int(str(value).strip())
+        except (TypeError, ValueError):
+            return None
+        if parsed < 0:
+            return None
+        return parsed
+
+    def _parse_decimal(value, allow_none=False, quantize_str="0.01"):
+        if value in (None, ""):
+            return None if allow_none else Decimal("0.00")
+        try:
+            parsed = Decimal(str(value).strip())
+        except (InvalidOperation, TypeError, ValueError):
+            return None
+        if parsed < Decimal("0.00"):
+            return None
+        if quantize_str:
+            parsed = parsed.quantize(Decimal(quantize_str))
+        return parsed
+
+    if "customer_name" in estimate_payload:
+        customer_name = _normalize_item_text(estimate_payload.get("customer_name"))
+        if not customer_name:
+            return _json_error("Customer name is required.", status=400)
+        estimate.customer_name = customer_name
+    if "customer_phone" in estimate_payload:
+        estimate.customer_phone = _normalize_item_text(estimate_payload.get("customer_phone"))
+    if "customer_email" in estimate_payload:
+        estimate.customer_email = _normalize_item_text(estimate_payload.get("customer_email"))
+    if "event_type" in estimate_payload:
+        estimate.event_type = _normalize_item_text(estimate_payload.get("event_type"))
+    if "event_location" in estimate_payload:
+        estimate.event_location = _normalize_item_text(estimate_payload.get("event_location"))
+    if "event_date" in estimate_payload:
+        raw_event_date = _normalize_item_text(estimate_payload.get("event_date"))
+        if raw_event_date:
+            event_date = parse_date(raw_event_date)
+            if not event_date:
+                return _json_error("Event date must be YYYY-MM-DD.", status=400)
+            estimate.event_date = event_date
+    if "signature_date" in estimate_payload:
+        raw_signature_date = _normalize_item_text(estimate_payload.get("signature_date"))
+        if raw_signature_date:
+            signature_date = parse_date(raw_signature_date)
+            if not signature_date:
+                return _json_error("Signature date must be YYYY-MM-DD.", status=400)
+            estimate.signature_date = signature_date
+        else:
+            estimate.signature_date = None
+    if "guest_count" in estimate_payload:
+        guest_count = _parse_positive_int(estimate_payload.get("guest_count"))
+        if guest_count is None:
+            return _json_error("Guest count must be a non-negative integer.", status=400)
+        estimate.guest_count = guest_count
+    if "guest_count_kids" in estimate_payload:
+        guest_count_kids = _parse_positive_int(estimate_payload.get("guest_count_kids"))
+        if guest_count_kids is None:
+            return _json_error("Kids guest count must be a non-negative integer.", status=400)
+        estimate.guest_count_kids = guest_count_kids
+    if "extra_waiters" in estimate_payload:
+        extra_waiters = _parse_positive_int(estimate_payload.get("extra_waiters"))
+        if extra_waiters is None:
+            return _json_error("Extra waiters must be a non-negative integer.", status=400)
+        estimate.extra_waiters = extra_waiters
+    if "staff_count_override" in estimate_payload:
+        staff_count_override = _parse_positive_int(
+            estimate_payload.get("staff_count_override"),
+            allow_none=True,
+        )
+        if estimate_payload.get("staff_count_override") not in (None, "") and staff_count_override is None:
+            return _json_error("Staff count override must be a non-negative integer.", status=400)
+        estimate.staff_count_override = staff_count_override
+    if "currency" in estimate_payload:
+        currency = _normalize_item_text(estimate_payload.get("currency")).upper()
+        valid_currencies = {code for code, _label in Estimate.CURRENCY_CHOICES}
+        if currency and currency not in valid_currencies:
+            return _json_error("Invalid currency code.", status=400)
+        if currency:
+            estimate.currency = currency
+    if "payment_method" in estimate_payload:
+        payment_method = _normalize_item_text(estimate_payload.get("payment_method")).upper()
+        valid_payment_methods = {code for code, _label in PAYMENT_METHOD_CHOICES}
+        if payment_method and payment_method not in valid_payment_methods:
+            return _json_error("Invalid payment method.", status=400)
+        estimate.payment_method = payment_method
+    if "staff_hours" in estimate_payload:
+        staff_hours = _parse_decimal(estimate_payload.get("staff_hours"))
+        if staff_hours is None:
+            return _json_error("Staff hours must be a non-negative number.", status=400)
+        estimate.staff_hours = staff_hours
+    if "kids_discount_percentage" in estimate_payload:
+        kids_discount_percentage = _parse_decimal(estimate_payload.get("kids_discount_percentage"))
+        if kids_discount_percentage is None:
+            return _json_error("Kids discount percentage must be a non-negative number.", status=400)
+        estimate.kids_discount_percentage = kids_discount_percentage
+    if "exchange_rate" in estimate_payload:
+        exchange_rate = _parse_decimal(
+            estimate_payload.get("exchange_rate"),
+            quantize_str="0.0001",
+        )
+        if exchange_rate is None or exchange_rate <= Decimal("0.00"):
+            return _json_error("Exchange rate must be a positive number.", status=400)
+        estimate.exchange_rate = exchange_rate
+    if "real_dishes_price_per_person" in estimate_payload:
+        estimate.real_dishes_price_per_person = _parse_decimal(
+            estimate_payload.get("real_dishes_price_per_person"),
+            allow_none=True,
+        )
+    if "real_dishes_flat_fee" in estimate_payload:
+        estimate.real_dishes_flat_fee = _parse_decimal(
+            estimate_payload.get("real_dishes_flat_fee"),
+            allow_none=True,
+        )
+    if "staff_hourly_rate" in estimate_payload:
+        estimate.staff_hourly_rate = _parse_decimal(
+            estimate_payload.get("staff_hourly_rate"),
+            allow_none=True,
+        )
+    if "staff_tip_per_waiter" in estimate_payload:
+        estimate.staff_tip_per_waiter = _parse_decimal(
+            estimate_payload.get("staff_tip_per_waiter"),
+            allow_none=True,
+        )
+    if "deposit_percentage" in estimate_payload:
+        deposit_percentage = _parse_decimal(estimate_payload.get("deposit_percentage"))
+        if deposit_percentage is None:
+            return _json_error("Deposit percentage must be a non-negative number.", status=400)
+        estimate.deposit_percentage = deposit_percentage
+    if "deposit_received" in estimate_payload:
+        deposit_received = _parse_decimal(estimate_payload.get("deposit_received"))
+        if deposit_received is None:
+            return _json_error("Deposit received must be a non-negative number.", status=400)
+        estimate.deposit_received = deposit_received
+
+    if "is_ala_carte" in estimate_payload:
+        estimate.is_ala_carte = _to_bool(estimate_payload.get("is_ala_carte"))
+    if "include_premium_plastic" in estimate_payload:
+        estimate.include_premium_plastic = _to_bool(
+            estimate_payload.get("include_premium_plastic")
+        )
+    if "include_premium_tablecloths" in estimate_payload:
+        estimate.include_premium_tablecloths = _to_bool(
+            estimate_payload.get("include_premium_tablecloths")
+        )
+    if "wants_real_dishes" in estimate_payload:
+        estimate.wants_real_dishes = _to_bool(estimate_payload.get("wants_real_dishes"))
+    if "client_tipped_at_event" in estimate_payload:
+        estimate.client_tipped_at_event = _to_bool(
+            estimate_payload.get("client_tipped_at_event")
+        )
+    if "terms_acknowledged" in estimate_payload:
+        estimate.terms_acknowledged = _to_bool(estimate_payload.get("terms_acknowledged"))
+
+    if "plasticware_color" in estimate_payload:
+        estimate.plasticware_color = _normalize_item_text(estimate_payload.get("plasticware_color"))
+    if "notes_internal" in estimate_payload:
+        estimate.notes_internal = (estimate_payload.get("notes_internal") or "").strip()
+    if "notes_for_customer" in estimate_payload:
+        estimate.notes_for_customer = (estimate_payload.get("notes_for_customer") or "").strip()
+    if "payment_terms" in estimate_payload:
+        estimate.payment_terms = (estimate_payload.get("payment_terms") or "").strip()
+    if "payment_instructions" in estimate_payload:
+        estimate.payment_instructions = (estimate_payload.get("payment_instructions") or "").strip()
+    if "contract_terms" in estimate_payload:
+        estimate.contract_terms = (estimate_payload.get("contract_terms") or "").strip()
+    if "signature_name" in estimate_payload:
+        estimate.signature_name = _normalize_item_text(estimate_payload.get("signature_name"))
+    if "signature_title" in estimate_payload:
+        estimate.signature_title = _normalize_item_text(estimate_payload.get("signature_title"))
+
+    meal_plan_payload = payload.get("meal_plan")
+    meal_plan = estimate.get_meal_plan()
+    if meal_plan_payload is not None:
+        meal_plan = _parse_mobile_meal_plan(meal_plan_payload, fallback=meal_plan)
+        estimate.meal_plan = meal_plan
+
+    if "tablecloth_details" in estimate_payload:
+        raw_tablecloths = estimate_payload.get("tablecloth_details")
+        if isinstance(raw_tablecloths, str):
+            try:
+                raw_tablecloths = json.loads(raw_tablecloths) if raw_tablecloths else {}
+            except (json.JSONDecodeError, TypeError, ValueError):
+                raw_tablecloths = {}
+        if not isinstance(raw_tablecloths, dict):
+            raw_tablecloths = {}
+        ordered_meals = list(meal_plan)
+        for key in raw_tablecloths.keys():
+            if key not in ordered_meals:
+                ordered_meals.append(key)
+        parsed_tablecloths = {}
+        for meal_name in ordered_meals:
+            row = raw_tablecloths.get(meal_name) or {}
+            if not isinstance(row, dict):
+                continue
+            name = _normalize_item_text(row.get("name") or row.get("choice"))
+            quantity = Estimate._clean_decimal(row.get("quantity"), Decimal("0.00")) or Decimal("0.00")
+            extra_charge = Estimate._clean_decimal(row.get("extra_charge"), None)
+            has_price = extra_charge not in (None, Decimal("0.00"))
+            if not name and quantity in (None, Decimal("0.00")) and not has_price:
+                continue
+            parsed_tablecloths[meal_name] = {
+                "name": name,
+                "quantity": str(quantity.quantize(Decimal("0.01"))),
+                "extra_charge": (
+                    str(extra_charge.quantize(Decimal("0.01"))) if has_price else None
+                ),
+            }
+        estimate.tablecloth_details = parsed_tablecloths
+
+    estimate.save()
+
+    menu_choices_payload = payload.get("menu_choices")
+    if isinstance(menu_choices_payload, list):
+        menu_item_map = {
+            row.id: row
+            for row in MenuItem.objects.filter(
+                caterer_id=estimate.caterer_id,
+                is_active=True,
+                menu_type=estimate.estimate_type,
+            )
+        }
+        selected_rows = []
+        seen = set()
+        default_meal_name = meal_plan[0] if meal_plan else estimate.default_meal_name()
+        for raw_row in menu_choices_payload:
+            if not isinstance(raw_row, dict):
+                continue
+            raw_menu_item_id = raw_row.get("menu_item_id")
+            if not str(raw_menu_item_id or "").isdigit():
+                continue
+            menu_item = menu_item_map.get(int(raw_menu_item_id))
+            if not menu_item:
+                continue
+            included = _to_bool(raw_row.get("included", True))
+            if not included:
+                continue
+            meal_name = _normalize_item_text(raw_row.get("meal_name")) or default_meal_name
+            if meal_name and meal_name not in meal_plan:
+                meal_plan.append(meal_name)
+            servings = Estimate._clean_decimal(
+                raw_row.get("servings_per_person"),
+                menu_item.default_servings_per_person,
+            )
+            if servings is None or servings <= Decimal("0.00"):
+                servings = menu_item.default_servings_per_person
+            notes = (raw_row.get("notes") or "").strip()[:255]
+            key = (menu_item.id, meal_name.lower())
+            if key in seen:
+                continue
+            seen.add(key)
+            selected_rows.append(
+                EstimateFoodChoice(
+                    estimate=estimate,
+                    menu_item=menu_item,
+                    meal_name=meal_name,
+                    included=True,
+                    servings_per_person=servings,
+                    notes=notes,
+                )
+            )
+        EstimateFoodChoice.objects.filter(estimate=estimate).delete()
+        if selected_rows:
+            EstimateFoodChoice.objects.bulk_create(selected_rows)
+        estimate.meal_plan = meal_plan
+
+    extra_lines_payload = payload.get("extra_lines")
+    if isinstance(extra_lines_payload, list):
+        extra_item_map = {
+            row.id: row
+            for row in ExtraItem.objects.filter(
+                caterer_id=estimate.caterer_id,
+                is_active=True,
+            )
+        }
+        selected_rows = []
+        seen_extra_ids = set()
+        for raw_row in extra_lines_payload:
+            if not isinstance(raw_row, dict):
+                continue
+            raw_extra_item_id = raw_row.get("extra_item_id")
+            if not str(raw_extra_item_id or "").isdigit():
+                continue
+            extra_item = extra_item_map.get(int(raw_extra_item_id))
+            if not extra_item:
+                continue
+            included = _to_bool(raw_row.get("included", True))
+            if not included:
+                continue
+            if extra_item.id in seen_extra_ids:
+                continue
+            seen_extra_ids.add(extra_item.id)
+            quantity = Estimate._clean_decimal(raw_row.get("quantity"), Decimal("1.00"))
+            if quantity is None or quantity <= Decimal("0.00"):
+                quantity = Decimal("1.00")
+            override_price = Estimate._clean_decimal(raw_row.get("override_price"), None)
+            notes = (raw_row.get("notes") or "").strip()[:255]
+            selected_rows.append(
+                EstimateExtraItem(
+                    estimate=estimate,
+                    extra_item=extra_item,
+                    quantity=quantity,
+                    override_price=override_price,
+                    notes=notes,
+                )
+            )
+        EstimateExtraItem.objects.filter(estimate=estimate).delete()
+        if selected_rows:
+            EstimateExtraItem.objects.bulk_create(selected_rows)
+
+    _remember_material_choices_for_estimate(estimate)
+    estimate.save()
+    estimate.refresh_from_db()
+    estimate.expense_count = estimate.expense_entries.count()
+    return JsonResponse(
+        _serialize_estimate_builder_payload(request, user, estimate, access_map=access_map)
+    )
 
 
 @csrf_exempt

@@ -26,6 +26,7 @@ import {
   Platform,
   Pressable,
   SafeAreaView,
+  Share,
   ScrollView,
   StyleSheet,
   Text,
@@ -42,6 +43,8 @@ type EstimateRow = {
   event_type: string;
   event_date: string;
   event_location: string;
+  guest_count: number;
+  guest_count_kids: number;
   caterer_id: number;
   caterer_name: string;
   currency: string;
@@ -50,6 +53,132 @@ type EstimateRow = {
   can_view_billing: boolean;
   can_add_expenses: boolean;
   can_manage_staff: boolean;
+  print_urls?: {
+    estimate?: string;
+    estimate_print?: string;
+    estimate_flat?: string;
+    estimate_flat_print?: string;
+    planner?: string;
+    planner_print?: string;
+  };
+};
+
+type MainTab = 'estimates' | 'shopping' | 'planner' | 'expenses' | 'staff';
+
+type EstimateBuilderStep =
+  | 'customer'
+  | 'menu'
+  | 'decor'
+  | 'addons'
+  | 'summary'
+  | 'additional';
+
+type EstimateBuilderMenuItem = {
+  id: number;
+  name: string;
+  description: string;
+  default_servings_per_person: string;
+  cost_per_serving: string;
+  markup: string;
+  price_per_serving: string;
+};
+
+type EstimateBuilderMenuCategory = {
+  id: number | null;
+  name: string;
+  items: EstimateBuilderMenuItem[];
+};
+
+type EstimateBuilderExtraItem = {
+  id: number;
+  name: string;
+  category: string;
+  category_label: string;
+  charge_type: string;
+  charge_type_label: string;
+  price: string;
+  cost: string;
+  notes: string;
+};
+
+type EstimateBuilderExtraCategory = {
+  code: string;
+  label: string;
+  items: EstimateBuilderExtraItem[];
+};
+
+type EstimateBuilderMenuChoice = {
+  menu_item_id: number;
+  meal_name: string;
+  servings_per_person: string;
+  notes: string;
+  included: boolean;
+};
+
+type EstimateBuilderExtraLine = {
+  extra_item_id: number;
+  quantity: string;
+  override_price: string;
+  notes: string;
+  included: boolean;
+};
+
+type EstimateBuilderSummary = {
+  waiter_count: number;
+  food_total: string;
+  food_price_per_person: string;
+  extras_total: string;
+  staff_total: string;
+  dishes_total: string;
+  grand_total: string;
+  deposit_amount: string;
+  balance_due: string;
+};
+
+type EstimateBuilderEstimate = EstimateRow & {
+  can_edit: boolean;
+  customer_phone: string;
+  customer_email: string;
+  is_ala_carte: boolean;
+  include_premium_plastic: boolean;
+  include_premium_tablecloths: boolean;
+  plasticware_color: string;
+  wants_real_dishes: boolean;
+  real_dishes_price_per_person: string;
+  real_dishes_flat_fee: string;
+  staff_hours: string;
+  extra_waiters: number;
+  staff_count_override: number | null;
+  staff_hourly_rate: string;
+  staff_tip_per_waiter: string;
+  client_tipped_at_event: boolean;
+  notes_internal: string;
+  notes_for_customer: string;
+  payment_terms: string;
+  payment_method: string;
+  payment_instructions: string;
+  contract_terms: string;
+  terms_acknowledged: boolean;
+  signature_name: string;
+  signature_title: string;
+  signature_date: string;
+  deposit_percentage: string;
+  deposit_received: string;
+  kids_discount_percentage: string;
+  exchange_rate: string;
+  meal_plan: string[];
+  tablecloth_details: Record<string, unknown>;
+  summary: EstimateBuilderSummary;
+};
+
+type EstimateBuilderCatalog = {
+  currencies: Array<{ code: string; label: string }>;
+  payment_methods: Array<{ code: string; label: string }>;
+  meal_plan: string[];
+  menu_categories: EstimateBuilderMenuCategory[];
+  extra_categories: EstimateBuilderExtraCategory[];
+  tablecloth_options: string[];
+  plasticware_options: string[];
 };
 
 type SavedEntry = {
@@ -709,6 +838,15 @@ function mergeOptionValues(...groups: Array<Array<string> | undefined>) {
   return merged;
 }
 
+function parseMealPlanInput(rawValue: string) {
+  const names = rawValue
+    .replace(/,/g, '\n')
+    .split('\n')
+    .map((row) => row.trim())
+    .filter(Boolean);
+  return mergeOptionValues(names.length ? names : ['Signature Menu']);
+}
+
 function buildPlannerFieldCardsPayload(
   rows: PlannerEditorFieldCard[],
 ): { cards: PlannerFieldCardPayloadRow[]; validationError: string | null } {
@@ -829,10 +967,31 @@ export default function App() {
   const [password, setPassword] = useState('');
 
   const [token, setToken] = useState('');
-  const [mainTab, setMainTab] = useState<'jobs' | 'shopping' | 'planner'>('jobs');
+  const [mainTab, setMainTab] = useState<MainTab>('estimates');
+  const [menuOpen, setMenuOpen] = useState(false);
   const [estimates, setEstimates] = useState<EstimateRow[]>([]);
   const [selectedEstimate, setSelectedEstimate] = useState<EstimateRow | null>(null);
-  const [selectedJobTab, setSelectedJobTab] = useState<'expenses' | 'staff'>('expenses');
+  const [estimateComposerOpen, setEstimateComposerOpen] = useState(false);
+  const [creatingEstimate, setCreatingEstimate] = useState(false);
+  const [newEstimateCustomer, setNewEstimateCustomer] = useState('');
+  const [newEstimateEventType, setNewEstimateEventType] = useState('Event');
+  const [newEstimateDate, setNewEstimateDate] = useState('');
+  const [newEstimateLocation, setNewEstimateLocation] = useState('');
+  const [newEstimateAdults, setNewEstimateAdults] = useState('');
+  const [newEstimateKids, setNewEstimateKids] = useState('');
+  const [newEstimateCatererId, setNewEstimateCatererId] = useState<number | null>(null);
+  const [estimateBuilderOpen, setEstimateBuilderOpen] = useState(false);
+  const [estimateBuilderLoading, setEstimateBuilderLoading] = useState(false);
+  const [estimateBuilderSaving, setEstimateBuilderSaving] = useState(false);
+  const [estimateBuilderStep, setEstimateBuilderStep] = useState<EstimateBuilderStep>('customer');
+  const [estimateBuilderEstimate, setEstimateBuilderEstimate] = useState<EstimateBuilderEstimate | null>(null);
+  const [estimateBuilderCatalog, setEstimateBuilderCatalog] = useState<EstimateBuilderCatalog | null>(null);
+  const [estimateBuilderMenuChoices, setEstimateBuilderMenuChoices] = useState<EstimateBuilderMenuChoice[]>([]);
+  const [estimateBuilderExtraLines, setEstimateBuilderExtraLines] = useState<EstimateBuilderExtraLine[]>([]);
+  const [estimateBuilderMealPlanInput, setEstimateBuilderMealPlanInput] = useState('');
+  const [estimateBuilderActiveMeal, setEstimateBuilderActiveMeal] = useState('');
+  const [estimateBuilderMenuSearch, setEstimateBuilderMenuSearch] = useState('');
+  const [estimateBuilderExtrasSearch, setEstimateBuilderExtrasSearch] = useState('');
   const [savedEntries, setSavedEntries] = useState<SavedEntry[]>([]);
   const [staffRoleOptions, setStaffRoleOptions] = useState<StaffRoleOption[]>([]);
   const [staffEntries, setStaffEntries] = useState<StaffEntry[]>([]);
@@ -1161,6 +1320,53 @@ export default function App() {
       ),
     [catalogItemUnit, selectedCatalogItem],
   );
+
+  const estimateBuilderMealPlan = useMemo(
+    () => parseMealPlanInput(estimateBuilderMealPlanInput),
+    [estimateBuilderMealPlanInput],
+  );
+
+  const estimateBuilderMenuChoiceMap = useMemo(() => {
+    const map = new Map<string, EstimateBuilderMenuChoice>();
+    for (const row of estimateBuilderMenuChoices) {
+      const mealName = (row.meal_name || '').trim();
+      if (!row.menu_item_id || !mealName) {
+        continue;
+      }
+      map.set(`${row.menu_item_id}|${mealName.toLowerCase()}`, row);
+    }
+    return map;
+  }, [estimateBuilderMenuChoices]);
+
+  const estimateBuilderExtraLineMap = useMemo(() => {
+    const map = new Map<number, EstimateBuilderExtraLine>();
+    for (const row of estimateBuilderExtraLines) {
+      if (!row.extra_item_id) {
+        continue;
+      }
+      map.set(row.extra_item_id, row);
+    }
+    return map;
+  }, [estimateBuilderExtraLines]);
+
+  useEffect(() => {
+    if (!estimateBuilderOpen) {
+      return;
+    }
+    if (!estimateBuilderMealPlan.length) {
+      setEstimateBuilderActiveMeal('Signature Menu');
+      return;
+    }
+    if (
+      estimateBuilderActiveMeal &&
+      estimateBuilderMealPlan.some(
+        (name) => name.toLowerCase() === estimateBuilderActiveMeal.toLowerCase(),
+      )
+    ) {
+      return;
+    }
+    setEstimateBuilderActiveMeal(estimateBuilderMealPlan[0]);
+  }, [estimateBuilderActiveMeal, estimateBuilderMealPlan, estimateBuilderOpen]);
 
   const plannerMemoryMap = useMemo(() => {
     const map = new Map<string, string[]>();
@@ -1822,9 +2028,30 @@ export default function App() {
       ]);
     } finally {
       setToken('');
-      setMainTab('jobs');
+      setMainTab('estimates');
+      setMenuOpen(false);
       setSelectedEstimate(null);
-      setSelectedJobTab('expenses');
+      setEstimateComposerOpen(false);
+      setCreatingEstimate(false);
+      setNewEstimateCustomer('');
+      setNewEstimateEventType('Event');
+      setNewEstimateDate('');
+      setNewEstimateLocation('');
+      setNewEstimateAdults('');
+      setNewEstimateKids('');
+      setNewEstimateCatererId(null);
+      setEstimateBuilderOpen(false);
+      setEstimateBuilderLoading(false);
+      setEstimateBuilderSaving(false);
+      setEstimateBuilderStep('customer');
+      setEstimateBuilderEstimate(null);
+      setEstimateBuilderCatalog(null);
+      setEstimateBuilderMenuChoices([]);
+      setEstimateBuilderExtraLines([]);
+      setEstimateBuilderMealPlanInput('');
+      setEstimateBuilderActiveMeal('');
+      setEstimateBuilderMenuSearch('');
+      setEstimateBuilderExtrasSearch('');
       setEstimates([]);
       setSavedEntries([]);
       setStaffRoleOptions([]);
@@ -1875,9 +2102,15 @@ export default function App() {
   }, []);
 
   const handleSelectEstimate = useCallback(
-    async (estimate: EstimateRow) => {
+    async (estimate: EstimateRow, targetTab: MainTab = 'expenses') => {
+      if (targetTab === 'staff' && !estimate.can_manage_staff) {
+        Alert.alert('No access', 'Your account cannot manage staff on this estimate.');
+        return;
+      }
       setSelectedEstimate(estimate);
-      setSelectedJobTab('expenses');
+      if (targetTab === 'expenses' || targetTab === 'staff') {
+        setMainTab(targetTab);
+      }
       setDrafts([]);
       try {
         await Promise.all([loadEntries(estimate.id), estimate.can_manage_staff ? loadStaffSummary(estimate.id) : Promise.resolve()]);
@@ -1889,6 +2122,474 @@ export default function App() {
       }
     },
     [loadEntries, loadStaffSummary],
+  );
+
+  const switchMainTab = useCallback((nextTab: MainTab) => {
+    setMainTab(nextTab);
+    setMenuOpen(false);
+    if (nextTab === 'estimates' || nextTab === 'shopping' || nextTab === 'planner') {
+      setSelectedEstimate(null);
+    }
+  }, []);
+
+  const handleBackChevron = useCallback(() => {
+    if (plannerEditorVisible) {
+      setPlannerEditorVisible(false);
+      setPlannerEditingEntryId(null);
+      setPlannerEditorGroupCode('');
+      setPlannerEditorItemCode('');
+      setPlannerEditorValues({});
+      setPlannerEditorFieldDraftValues({});
+      setPlannerEditorNotes('');
+      setPlannerEditorChecked(false);
+      setPlannerEditorFieldCards([]);
+      setPlannerFieldCardsManagerOpen(false);
+      setPlannerNewOptionName('');
+      return;
+    }
+    if (mainTab === 'shopping') {
+      if (selectedCatalogItem) {
+        setSelectedCatalogItem(null);
+        setCatalogItemType('');
+        setCatalogItemQuantity('');
+        setCatalogItemUnit('');
+        return;
+      }
+      if (selectedShoppingList) {
+        setSelectedShoppingList(null);
+        setShoppingItems([]);
+        setSelectedCatalogItem(null);
+        setCatalogItemType('');
+        setCatalogItemQuantity('');
+        setCatalogItemUnit('');
+        setShoppingListScreenMode('manage');
+        return;
+      }
+      return;
+    }
+    if (mainTab === 'planner') {
+      if (plannerCategoryCode) {
+        setPlannerCategoryCode('');
+        setPlannerSearchText('');
+        return;
+      }
+      if (plannerSection) {
+        setPlannerSection(null);
+        return;
+      }
+      if (selectedPlannerEstimate) {
+        setSelectedPlannerEstimate(null);
+        setPlannerSection(null);
+        setPlannerCategoryCode('');
+        setPlannerSearchText('');
+      }
+      return;
+    }
+    if ((mainTab === 'expenses' || mainTab === 'staff') && selectedEstimate) {
+      setSelectedEstimate(null);
+    }
+  }, [
+    mainTab,
+    plannerCategoryCode,
+    plannerEditorVisible,
+    plannerSection,
+    selectedCatalogItem,
+    selectedEstimate,
+    selectedPlannerEstimate,
+    selectedShoppingList,
+  ]);
+
+  const showBackChevron = useMemo(() => {
+    if (plannerEditorVisible) return true;
+    if (mainTab === 'shopping') {
+      return !!selectedShoppingList || !!selectedCatalogItem;
+    }
+    if (mainTab === 'planner') {
+      return !!selectedPlannerEstimate || !!plannerSection || !!plannerCategoryCode;
+    }
+    if (mainTab === 'expenses' || mainTab === 'staff') {
+      return !!selectedEstimate;
+    }
+    return false;
+  }, [
+    mainTab,
+    plannerCategoryCode,
+    plannerEditorVisible,
+    plannerSection,
+    selectedCatalogItem,
+    selectedEstimate,
+    selectedPlannerEstimate,
+    selectedShoppingList,
+  ]);
+
+  const openAdminPath = useCallback(
+    (path: string) => {
+      Linking.openURL(apiUrl(apiBaseUrl, path)).catch(() => {
+        Alert.alert('Open failed', 'Unable to open admin page on this device.');
+      });
+    },
+    [apiBaseUrl],
+  );
+
+  const openEstimatePrintOptions = useCallback(
+    (estimate: EstimateRow) => {
+      const estimateUrl =
+        estimate.print_urls?.estimate_print ||
+        apiUrl(apiBaseUrl, `/admin/client_estimates/estimate/${estimate.id}/print/?print=1`);
+      const flatUrl =
+        estimate.print_urls?.estimate_flat_print ||
+        apiUrl(apiBaseUrl, `/admin/client_estimates/estimate/${estimate.id}/print-flat/?print=1`);
+      const plannerUrl =
+        estimate.print_urls?.planner_print ||
+        apiUrl(apiBaseUrl, `/admin/client_estimates/estimate/${estimate.id}/planner-print/?print=1`);
+
+      Alert.alert('Print & Share', estimate.job_name, [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Estimate PDF',
+          onPress: () => {
+            Linking.openURL(estimateUrl).catch(() => Alert.alert('Open failed', 'Unable to open estimate print view.'));
+          },
+        },
+        {
+          text: 'Flat PDF',
+          onPress: () => {
+            Linking.openURL(flatUrl).catch(() => Alert.alert('Open failed', 'Unable to open flat print view.'));
+          },
+        },
+        {
+          text: 'Planner Print',
+          onPress: () => {
+            Linking.openURL(plannerUrl).catch(() => Alert.alert('Open failed', 'Unable to open planner print view.'));
+          },
+        },
+        {
+          text: 'Share Estimate Link',
+          onPress: async () => {
+            try {
+              await Share.share({
+                message: estimateUrl,
+                url: estimateUrl,
+              });
+            } catch {
+              Alert.alert('Share failed', 'Unable to share this link.');
+            }
+          },
+        },
+      ]);
+    },
+    [apiBaseUrl],
+  );
+
+  const submitEstimateFromMobile = useCallback(async () => {
+    if (!token) {
+      return;
+    }
+    if (!newEstimateCustomer.trim()) {
+      Alert.alert('Missing customer', 'Enter the customer name.');
+      return;
+    }
+    setCreatingEstimate(true);
+    try {
+      const response = await fetch(apiUrl(apiBaseUrl, '/api/xpenz/estimates/'), {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          customer_name: newEstimateCustomer.trim(),
+          event_type: newEstimateEventType.trim() || 'Event',
+          event_date: newEstimateDate.trim() || undefined,
+          event_location: newEstimateLocation.trim(),
+          guest_count: newEstimateAdults.trim() || '0',
+          guest_count_kids: newEstimateKids.trim() || '0',
+          caterer_id: newEstimateCatererId || undefined,
+        }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || payload.ok === false || !payload.estimate) {
+        throw new Error(payload.error || 'Unable to create estimate.');
+      }
+      setEstimateComposerOpen(false);
+      setNewEstimateCustomer('');
+      setNewEstimateEventType('Event');
+      setNewEstimateDate('');
+      setNewEstimateLocation('');
+      setNewEstimateAdults('');
+      setNewEstimateKids('');
+      await loadEstimates();
+      Alert.alert('Estimate created', 'Your new estimate is now in the list.');
+    } catch (error) {
+      Alert.alert(
+        'Create estimate failed',
+        error instanceof Error ? error.message : 'Unable to create estimate.',
+      );
+    } finally {
+      setCreatingEstimate(false);
+    }
+  }, [
+    apiBaseUrl,
+    loadEstimates,
+    newEstimateAdults,
+    newEstimateCatererId,
+    newEstimateCustomer,
+    newEstimateDate,
+    newEstimateEventType,
+    newEstimateKids,
+    newEstimateLocation,
+    token,
+  ]);
+
+  const applyEstimateBuilderPayload = useCallback((payload: Record<string, unknown>) => {
+    const estimate = (payload.estimate || null) as EstimateBuilderEstimate | null;
+    const catalog = (payload.catalog || null) as EstimateBuilderCatalog | null;
+    const selections = (payload.selections || {}) as {
+      menu_choices?: unknown;
+      extra_lines?: unknown;
+    };
+    if (!estimate || !catalog) {
+      throw new Error('Builder payload is incomplete.');
+    }
+    const menuChoices = Array.isArray(selections.menu_choices)
+      ? (selections.menu_choices as EstimateBuilderMenuChoice[])
+      : [];
+    const extraLines = Array.isArray(selections.extra_lines)
+      ? (selections.extra_lines as EstimateBuilderExtraLine[])
+      : [];
+    const mealPlanValues = mergeOptionValues(
+      Array.isArray(estimate.meal_plan) ? estimate.meal_plan : [],
+      Array.isArray(catalog.meal_plan) ? catalog.meal_plan : [],
+      ['Signature Menu'],
+    );
+    setEstimateBuilderEstimate(estimate);
+    setEstimateBuilderCatalog(catalog);
+    setEstimateBuilderMenuChoices(menuChoices);
+    setEstimateBuilderExtraLines(extraLines);
+    setEstimateBuilderMealPlanInput(mealPlanValues.join('\n'));
+    setEstimateBuilderActiveMeal((previous) =>
+      previous && mealPlanValues.some((name) => name.toLowerCase() === previous.toLowerCase())
+        ? previous
+        : mealPlanValues[0] || 'Signature Menu',
+    );
+  }, []);
+
+  const openEstimateBuilder = useCallback(
+    async (estimate: EstimateRow) => {
+      if (!token) {
+        return;
+      }
+      setEstimateBuilderOpen(true);
+      setEstimateBuilderLoading(true);
+      setEstimateBuilderSaving(false);
+      setEstimateBuilderStep('customer');
+      setEstimateBuilderMenuSearch('');
+      setEstimateBuilderExtrasSearch('');
+      try {
+        const payload = await authFetchJson(
+          `/api/xpenz/estimates/${estimate.id}/builder/`,
+          { method: 'GET' },
+        );
+        applyEstimateBuilderPayload(payload as Record<string, unknown>);
+      } catch (error) {
+        setEstimateBuilderOpen(false);
+        Alert.alert(
+          'Builder load failed',
+          error instanceof Error ? error.message : 'Unable to load estimate builder.',
+        );
+      } finally {
+        setEstimateBuilderLoading(false);
+      }
+    },
+    [applyEstimateBuilderPayload, authFetchJson, token],
+  );
+
+  const closeEstimateBuilder = useCallback(() => {
+    setEstimateBuilderOpen(false);
+    setEstimateBuilderLoading(false);
+    setEstimateBuilderSaving(false);
+    setEstimateBuilderStep('customer');
+    setEstimateBuilderEstimate(null);
+    setEstimateBuilderCatalog(null);
+    setEstimateBuilderMenuChoices([]);
+    setEstimateBuilderExtraLines([]);
+    setEstimateBuilderMealPlanInput('');
+    setEstimateBuilderActiveMeal('');
+    setEstimateBuilderMenuSearch('');
+    setEstimateBuilderExtrasSearch('');
+  }, []);
+
+  const saveEstimateBuilder = useCallback(async () => {
+    if (!estimateBuilderEstimate || !token) {
+      return;
+    }
+    if (!estimateBuilderEstimate.can_edit) {
+      Alert.alert('No access', 'Your account cannot edit this estimate.');
+      return;
+    }
+    if (!estimateBuilderEstimate.customer_name.trim()) {
+      Alert.alert('Missing customer', 'Enter a customer name before saving.');
+      return;
+    }
+    setEstimateBuilderSaving(true);
+    try {
+      const payload = await authFetchJson(
+        `/api/xpenz/estimates/${estimateBuilderEstimate.id}/builder/`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            estimate: {
+              customer_name: estimateBuilderEstimate.customer_name,
+              customer_phone: estimateBuilderEstimate.customer_phone,
+              customer_email: estimateBuilderEstimate.customer_email,
+              event_type: estimateBuilderEstimate.event_type,
+              event_date: estimateBuilderEstimate.event_date,
+              event_location: estimateBuilderEstimate.event_location,
+              guest_count: estimateBuilderEstimate.guest_count,
+              guest_count_kids: estimateBuilderEstimate.guest_count_kids,
+              currency: estimateBuilderEstimate.currency,
+              is_ala_carte: estimateBuilderEstimate.is_ala_carte,
+              include_premium_plastic: estimateBuilderEstimate.include_premium_plastic,
+              include_premium_tablecloths: estimateBuilderEstimate.include_premium_tablecloths,
+              plasticware_color: estimateBuilderEstimate.plasticware_color,
+              wants_real_dishes: estimateBuilderEstimate.wants_real_dishes,
+              real_dishes_price_per_person: estimateBuilderEstimate.real_dishes_price_per_person,
+              real_dishes_flat_fee: estimateBuilderEstimate.real_dishes_flat_fee,
+              staff_hours: estimateBuilderEstimate.staff_hours,
+              extra_waiters: estimateBuilderEstimate.extra_waiters,
+              staff_count_override: estimateBuilderEstimate.staff_count_override,
+              staff_hourly_rate: estimateBuilderEstimate.staff_hourly_rate,
+              staff_tip_per_waiter: estimateBuilderEstimate.staff_tip_per_waiter,
+              client_tipped_at_event: estimateBuilderEstimate.client_tipped_at_event,
+              deposit_percentage: estimateBuilderEstimate.deposit_percentage,
+              deposit_received: estimateBuilderEstimate.deposit_received,
+              kids_discount_percentage: estimateBuilderEstimate.kids_discount_percentage,
+              exchange_rate: estimateBuilderEstimate.exchange_rate,
+              notes_internal: estimateBuilderEstimate.notes_internal,
+              notes_for_customer: estimateBuilderEstimate.notes_for_customer,
+              payment_terms: estimateBuilderEstimate.payment_terms,
+              payment_method: estimateBuilderEstimate.payment_method,
+              payment_instructions: estimateBuilderEstimate.payment_instructions,
+              contract_terms: estimateBuilderEstimate.contract_terms,
+              terms_acknowledged: estimateBuilderEstimate.terms_acknowledged,
+              signature_name: estimateBuilderEstimate.signature_name,
+              signature_title: estimateBuilderEstimate.signature_title,
+              signature_date: estimateBuilderEstimate.signature_date,
+              tablecloth_details: estimateBuilderEstimate.tablecloth_details,
+            },
+            meal_plan: estimateBuilderMealPlan,
+            menu_choices: estimateBuilderMenuChoices,
+            extra_lines: estimateBuilderExtraLines,
+          }),
+        },
+      );
+      applyEstimateBuilderPayload(payload as Record<string, unknown>);
+      await loadEstimates();
+      Alert.alert('Saved', 'Estimate builder changes were saved.');
+    } catch (error) {
+      Alert.alert(
+        'Save failed',
+        error instanceof Error ? error.message : 'Unable to save estimate builder changes.',
+      );
+    } finally {
+      setEstimateBuilderSaving(false);
+    }
+  }, [
+    applyEstimateBuilderPayload,
+    authFetchJson,
+    estimateBuilderEstimate,
+    estimateBuilderExtraLines,
+    estimateBuilderMealPlan,
+    estimateBuilderMenuChoices,
+    loadEstimates,
+    token,
+  ]);
+
+  const activeEstimateBuilderMeal = useMemo(
+    () => estimateBuilderActiveMeal || estimateBuilderMealPlan[0] || 'Signature Menu',
+    [estimateBuilderActiveMeal, estimateBuilderMealPlan],
+  );
+
+  const toggleEstimateBuilderMenuItem = useCallback(
+    (item: EstimateBuilderMenuItem) => {
+      const mealName = activeEstimateBuilderMeal || 'Signature Menu';
+      const key = `${item.id}|${mealName.toLowerCase()}`;
+      setEstimateBuilderMenuChoices((previous) => {
+        const index = previous.findIndex(
+          (row) => `${row.menu_item_id}|${row.meal_name.toLowerCase()}` === key,
+        );
+        if (index >= 0) {
+          return previous.filter((_, rowIndex) => rowIndex !== index);
+        }
+        return [
+          ...previous,
+          {
+            menu_item_id: item.id,
+            meal_name: mealName,
+            servings_per_person: item.default_servings_per_person || '1.00',
+            notes: '',
+            included: true,
+          },
+        ];
+      });
+    },
+    [activeEstimateBuilderMeal],
+  );
+
+  const updateEstimateBuilderMenuChoice = useCallback(
+    (menuItemId: number, field: 'servings_per_person' | 'notes', value: string) => {
+      const mealName = activeEstimateBuilderMeal || 'Signature Menu';
+      const key = `${menuItemId}|${mealName.toLowerCase()}`;
+      setEstimateBuilderMenuChoices((previous) =>
+        previous.map((row) => {
+          const rowKey = `${row.menu_item_id}|${row.meal_name.toLowerCase()}`;
+          if (rowKey !== key) return row;
+          return {
+            ...row,
+            [field]: value,
+          };
+        }),
+      );
+    },
+    [activeEstimateBuilderMeal],
+  );
+
+  const toggleEstimateBuilderExtraItem = useCallback((item: EstimateBuilderExtraItem) => {
+    setEstimateBuilderExtraLines((previous) => {
+      const index = previous.findIndex((row) => row.extra_item_id === item.id);
+      if (index >= 0) {
+        return previous.filter((row) => row.extra_item_id !== item.id);
+      }
+      return [
+        ...previous,
+        {
+          extra_item_id: item.id,
+          quantity: '1',
+          override_price: '',
+          notes: '',
+          included: true,
+        },
+      ];
+    });
+  }, []);
+
+  const updateEstimateBuilderExtraLine = useCallback(
+    (itemId: number, field: 'quantity' | 'override_price' | 'notes', value: string) => {
+      setEstimateBuilderExtraLines((previous) =>
+        previous.map((row) =>
+          row.extra_item_id === itemId
+            ? {
+                ...row,
+                [field]: value,
+              }
+            : row,
+        ),
+      );
+    },
+    [],
   );
 
   const handleCreateShoppingList = useCallback(async () => {
@@ -3261,6 +3962,1286 @@ export default function App() {
     return counters;
   }, [plannerEntries]);
 
+  const filteredEstimateBuilderMenuCategories = useMemo(() => {
+    const categories = estimateBuilderCatalog?.menu_categories || [];
+    const search = estimateBuilderMenuSearch.trim().toLowerCase();
+    if (!search) return categories;
+    return categories
+      .map((category) => ({
+        ...category,
+        items: category.items.filter((item) => {
+          const haystack = `${item.name} ${item.description}`.toLowerCase();
+          return haystack.includes(search);
+        }),
+      }))
+      .filter((category) => category.items.length > 0);
+  }, [estimateBuilderCatalog, estimateBuilderMenuSearch]);
+
+  const filteredEstimateBuilderDecorCategories = useMemo(() => {
+    const categories = estimateBuilderCatalog?.extra_categories || [];
+    const search = estimateBuilderExtrasSearch.trim().toLowerCase();
+    return categories
+      .filter((category) => category.code === 'DECOR' || category.code === 'RENTAL')
+      .map((category) => ({
+        ...category,
+        items: category.items.filter((item) => {
+          if (!search) return true;
+          const haystack = `${item.name} ${item.notes}`.toLowerCase();
+          return haystack.includes(search);
+        }),
+      }))
+      .filter((category) => category.items.length > 0);
+  }, [estimateBuilderCatalog, estimateBuilderExtrasSearch]);
+
+  const filteredEstimateBuilderAddonCategories = useMemo(() => {
+    const categories = estimateBuilderCatalog?.extra_categories || [];
+    const search = estimateBuilderExtrasSearch.trim().toLowerCase();
+    return categories
+      .filter((category) => category.code === 'SERVICE' || category.code === 'OTHER')
+      .map((category) => ({
+        ...category,
+        items: category.items.filter((item) => {
+          if (!search) return true;
+          const haystack = `${item.name} ${item.notes}`.toLowerCase();
+          return haystack.includes(search);
+        }),
+      }))
+      .filter((category) => category.items.length > 0);
+  }, [estimateBuilderCatalog, estimateBuilderExtrasSearch]);
+
+  const shellModals = (
+    <>
+      <Modal
+        visible={menuOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setMenuOpen(false)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <Text style={styles.sectionTitle}>Menu</Text>
+            <Text style={styles.subtleText}>Account tools and admin shortcuts.</Text>
+            <View style={styles.savedList}>
+              <Pressable
+                style={styles.smallButton}
+                onPress={() => {
+                  setMenuOpen(false);
+                  openAdminPath('/admin/client_estimates/catereraccount/');
+                }}
+              >
+                <Text style={styles.smallButtonText}>Account / Company Profile</Text>
+              </Pressable>
+              <Pressable
+                style={styles.smallButton}
+                onPress={() => {
+                  setMenuOpen(false);
+                  openAdminPath('/admin/auth/user/');
+                }}
+              >
+                <Text style={styles.smallButtonText}>Delete Account (Admin)</Text>
+              </Pressable>
+              <Pressable
+                style={styles.smallButton}
+                onPress={() => {
+                  setMenuOpen(false);
+                  openAdminPath('/admin/client_estimates/menucategory/');
+                }}
+              >
+                <Text style={styles.smallButtonText}>Menu Categories</Text>
+              </Pressable>
+              <Pressable
+                style={styles.smallButton}
+                onPress={() => {
+                  setMenuOpen(false);
+                  openAdminPath('/admin/client_estimates/menuitem/');
+                }}
+              >
+                <Text style={styles.smallButtonText}>Menu Items</Text>
+              </Pressable>
+              <Pressable
+                style={styles.smallButton}
+                onPress={() => {
+                  setMenuOpen(false);
+                  openAdminPath('/admin/client_estimates/extraitem/');
+                }}
+              >
+                <Text style={styles.smallButtonText}>Extra Items</Text>
+              </Pressable>
+              <Pressable
+                style={styles.smallDangerButton}
+                onPress={() => {
+                  setMenuOpen(false);
+                  handleLogout();
+                }}
+              >
+                <Text style={styles.smallDangerButtonText}>Log Out</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={estimateComposerOpen}
+        animationType="slide"
+        onRequestClose={() => setEstimateComposerOpen(false)}
+      >
+        <SafeAreaView style={styles.screen}>
+          <KeyboardAvoidingView
+            style={styles.flexOne}
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          >
+            <View style={styles.plannerEditorHeader}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.sectionTitle}>Create Estimate</Text>
+                <Text style={styles.subtleText}>Mobile quick-create. Full edit remains available in admin.</Text>
+              </View>
+              <Pressable style={styles.smallButton} onPress={() => setEstimateComposerOpen(false)}>
+                <Text style={styles.smallButtonText}>Close</Text>
+              </Pressable>
+            </View>
+
+            <ScrollView contentContainerStyle={styles.contentWrap} keyboardShouldPersistTaps="handled">
+              {catererChoices.length > 1 ? (
+                <View style={styles.sectionCard}>
+                  <Text style={styles.savedTitle}>Company Profile</Text>
+                  <View style={styles.inlineActions}>
+                    {catererChoices.map((choice) => (
+                      <Pressable
+                        key={`estimate-caterer-${choice.id}`}
+                        style={[
+                          styles.smallButton,
+                          newEstimateCatererId === choice.id && styles.selectedPill,
+                        ]}
+                        onPress={() => setNewEstimateCatererId(choice.id)}
+                      >
+                        <Text
+                          style={[
+                            styles.smallButtonText,
+                            newEstimateCatererId === choice.id && styles.selectedPillText,
+                          ]}
+                        >
+                          {choice.name}
+                        </Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                </View>
+              ) : null}
+
+              <View style={styles.sectionCard}>
+                <TextInput
+                  style={styles.input}
+                  value={newEstimateCustomer}
+                  onChangeText={setNewEstimateCustomer}
+                  placeholder="Customer name"
+                />
+                <TextInput
+                  style={styles.input}
+                  value={newEstimateEventType}
+                  onChangeText={setNewEstimateEventType}
+                  placeholder="Event type (e.g. Wedding)"
+                />
+                <TextInput
+                  style={styles.input}
+                  value={newEstimateDate}
+                  onChangeText={setNewEstimateDate}
+                  placeholder="Event date (YYYY-MM-DD)"
+                />
+                <TextInput
+                  style={styles.input}
+                  value={newEstimateLocation}
+                  onChangeText={setNewEstimateLocation}
+                  placeholder="Event location"
+                />
+                <TextInput
+                  style={styles.input}
+                  value={newEstimateAdults}
+                  onChangeText={setNewEstimateAdults}
+                  keyboardType="number-pad"
+                  placeholder="Adult guests"
+                />
+                <TextInput
+                  style={styles.input}
+                  value={newEstimateKids}
+                  onChangeText={setNewEstimateKids}
+                  keyboardType="number-pad"
+                  placeholder="Kids guests"
+                />
+              </View>
+            </ScrollView>
+
+            <View style={styles.plannerEditorFooter}>
+              <Pressable
+                style={[styles.primaryButton, creatingEstimate && styles.buttonDisabled]}
+                onPress={submitEstimateFromMobile}
+                disabled={creatingEstimate}
+              >
+                {creatingEstimate ? (
+                  <ActivityIndicator color="#ffffff" />
+                ) : (
+                  <Text style={styles.primaryButtonText}>Create Estimate</Text>
+                )}
+              </Pressable>
+              <Pressable style={styles.smallButton} onPress={() => setEstimateComposerOpen(false)}>
+                <Text style={styles.smallButtonText}>Cancel</Text>
+              </Pressable>
+            </View>
+          </KeyboardAvoidingView>
+        </SafeAreaView>
+      </Modal>
+
+      <Modal
+        visible={estimateBuilderOpen}
+        animationType="slide"
+        onRequestClose={closeEstimateBuilder}
+      >
+        <SafeAreaView style={styles.screen}>
+          <KeyboardAvoidingView
+            style={styles.flexOne}
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          >
+            <View style={styles.plannerEditorHeader}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.sectionTitle}>Estimate Builder</Text>
+                <Text style={styles.subtleText}>
+                  Full mobile estimate flow synced with admin.
+                </Text>
+              </View>
+              <Pressable style={styles.smallButton} onPress={closeEstimateBuilder}>
+                <Text style={styles.smallButtonText}>Close</Text>
+              </Pressable>
+            </View>
+
+            {estimateBuilderLoading ? (
+              <View style={styles.screenCenter}>
+                <ActivityIndicator size="large" color="#0f766e" />
+              </View>
+            ) : estimateBuilderEstimate && estimateBuilderCatalog ? (
+              <>
+                <ScrollView
+                  contentContainerStyle={styles.contentWrap}
+                  keyboardShouldPersistTaps="handled"
+                  keyboardDismissMode="on-drag"
+                >
+                  <View style={styles.sectionCard}>
+                    <Text style={styles.savedTitle}>{estimateBuilderEstimate.job_name}</Text>
+                    <Text style={styles.subtleText}>
+                      #{estimateBuilderEstimate.estimate_number ?? estimateBuilderEstimate.id} •{' '}
+                      {estimateBuilderEstimate.caterer_name}
+                    </Text>
+                    {!estimateBuilderEstimate.can_edit ? (
+                      <Text style={styles.subtleText}>
+                        View-only access. You can print but cannot edit.
+                      </Text>
+                    ) : null}
+                    <View style={styles.inlineActions}>
+                      {([
+                        ['customer', 'Customer'],
+                        ['menu', 'Menu'],
+                        ['decor', 'Decor/Rentals'],
+                        ['addons', 'Add-ons'],
+                        ['summary', 'Summary'],
+                        ['additional', 'Additional'],
+                      ] as Array<[EstimateBuilderStep, string]>).map(([stepCode, stepLabel]) => (
+                        <Pressable
+                          key={`builder-step-${stepCode}`}
+                          style={[
+                            styles.smallButton,
+                            estimateBuilderStep === stepCode && styles.selectedPill,
+                          ]}
+                          onPress={() => setEstimateBuilderStep(stepCode)}
+                        >
+                          <Text
+                            style={[
+                              styles.smallButtonText,
+                              estimateBuilderStep === stepCode && styles.selectedPillText,
+                            ]}
+                          >
+                            {stepLabel}
+                          </Text>
+                        </Pressable>
+                      ))}
+                    </View>
+                  </View>
+
+                  {estimateBuilderStep === 'customer' ? (
+                    <View style={styles.sectionCard}>
+                      <TextInput
+                        style={styles.input}
+                        value={estimateBuilderEstimate.customer_name}
+                        onChangeText={(value) =>
+                          setEstimateBuilderEstimate((prev) =>
+                            prev
+                              ? {
+                                  ...prev,
+                                  customer_name: value,
+                                }
+                              : prev,
+                          )
+                        }
+                        placeholder="Customer name"
+                      />
+                      <TextInput
+                        style={styles.input}
+                        value={estimateBuilderEstimate.customer_phone}
+                        onChangeText={(value) =>
+                          setEstimateBuilderEstimate((prev) =>
+                            prev
+                              ? {
+                                  ...prev,
+                                  customer_phone: value,
+                                }
+                              : prev,
+                          )
+                        }
+                        placeholder="Customer phone"
+                      />
+                      <TextInput
+                        style={styles.input}
+                        value={estimateBuilderEstimate.customer_email}
+                        onChangeText={(value) =>
+                          setEstimateBuilderEstimate((prev) =>
+                            prev
+                              ? {
+                                  ...prev,
+                                  customer_email: value,
+                                }
+                              : prev,
+                          )
+                        }
+                        autoCapitalize="none"
+                        placeholder="Customer email"
+                      />
+                      <TextInput
+                        style={styles.input}
+                        value={estimateBuilderEstimate.event_type}
+                        onChangeText={(value) =>
+                          setEstimateBuilderEstimate((prev) =>
+                            prev
+                              ? {
+                                  ...prev,
+                                  event_type: value,
+                                }
+                              : prev,
+                          )
+                        }
+                        placeholder="Event type"
+                      />
+                      <TextInput
+                        style={styles.input}
+                        value={estimateBuilderEstimate.event_date}
+                        onChangeText={(value) =>
+                          setEstimateBuilderEstimate((prev) =>
+                            prev
+                              ? {
+                                  ...prev,
+                                  event_date: value,
+                                }
+                              : prev,
+                          )
+                        }
+                        placeholder="Event date (YYYY-MM-DD)"
+                      />
+                      <TextInput
+                        style={styles.input}
+                        value={estimateBuilderEstimate.event_location}
+                        onChangeText={(value) =>
+                          setEstimateBuilderEstimate((prev) =>
+                            prev
+                              ? {
+                                  ...prev,
+                                  event_location: value,
+                                }
+                              : prev,
+                          )
+                        }
+                        placeholder="Event location"
+                      />
+                      <TextInput
+                        style={styles.input}
+                        value={String(estimateBuilderEstimate.guest_count ?? '')}
+                        onChangeText={(value) =>
+                          setEstimateBuilderEstimate((prev) =>
+                            prev
+                              ? {
+                                  ...prev,
+                                  guest_count: Number.parseInt(value || '0', 10) || 0,
+                                }
+                              : prev,
+                          )
+                        }
+                        keyboardType="number-pad"
+                        inputAccessoryViewID={
+                          Platform.OS === 'ios' ? NUMERIC_INPUT_ACCESSORY_ID : undefined
+                        }
+                        placeholder="Adult guests"
+                      />
+                      <TextInput
+                        style={styles.input}
+                        value={String(estimateBuilderEstimate.guest_count_kids ?? '')}
+                        onChangeText={(value) =>
+                          setEstimateBuilderEstimate((prev) =>
+                            prev
+                              ? {
+                                  ...prev,
+                                  guest_count_kids: Number.parseInt(value || '0', 10) || 0,
+                                }
+                              : prev,
+                          )
+                        }
+                        keyboardType="number-pad"
+                        inputAccessoryViewID={
+                          Platform.OS === 'ios' ? NUMERIC_INPUT_ACCESSORY_ID : undefined
+                        }
+                        placeholder="Kids guests"
+                      />
+                      <TextInput
+                        style={styles.input}
+                        value={estimateBuilderEstimate.kids_discount_percentage}
+                        onChangeText={(value) =>
+                          setEstimateBuilderEstimate((prev) =>
+                            prev
+                              ? {
+                                  ...prev,
+                                  kids_discount_percentage: value,
+                                }
+                              : prev,
+                          )
+                        }
+                        keyboardType="decimal-pad"
+                        inputAccessoryViewID={
+                          Platform.OS === 'ios' ? NUMERIC_INPUT_ACCESSORY_ID : undefined
+                        }
+                        placeholder="Kids discount %"
+                      />
+                      <TextInput
+                        style={styles.input}
+                        value={estimateBuilderEstimate.exchange_rate}
+                        onChangeText={(value) =>
+                          setEstimateBuilderEstimate((prev) =>
+                            prev
+                              ? {
+                                  ...prev,
+                                  exchange_rate: value,
+                                }
+                              : prev,
+                          )
+                        }
+                        keyboardType="decimal-pad"
+                        inputAccessoryViewID={
+                          Platform.OS === 'ios' ? NUMERIC_INPUT_ACCESSORY_ID : undefined
+                        }
+                        placeholder="Exchange rate"
+                      />
+                      <View style={styles.inlineActions}>
+                        {estimateBuilderCatalog.currencies.map((row) => (
+                          <Pressable
+                            key={`builder-currency-${row.code}`}
+                            style={[
+                              styles.smallButton,
+                              estimateBuilderEstimate.currency === row.code && styles.selectedPill,
+                            ]}
+                            onPress={() =>
+                              setEstimateBuilderEstimate((prev) =>
+                                prev
+                                  ? {
+                                      ...prev,
+                                      currency: row.code,
+                                    }
+                                  : prev,
+                              )
+                            }
+                          >
+                            <Text
+                              style={[
+                                styles.smallButtonText,
+                                estimateBuilderEstimate.currency === row.code &&
+                                  styles.selectedPillText,
+                              ]}
+                            >
+                              {row.code}
+                            </Text>
+                          </Pressable>
+                        ))}
+                      </View>
+                    </View>
+                  ) : null}
+
+                  {estimateBuilderStep === 'menu' ? (
+                    <View style={styles.sectionCard}>
+                      <Text style={styles.savedTitle}>Meal Plan</Text>
+                      <TextInput
+                        style={[styles.input, styles.noteInput]}
+                        value={estimateBuilderMealPlanInput}
+                        onChangeText={setEstimateBuilderMealPlanInput}
+                        placeholder="One meal per line"
+                        multiline
+                      />
+                      <View style={styles.inlineActions}>
+                        {estimateBuilderMealPlan.map((mealName) => (
+                          <Pressable
+                            key={`builder-meal-${mealName}`}
+                            style={[
+                              styles.smallButton,
+                              activeEstimateBuilderMeal.toLowerCase() === mealName.toLowerCase() &&
+                                styles.selectedPill,
+                            ]}
+                            onPress={() => setEstimateBuilderActiveMeal(mealName)}
+                          >
+                            <Text
+                              style={[
+                                styles.smallButtonText,
+                                activeEstimateBuilderMeal.toLowerCase() === mealName.toLowerCase() &&
+                                  styles.selectedPillText,
+                              ]}
+                            >
+                              {mealName}
+                            </Text>
+                          </Pressable>
+                        ))}
+                      </View>
+                      <TextInput
+                        style={styles.input}
+                        value={estimateBuilderMenuSearch}
+                        onChangeText={setEstimateBuilderMenuSearch}
+                        placeholder="Search menu items..."
+                      />
+                      {filteredEstimateBuilderMenuCategories.map((category) => (
+                        <View key={`builder-menu-category-${category.id ?? category.name}`} style={styles.savedCard}>
+                          <Text style={styles.savedTitle}>{category.name}</Text>
+                          {category.items.map((item) => {
+                            const choice = estimateBuilderMenuChoiceMap.get(
+                              `${item.id}|${activeEstimateBuilderMeal.toLowerCase()}`,
+                            );
+                            return (
+                              <View key={`builder-menu-item-${item.id}`} style={styles.builderOptionRow}>
+                                <View style={styles.builderOptionBody}>
+                                  <Text style={styles.savedTitle}>{item.name}</Text>
+                                  <Text style={styles.subtleText}>
+                                    {SHEKEL_SYMBOL}
+                                    {item.price_per_serving} per serving
+                                  </Text>
+                                  {choice ? (
+                                    <>
+                                      <TextInput
+                                        style={styles.input}
+                                        value={choice.servings_per_person}
+                                        onChangeText={(value) =>
+                                          updateEstimateBuilderMenuChoice(
+                                            item.id,
+                                            'servings_per_person',
+                                            value,
+                                          )
+                                        }
+                                        keyboardType="decimal-pad"
+                                        inputAccessoryViewID={
+                                          Platform.OS === 'ios'
+                                            ? NUMERIC_INPUT_ACCESSORY_ID
+                                            : undefined
+                                        }
+                                        placeholder="Servings per person"
+                                      />
+                                      <TextInput
+                                        style={styles.input}
+                                        value={choice.notes}
+                                        onChangeText={(value) =>
+                                          updateEstimateBuilderMenuChoice(item.id, 'notes', value)
+                                        }
+                                        placeholder="Notes (optional)"
+                                      />
+                                    </>
+                                  ) : null}
+                                </View>
+                                <Pressable
+                                  style={[styles.smallButton, choice && styles.selectedPill]}
+                                  onPress={() => toggleEstimateBuilderMenuItem(item)}
+                                >
+                                  <Text
+                                    style={[
+                                      styles.smallButtonText,
+                                      choice && styles.selectedPillText,
+                                    ]}
+                                  >
+                                    {choice ? 'Remove' : 'Add'}
+                                  </Text>
+                                </Pressable>
+                              </View>
+                            );
+                          })}
+                        </View>
+                      ))}
+                    </View>
+                  ) : null}
+
+                  {estimateBuilderStep === 'decor' || estimateBuilderStep === 'addons' ? (
+                    <View style={styles.sectionCard}>
+                      <TextInput
+                        style={styles.input}
+                        value={estimateBuilderExtrasSearch}
+                        onChangeText={setEstimateBuilderExtrasSearch}
+                        placeholder="Search extras..."
+                      />
+                      {(estimateBuilderStep === 'decor'
+                        ? filteredEstimateBuilderDecorCategories
+                        : filteredEstimateBuilderAddonCategories
+                      ).map((category) => (
+                        <View key={`builder-extra-category-${category.code}`} style={styles.savedCard}>
+                          <Text style={styles.savedTitle}>{category.label}</Text>
+                          {category.items.map((item) => {
+                            const line = estimateBuilderExtraLineMap.get(item.id);
+                            return (
+                              <View key={`builder-extra-item-${item.id}`} style={styles.builderOptionRow}>
+                                <View style={styles.builderOptionBody}>
+                                  <Text style={styles.savedTitle}>{item.name}</Text>
+                                  <Text style={styles.subtleText}>
+                                    {SHEKEL_SYMBOL}
+                                    {item.price} • {item.charge_type_label}
+                                  </Text>
+                                  {line ? (
+                                    <>
+                                      <TextInput
+                                        style={styles.input}
+                                        value={line.quantity}
+                                        onChangeText={(value) =>
+                                          updateEstimateBuilderExtraLine(item.id, 'quantity', value)
+                                        }
+                                        keyboardType="decimal-pad"
+                                        inputAccessoryViewID={
+                                          Platform.OS === 'ios'
+                                            ? NUMERIC_INPUT_ACCESSORY_ID
+                                            : undefined
+                                        }
+                                        placeholder="Quantity"
+                                      />
+                                      <TextInput
+                                        style={styles.input}
+                                        value={line.override_price}
+                                        onChangeText={(value) =>
+                                          updateEstimateBuilderExtraLine(
+                                            item.id,
+                                            'override_price',
+                                            value,
+                                          )
+                                        }
+                                        keyboardType="decimal-pad"
+                                        inputAccessoryViewID={
+                                          Platform.OS === 'ios'
+                                            ? NUMERIC_INPUT_ACCESSORY_ID
+                                            : undefined
+                                        }
+                                        placeholder="Override price (optional)"
+                                      />
+                                      <TextInput
+                                        style={styles.input}
+                                        value={line.notes}
+                                        onChangeText={(value) =>
+                                          updateEstimateBuilderExtraLine(item.id, 'notes', value)
+                                        }
+                                        placeholder="Notes (optional)"
+                                      />
+                                    </>
+                                  ) : null}
+                                </View>
+                                <Pressable
+                                  style={[styles.smallButton, line && styles.selectedPill]}
+                                  onPress={() => toggleEstimateBuilderExtraItem(item)}
+                                >
+                                  <Text
+                                    style={[
+                                      styles.smallButtonText,
+                                      line && styles.selectedPillText,
+                                    ]}
+                                  >
+                                    {line ? 'Remove' : 'Add'}
+                                  </Text>
+                                </Pressable>
+                              </View>
+                            );
+                          })}
+                        </View>
+                      ))}
+                    </View>
+                  ) : null}
+
+                  {estimateBuilderStep === 'summary' ? (
+                    <View style={styles.sectionCard}>
+                      <View style={styles.inlineActions}>
+                        <Pressable
+                          style={[
+                            styles.smallButton,
+                            estimateBuilderEstimate.is_ala_carte && styles.selectedPill,
+                          ]}
+                          onPress={() =>
+                            setEstimateBuilderEstimate((prev) =>
+                              prev
+                                ? {
+                                    ...prev,
+                                    is_ala_carte: !prev.is_ala_carte,
+                                  }
+                                : prev,
+                            )
+                          }
+                        >
+                          <Text
+                            style={[
+                              styles.smallButtonText,
+                              estimateBuilderEstimate.is_ala_carte && styles.selectedPillText,
+                            ]}
+                          >
+                            A la carte
+                          </Text>
+                        </Pressable>
+                        <Pressable
+                          style={[
+                            styles.smallButton,
+                            estimateBuilderEstimate.wants_real_dishes && styles.selectedPill,
+                          ]}
+                          onPress={() =>
+                            setEstimateBuilderEstimate((prev) =>
+                              prev
+                                ? {
+                                    ...prev,
+                                    wants_real_dishes: !prev.wants_real_dishes,
+                                  }
+                                : prev,
+                            )
+                          }
+                        >
+                          <Text
+                            style={[
+                              styles.smallButtonText,
+                              estimateBuilderEstimate.wants_real_dishes && styles.selectedPillText,
+                            ]}
+                          >
+                            Real dishes
+                          </Text>
+                        </Pressable>
+                        <Pressable
+                          style={[
+                            styles.smallButton,
+                            estimateBuilderEstimate.client_tipped_at_event && styles.selectedPill,
+                          ]}
+                          onPress={() =>
+                            setEstimateBuilderEstimate((prev) =>
+                              prev
+                                ? {
+                                    ...prev,
+                                    client_tipped_at_event: !prev.client_tipped_at_event,
+                                  }
+                                : prev,
+                            )
+                          }
+                        >
+                          <Text
+                            style={[
+                              styles.smallButtonText,
+                              estimateBuilderEstimate.client_tipped_at_event && styles.selectedPillText,
+                            ]}
+                          >
+                            Client tipped at event
+                          </Text>
+                        </Pressable>
+                        <Pressable
+                          style={[
+                            styles.smallButton,
+                            estimateBuilderEstimate.include_premium_plastic && styles.selectedPill,
+                          ]}
+                          onPress={() =>
+                            setEstimateBuilderEstimate((prev) =>
+                              prev
+                                ? {
+                                    ...prev,
+                                    include_premium_plastic: !prev.include_premium_plastic,
+                                  }
+                                : prev,
+                            )
+                          }
+                        >
+                          <Text
+                            style={[
+                              styles.smallButtonText,
+                              estimateBuilderEstimate.include_premium_plastic &&
+                                styles.selectedPillText,
+                            ]}
+                          >
+                            Premium plastic
+                          </Text>
+                        </Pressable>
+                        <Pressable
+                          style={[
+                            styles.smallButton,
+                            estimateBuilderEstimate.include_premium_tablecloths &&
+                              styles.selectedPill,
+                          ]}
+                          onPress={() =>
+                            setEstimateBuilderEstimate((prev) =>
+                              prev
+                                ? {
+                                    ...prev,
+                                    include_premium_tablecloths: !prev.include_premium_tablecloths,
+                                  }
+                                : prev,
+                            )
+                          }
+                        >
+                          <Text
+                            style={[
+                              styles.smallButtonText,
+                              estimateBuilderEstimate.include_premium_tablecloths &&
+                                styles.selectedPillText,
+                            ]}
+                          >
+                            Premium tablecloths
+                          </Text>
+                        </Pressable>
+                      </View>
+                      <TextInput
+                        style={styles.input}
+                        value={estimateBuilderEstimate.staff_hours}
+                        onChangeText={(value) =>
+                          setEstimateBuilderEstimate((prev) =>
+                            prev
+                              ? {
+                                  ...prev,
+                                  staff_hours: value,
+                                }
+                              : prev,
+                          )
+                        }
+                        keyboardType="decimal-pad"
+                        inputAccessoryViewID={
+                          Platform.OS === 'ios' ? NUMERIC_INPUT_ACCESSORY_ID : undefined
+                        }
+                        placeholder="Staff hours"
+                      />
+                      <TextInput
+                        style={styles.input}
+                        value={String(estimateBuilderEstimate.extra_waiters || '')}
+                        onChangeText={(value) =>
+                          setEstimateBuilderEstimate((prev) =>
+                            prev
+                              ? {
+                                  ...prev,
+                                  extra_waiters: Number.parseInt(value || '0', 10) || 0,
+                                }
+                              : prev,
+                          )
+                        }
+                        keyboardType="number-pad"
+                        inputAccessoryViewID={
+                          Platform.OS === 'ios' ? NUMERIC_INPUT_ACCESSORY_ID : undefined
+                        }
+                        placeholder="Extra waiters"
+                      />
+                      <TextInput
+                        style={styles.input}
+                        value={estimateBuilderEstimate.staff_count_override == null ? '' : String(estimateBuilderEstimate.staff_count_override)}
+                        onChangeText={(value) =>
+                          setEstimateBuilderEstimate((prev) =>
+                            prev
+                              ? {
+                                  ...prev,
+                                  staff_count_override: value.trim()
+                                    ? Number.parseInt(value, 10) || 0
+                                    : null,
+                                }
+                              : prev,
+                          )
+                        }
+                        keyboardType="number-pad"
+                        inputAccessoryViewID={
+                          Platform.OS === 'ios' ? NUMERIC_INPUT_ACCESSORY_ID : undefined
+                        }
+                        placeholder="Staff count override (optional)"
+                      />
+                      <TextInput
+                        style={styles.input}
+                        value={estimateBuilderEstimate.staff_hourly_rate}
+                        onChangeText={(value) =>
+                          setEstimateBuilderEstimate((prev) =>
+                            prev
+                              ? {
+                                  ...prev,
+                                  staff_hourly_rate: value,
+                                }
+                              : prev,
+                          )
+                        }
+                        keyboardType="decimal-pad"
+                        inputAccessoryViewID={
+                          Platform.OS === 'ios' ? NUMERIC_INPUT_ACCESSORY_ID : undefined
+                        }
+                        placeholder="Staff hourly rate"
+                      />
+                      <TextInput
+                        style={styles.input}
+                        value={estimateBuilderEstimate.staff_tip_per_waiter}
+                        onChangeText={(value) =>
+                          setEstimateBuilderEstimate((prev) =>
+                            prev
+                              ? {
+                                  ...prev,
+                                  staff_tip_per_waiter: value,
+                                }
+                              : prev,
+                          )
+                        }
+                        keyboardType="decimal-pad"
+                        inputAccessoryViewID={
+                          Platform.OS === 'ios' ? NUMERIC_INPUT_ACCESSORY_ID : undefined
+                        }
+                        placeholder="Suggested tip per waiter"
+                      />
+                      <TextInput
+                        style={styles.input}
+                        value={estimateBuilderEstimate.real_dishes_price_per_person}
+                        onChangeText={(value) =>
+                          setEstimateBuilderEstimate((prev) =>
+                            prev
+                              ? {
+                                  ...prev,
+                                  real_dishes_price_per_person: value,
+                                }
+                              : prev,
+                          )
+                        }
+                        keyboardType="decimal-pad"
+                        inputAccessoryViewID={
+                          Platform.OS === 'ios' ? NUMERIC_INPUT_ACCESSORY_ID : undefined
+                        }
+                        placeholder="Real dishes price per person"
+                      />
+                      <TextInput
+                        style={styles.input}
+                        value={estimateBuilderEstimate.real_dishes_flat_fee}
+                        onChangeText={(value) =>
+                          setEstimateBuilderEstimate((prev) =>
+                            prev
+                              ? {
+                                  ...prev,
+                                  real_dishes_flat_fee: value,
+                                }
+                              : prev,
+                          )
+                        }
+                        keyboardType="decimal-pad"
+                        inputAccessoryViewID={
+                          Platform.OS === 'ios' ? NUMERIC_INPUT_ACCESSORY_ID : undefined
+                        }
+                        placeholder="Real dishes delivery fee"
+                      />
+                      <TextInput
+                        style={styles.input}
+                        value={estimateBuilderEstimate.deposit_percentage}
+                        onChangeText={(value) =>
+                          setEstimateBuilderEstimate((prev) =>
+                            prev
+                              ? {
+                                  ...prev,
+                                  deposit_percentage: value,
+                                }
+                              : prev,
+                          )
+                        }
+                        keyboardType="decimal-pad"
+                        inputAccessoryViewID={
+                          Platform.OS === 'ios' ? NUMERIC_INPUT_ACCESSORY_ID : undefined
+                        }
+                        placeholder="Deposit %"
+                      />
+                      <TextInput
+                        style={styles.input}
+                        value={estimateBuilderEstimate.deposit_received}
+                        onChangeText={(value) =>
+                          setEstimateBuilderEstimate((prev) =>
+                            prev
+                              ? {
+                                  ...prev,
+                                  deposit_received: value,
+                                }
+                              : prev,
+                          )
+                        }
+                        keyboardType="decimal-pad"
+                        inputAccessoryViewID={
+                          Platform.OS === 'ios' ? NUMERIC_INPUT_ACCESSORY_ID : undefined
+                        }
+                        placeholder="Deposit received"
+                      />
+                      <View style={styles.savedCard}>
+                        <Text style={styles.savedTitle}>Totals</Text>
+                        <Text style={styles.subtleText}>
+                          Waiters: {estimateBuilderEstimate.summary.waiter_count}
+                        </Text>
+                        <Text style={styles.subtleText}>
+                          Food: {SHEKEL_SYMBOL}
+                          {estimateBuilderEstimate.summary.food_total}
+                        </Text>
+                        <Text style={styles.subtleText}>
+                          Extras: {SHEKEL_SYMBOL}
+                          {estimateBuilderEstimate.summary.extras_total}
+                        </Text>
+                        <Text style={styles.subtleText}>
+                          Staff: {SHEKEL_SYMBOL}
+                          {estimateBuilderEstimate.summary.staff_total}
+                        </Text>
+                        <Text style={styles.subtleText}>
+                          Dishes: {SHEKEL_SYMBOL}
+                          {estimateBuilderEstimate.summary.dishes_total}
+                        </Text>
+                        <Text style={styles.subtleText}>
+                          Grand Total: {SHEKEL_SYMBOL}
+                          {estimateBuilderEstimate.summary.grand_total}
+                        </Text>
+                        <Text style={styles.subtleText}>
+                          Deposit Due: {SHEKEL_SYMBOL}
+                          {estimateBuilderEstimate.summary.deposit_amount}
+                        </Text>
+                        <Text style={styles.subtleText}>
+                          Balance Due: {SHEKEL_SYMBOL}
+                          {estimateBuilderEstimate.summary.balance_due}
+                        </Text>
+                      </View>
+                    </View>
+                  ) : null}
+
+                  {estimateBuilderStep === 'additional' ? (
+                    <View style={styles.sectionCard}>
+                      <TextInput
+                        style={styles.input}
+                        value={estimateBuilderEstimate.plasticware_color}
+                        onChangeText={(value) =>
+                          setEstimateBuilderEstimate((prev) =>
+                            prev
+                              ? {
+                                  ...prev,
+                                  plasticware_color: value,
+                                }
+                              : prev,
+                          )
+                        }
+                        placeholder="Chad Paami color"
+                      />
+                      <TextInput
+                        style={[styles.input, styles.noteInput]}
+                        value={estimateBuilderEstimate.notes_internal}
+                        onChangeText={(value) =>
+                          setEstimateBuilderEstimate((prev) =>
+                            prev
+                              ? {
+                                  ...prev,
+                                  notes_internal: value,
+                                }
+                              : prev,
+                          )
+                        }
+                        multiline
+                        placeholder="Internal notes"
+                      />
+                      <TextInput
+                        style={[styles.input, styles.noteInput]}
+                        value={estimateBuilderEstimate.notes_for_customer}
+                        onChangeText={(value) =>
+                          setEstimateBuilderEstimate((prev) =>
+                            prev
+                              ? {
+                                  ...prev,
+                                  notes_for_customer: value,
+                                }
+                              : prev,
+                          )
+                        }
+                        multiline
+                        placeholder="Customer notes"
+                      />
+                      <TextInput
+                        style={[styles.input, styles.noteInput]}
+                        value={estimateBuilderEstimate.payment_terms}
+                        onChangeText={(value) =>
+                          setEstimateBuilderEstimate((prev) =>
+                            prev
+                              ? {
+                                  ...prev,
+                                  payment_terms: value,
+                                }
+                              : prev,
+                          )
+                        }
+                        multiline
+                        placeholder="Payment terms"
+                      />
+                      <View style={styles.inlineActions}>
+                        {estimateBuilderCatalog.payment_methods.map((method) => (
+                          <Pressable
+                            key={`builder-pay-method-${method.code}`}
+                            style={[
+                              styles.smallButton,
+                              estimateBuilderEstimate.payment_method === method.code &&
+                                styles.selectedPill,
+                            ]}
+                            onPress={() =>
+                              setEstimateBuilderEstimate((prev) =>
+                                prev
+                                  ? {
+                                      ...prev,
+                                      payment_method: method.code,
+                                    }
+                                  : prev,
+                              )
+                            }
+                          >
+                            <Text
+                              style={[
+                                styles.smallButtonText,
+                                estimateBuilderEstimate.payment_method === method.code &&
+                                  styles.selectedPillText,
+                              ]}
+                            >
+                              {method.label}
+                            </Text>
+                          </Pressable>
+                        ))}
+                      </View>
+                      <TextInput
+                        style={[styles.input, styles.noteInput]}
+                        value={estimateBuilderEstimate.payment_instructions}
+                        onChangeText={(value) =>
+                          setEstimateBuilderEstimate((prev) =>
+                            prev
+                              ? {
+                                  ...prev,
+                                  payment_instructions: value,
+                                }
+                              : prev,
+                          )
+                        }
+                        multiline
+                        placeholder="Payment instructions"
+                      />
+                      <TextInput
+                        style={[styles.input, styles.noteInput]}
+                        value={estimateBuilderEstimate.contract_terms}
+                        onChangeText={(value) =>
+                          setEstimateBuilderEstimate((prev) =>
+                            prev
+                              ? {
+                                  ...prev,
+                                  contract_terms: value,
+                                }
+                              : prev,
+                          )
+                        }
+                        multiline
+                        placeholder="Contract terms"
+                      />
+                      <View style={styles.inlineActions}>
+                        <Pressable
+                          style={[
+                            styles.smallButton,
+                            estimateBuilderEstimate.terms_acknowledged && styles.selectedPill,
+                          ]}
+                          onPress={() =>
+                            setEstimateBuilderEstimate((prev) =>
+                              prev
+                                ? {
+                                    ...prev,
+                                    terms_acknowledged: !prev.terms_acknowledged,
+                                  }
+                                : prev,
+                            )
+                          }
+                        >
+                          <Text
+                            style={[
+                              styles.smallButtonText,
+                              estimateBuilderEstimate.terms_acknowledged &&
+                                styles.selectedPillText,
+                            ]}
+                          >
+                            Terms acknowledged
+                          </Text>
+                        </Pressable>
+                      </View>
+                      <TextInput
+                        style={styles.input}
+                        value={estimateBuilderEstimate.signature_name}
+                        onChangeText={(value) =>
+                          setEstimateBuilderEstimate((prev) =>
+                            prev
+                              ? {
+                                  ...prev,
+                                  signature_name: value,
+                                }
+                              : prev,
+                          )
+                        }
+                        placeholder="Signature name"
+                      />
+                      <TextInput
+                        style={styles.input}
+                        value={estimateBuilderEstimate.signature_title}
+                        onChangeText={(value) =>
+                          setEstimateBuilderEstimate((prev) =>
+                            prev
+                              ? {
+                                  ...prev,
+                                  signature_title: value,
+                                }
+                              : prev,
+                          )
+                        }
+                        placeholder="Signature title"
+                      />
+                      <TextInput
+                        style={styles.input}
+                        value={estimateBuilderEstimate.signature_date}
+                        onChangeText={(value) =>
+                          setEstimateBuilderEstimate((prev) =>
+                            prev
+                              ? {
+                                  ...prev,
+                                  signature_date: value,
+                                }
+                              : prev,
+                          )
+                        }
+                        placeholder="Signature date (YYYY-MM-DD)"
+                      />
+                    </View>
+                  ) : null}
+                </ScrollView>
+                <View style={styles.plannerEditorFooter}>
+                  <Pressable
+                    style={[
+                      styles.primaryButton,
+                      (estimateBuilderSaving || !estimateBuilderEstimate.can_edit) && styles.buttonDisabled,
+                    ]}
+                    onPress={saveEstimateBuilder}
+                    disabled={estimateBuilderSaving || !estimateBuilderEstimate.can_edit}
+                  >
+                    {estimateBuilderSaving ? (
+                      <ActivityIndicator color="#ffffff" />
+                    ) : (
+                      <Text style={styles.primaryButtonText}>Save Builder</Text>
+                    )}
+                  </Pressable>
+                  <Pressable style={styles.smallButton} onPress={closeEstimateBuilder}>
+                    <Text style={styles.smallButtonText}>Close</Text>
+                  </Pressable>
+                </View>
+              </>
+            ) : (
+              <View style={styles.screenCenter}>
+                <Text style={styles.subtleText}>No estimate selected for builder.</Text>
+              </View>
+            )}
+          </KeyboardAvoidingView>
+        </SafeAreaView>
+      </Modal>
+    </>
+  );
+
   if (booting) {
     return (
       <SafeAreaView style={styles.screenCenter}>
@@ -3329,28 +5310,41 @@ export default function App() {
     );
   }
 
-  if (!selectedEstimate) {
+  if (!selectedEstimate || (mainTab !== 'expenses' && mainTab !== 'staff')) {
     return (
       <SafeAreaView style={styles.screen}>
         <View style={styles.headerRowTop}>
-          <Text style={styles.sectionTitle}>
-            {mainTab === 'jobs'
-              ? 'Select Job'
+          <View style={styles.inlineActions}>
+            {showBackChevron ? (
+              <Pressable style={styles.smallButton} onPress={handleBackChevron}>
+                <Text style={styles.smallButtonText}>‹ Back</Text>
+              </Pressable>
+            ) : (
+              <View style={styles.navSpacer} />
+            )}
+          </View>
+          <Text style={[styles.sectionTitle, styles.headerTitleCenter]}>
+            {mainTab === 'estimates'
+              ? 'Estimates'
               : mainTab === 'shopping'
                 ? selectedShoppingList
                   ? selectedShoppingList.title
-                  : 'Shopping Lists'
-                : selectedPlannerEstimate
-                  ? plannerSection
-                    ? activePlannerSectionConfig?.label || 'Planner'
-                    : `${selectedPlannerEstimate.job_name} Planner`
-                  : 'Planner Jobs'}
+                  : 'Shopping'
+                : mainTab === 'planner'
+                  ? selectedPlannerEstimate
+                    ? plannerSection
+                      ? activePlannerSectionConfig?.label || 'Planner'
+                      : `${selectedPlannerEstimate.job_name} Planner`
+                    : 'Planner'
+                  : mainTab === 'staff'
+                    ? 'Staff'
+                    : 'Expenses'}
           </Text>
           <View style={styles.inlineActions}>
             <Pressable
               style={styles.smallButton}
               onPress={() => {
-                if (mainTab === 'jobs') {
+                if (mainTab === 'estimates' || mainTab === 'expenses' || mainTab === 'staff') {
                   loadEstimates();
                   return;
                 }
@@ -3374,49 +5368,57 @@ export default function App() {
             >
               <Text style={styles.smallButtonText}>Refresh</Text>
             </Pressable>
-            <Pressable style={styles.smallButton} onPress={handleLogout}>
-              <Text style={styles.smallButtonText}>Log Out</Text>
+            <Pressable style={styles.smallButton} onPress={() => setMenuOpen(true)}>
+              <Text style={styles.smallButtonText}>☰</Text>
             </Pressable>
           </View>
         </View>
 
-        <View style={styles.topTabs}>
-          <Pressable
-            style={[styles.topTabButton, mainTab === 'jobs' && styles.topTabButtonActive]}
-            onPress={() => setMainTab('jobs')}
-          >
-            <Text style={[styles.topTabLabel, mainTab === 'jobs' && styles.topTabLabelActive]}>Jobs</Text>
-          </Pressable>
-          <Pressable
-            style={[styles.topTabButton, mainTab === 'shopping' && styles.topTabButtonActive]}
-            onPress={() => setMainTab('shopping')}
-          >
-            <Text style={[styles.topTabLabel, mainTab === 'shopping' && styles.topTabLabelActive]}>
-              Shopping
-            </Text>
-          </Pressable>
-          <Pressable
-            style={[styles.topTabButton, mainTab === 'planner' && styles.topTabButtonActive]}
-            onPress={() => setMainTab('planner')}
-          >
-            <Text style={[styles.topTabLabel, mainTab === 'planner' && styles.topTabLabelActive]}>
-              Planner
-            </Text>
-          </Pressable>
-        </View>
-
-        {mainTab === 'jobs' ? (
+        <View style={styles.flexOne}>
+          {mainTab === 'estimates' || mainTab === 'expenses' || mainTab === 'staff' ? (
           loadingJobs ? (
             <View style={styles.screenCenter}>
               <ActivityIndicator size="large" color="#0f766e" />
             </View>
           ) : (
             <ScrollView contentContainerStyle={styles.jobsListWrap}>
+              {mainTab === 'estimates' ? (
+                <View style={styles.sectionCard}>
+                  <Text style={styles.subtleText}>
+                    Create a new estimate from mobile, then manage expenses, staff, shopping, and planner.
+                  </Text>
+                  <Pressable
+                    style={styles.primaryButton}
+                    onPress={() => {
+                      if (!newEstimateCatererId && catererChoices.length) {
+                        setNewEstimateCatererId(catererChoices[0].id);
+                      }
+                      setEstimateComposerOpen(true);
+                    }}
+                  >
+                    <Text style={styles.primaryButtonText}>+ New Estimate</Text>
+                  </Pressable>
+                </View>
+              ) : (
+                <Text style={styles.subtleText}>
+                  Select an estimate to open the {mainTab === 'staff' ? 'staff' : 'expense'} workspace.
+                </Text>
+              )}
               {estimates.map((estimate) => (
                 <Pressable
                   key={estimate.id}
                   style={styles.jobCard}
-                  onPress={() => handleSelectEstimate(estimate)}
+                  onPress={() => {
+                    if (mainTab === 'estimates') {
+                      openEstimateBuilder(estimate);
+                      return;
+                    }
+                    handleSelectEstimate(
+                      estimate,
+                      mainTab === 'staff' ? 'staff' : 'expenses',
+                    );
+                  }}
+                  onLongPress={() => openEstimatePrintOptions(estimate)}
                 >
                   <Text style={styles.jobTitle}>{estimate.job_name}</Text>
                   <Text style={styles.subtleText}>
@@ -3427,6 +5429,28 @@ export default function App() {
                       ? `${estimate.currency} ${estimate.grand_total} • ${estimate.expense_count} saved entries`
                       : `${estimate.expense_count} saved entries`}
                   </Text>
+                  <View style={styles.inlineActions}>
+                    {mainTab === 'estimates' ? (
+                      <Pressable style={styles.smallButton} onPress={() => openEstimateBuilder(estimate)}>
+                        <Text style={styles.smallButtonText}>Builder</Text>
+                      </Pressable>
+                    ) : null}
+                    <Pressable style={styles.smallButton} onPress={() => openEstimatePrintOptions(estimate)}>
+                      <Text style={styles.smallButtonText}>Print</Text>
+                    </Pressable>
+                    <Pressable
+                      style={styles.smallButton}
+                      onPress={() => handleSelectEstimate(estimate, 'expenses')}
+                    >
+                      <Text style={styles.smallButtonText}>Expenses</Text>
+                    </Pressable>
+                    <Pressable
+                      style={styles.smallButton}
+                      onPress={() => handleSelectEstimate(estimate, 'staff')}
+                    >
+                      <Text style={styles.smallButtonText}>Staff</Text>
+                    </Pressable>
+                  </View>
                 </Pressable>
               ))}
               {!estimates.length && <Text style={styles.subtleText}>No estimates found for this account.</Text>}
@@ -3443,7 +5467,9 @@ export default function App() {
                 <View style={styles.contentTapDismissArea}>
               <View style={styles.sectionCard}>
                 <View style={styles.listHeaderTopRow}>
-                  <Text style={styles.sectionTitle}>{selectedShoppingList.title}</Text>
+                  <Text style={[styles.sectionTitle, styles.listHeaderTitle]} numberOfLines={2}>
+                    {selectedShoppingList.title}
+                  </Text>
                   <Pressable
                     style={styles.smallButton}
                     onPress={() => {
@@ -3811,7 +5837,9 @@ export default function App() {
             <ScrollView contentContainerStyle={styles.contentWrap}>
               <View style={styles.sectionCard}>
                 <View style={styles.listHeaderTopRow}>
-                  <Text style={styles.sectionTitle}>{selectedPlannerEstimate.job_name}</Text>
+                  <Text style={[styles.sectionTitle, styles.listHeaderTitle]} numberOfLines={2}>
+                    {selectedPlannerEstimate.job_name}
+                  </Text>
                   <Pressable
                     style={styles.smallButton}
                     onPress={() => {
@@ -4181,7 +6209,51 @@ export default function App() {
               </TouchableWithoutFeedback>
             </ScrollView>
           )
-        )}
+          )}
+        </View>
+
+        <View style={styles.bottomTabs}>
+          <Pressable
+            style={styles.bottomTabButton}
+            onPress={() => switchMainTab('estimates')}
+          >
+            <Text style={styles.bottomTabLabel}>
+              Estimates
+            </Text>
+          </Pressable>
+          <Pressable
+            style={styles.bottomTabButton}
+            onPress={() => switchMainTab('shopping')}
+          >
+            <Text style={styles.bottomTabLabel}>
+              Shopping
+            </Text>
+          </Pressable>
+          <Pressable
+            style={styles.bottomTabButton}
+            onPress={() => switchMainTab('planner')}
+          >
+            <Text style={styles.bottomTabLabel}>
+              Planner
+            </Text>
+          </Pressable>
+          <Pressable
+            style={[styles.bottomTabButton, mainTab === 'expenses' && styles.bottomTabButtonActive]}
+            onPress={() => switchMainTab('expenses')}
+          >
+            <Text style={[styles.bottomTabLabel, mainTab === 'expenses' && styles.bottomTabLabelActive]}>
+              Expenses
+            </Text>
+          </Pressable>
+          <Pressable
+            style={[styles.bottomTabButton, mainTab === 'staff' && styles.bottomTabButtonActive]}
+            onPress={() => switchMainTab('staff')}
+          >
+            <Text style={[styles.bottomTabLabel, mainTab === 'staff' && styles.bottomTabLabelActive]}>
+              Staff
+            </Text>
+          </Pressable>
+        </View>
 
         <Modal
           visible={showEstimatePicker}
@@ -4786,6 +6858,7 @@ export default function App() {
             </View>
           </InputAccessoryView>
         ) : null}
+        {shellModals}
         <StatusBar style="dark" />
       </SafeAreaView>
     );
@@ -4795,13 +6868,30 @@ export default function App() {
     <SafeAreaView style={styles.screen}>
       <View style={styles.flexOne}>
         <ScrollView contentContainerStyle={styles.contentWrap}>
-          <View style={styles.headerRow}>
+          <View style={styles.headerRowTop}>
             <View style={styles.inlineActions}>
-              <Pressable style={styles.smallButton} onPress={() => setSelectedEstimate(null)}>
-                <Text style={styles.smallButtonText}>Back</Text>
+              <Pressable style={styles.smallButton} onPress={handleBackChevron}>
+                <Text style={styles.smallButtonText}>‹ Back</Text>
               </Pressable>
-              <Pressable style={styles.smallButton} onPress={handleLogout}>
-                <Text style={styles.smallButtonText}>Log Out</Text>
+            </View>
+            <Text style={[styles.sectionTitle, styles.headerTitleCenter]}>
+              {mainTab === 'staff' ? 'Staff' : 'Expenses'}
+            </Text>
+            <View style={styles.inlineActions}>
+              <Pressable
+                style={styles.smallButton}
+                onPress={() => {
+                  if (mainTab === 'staff') {
+                    loadStaffSummary(selectedEstimate.id);
+                  } else {
+                    loadEntries(selectedEstimate.id);
+                  }
+                }}
+              >
+                <Text style={styles.smallButtonText}>Refresh</Text>
+              </Pressable>
+              <Pressable style={styles.smallButton} onPress={() => setMenuOpen(true)}>
+                <Text style={styles.smallButtonText}>☰</Text>
               </Pressable>
             </View>
           </View>
@@ -4817,7 +6907,7 @@ export default function App() {
             ) : null}
           </View>
 
-          {selectedJobTab === 'expenses' ? (
+          {mainTab === 'expenses' ? (
             <>
               <View style={styles.sectionCard}>
                 <Text style={styles.sectionTitle}>Add Expenses</Text>
@@ -5064,23 +7154,55 @@ export default function App() {
 
         <View style={styles.bottomTabs}>
           <Pressable
-            style={[styles.bottomTabButton, selectedJobTab === 'expenses' && styles.bottomTabButtonActive]}
-            onPress={() => setSelectedJobTab('expenses')}
+            style={styles.bottomTabButton}
+            onPress={() => switchMainTab('estimates')}
           >
-            <Text style={[styles.bottomTabLabel, selectedJobTab === 'expenses' && styles.bottomTabLabelActive]}>
+            <Text style={styles.bottomTabLabel}>
+              Estimates
+            </Text>
+          </Pressable>
+          <Pressable
+            style={styles.bottomTabButton}
+            onPress={() => switchMainTab('shopping')}
+          >
+            <Text style={styles.bottomTabLabel}>
+              Shopping
+            </Text>
+          </Pressable>
+          <Pressable
+            style={styles.bottomTabButton}
+            onPress={() => switchMainTab('planner')}
+          >
+            <Text style={styles.bottomTabLabel}>
+              Planner
+            </Text>
+          </Pressable>
+          <Pressable
+            style={[styles.bottomTabButton, mainTab === 'expenses' && styles.bottomTabButtonActive]}
+            onPress={() => switchMainTab('expenses')}
+          >
+            <Text style={[styles.bottomTabLabel, mainTab === 'expenses' && styles.bottomTabLabelActive]}>
               Expenses
             </Text>
           </Pressable>
-          {selectedEstimate.can_manage_staff ? (
-            <Pressable
-              style={[styles.bottomTabButton, selectedJobTab === 'staff' && styles.bottomTabButtonActive]}
-              onPress={() => setSelectedJobTab('staff')}
-            >
-              <Text style={[styles.bottomTabLabel, selectedJobTab === 'staff' && styles.bottomTabLabelActive]}>
-                Staff
-              </Text>
-            </Pressable>
-          ) : null}
+          <Pressable
+            style={[
+              styles.bottomTabButton,
+              mainTab === 'staff' && styles.bottomTabButtonActive,
+              !selectedEstimate.can_manage_staff && styles.buttonDisabled,
+            ]}
+            onPress={() => {
+              if (!selectedEstimate.can_manage_staff) {
+                Alert.alert('No access', 'Your account cannot manage staff on this estimate.');
+                return;
+              }
+              switchMainTab('staff');
+            }}
+          >
+            <Text style={[styles.bottomTabLabel, mainTab === 'staff' && styles.bottomTabLabelActive]}>
+              Staff
+            </Text>
+          </Pressable>
         </View>
       </View>
 
@@ -5117,6 +7239,7 @@ export default function App() {
           </View>
         </View>
       </Modal>
+      {shellModals}
       <StatusBar style="dark" />
     </SafeAreaView>
   );
@@ -5250,6 +7373,14 @@ const styles = StyleSheet.create({
     gap: 8,
     paddingHorizontal: 16,
     paddingTop: 6,
+    paddingBottom: 6,
+  },
+  navSpacer: {
+    width: 64,
+  },
+  headerTitleCenter: {
+    flex: 1,
+    textAlign: 'center',
   },
   inlineActions: {
     flexDirection: 'row',
@@ -5260,9 +7391,13 @@ const styles = StyleSheet.create({
   },
   listHeaderTopRow: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     justifyContent: 'space-between',
     gap: 8,
+  },
+  listHeaderTitle: {
+    flex: 1,
+    minWidth: 0,
   },
   listHeaderMetaRow: {
     flexDirection: 'row',
@@ -5273,34 +7408,6 @@ const styles = StyleSheet.create({
   listHeaderMetaText: {
     flex: 1,
     gap: 4,
-  },
-  topTabs: {
-    flexDirection: 'row',
-    gap: 8,
-    paddingHorizontal: 16,
-    paddingTop: 8,
-    paddingBottom: 4,
-  },
-  topTabButton: {
-    flex: 1,
-    borderRadius: 10,
-    paddingVertical: 10,
-    alignItems: 'center',
-    backgroundColor: '#f1f5f9',
-    borderWidth: 1,
-    borderColor: '#d1d5db',
-  },
-  topTabButtonActive: {
-    backgroundColor: '#0f766e',
-    borderColor: '#0f766e',
-  },
-  topTabLabel: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#0f172a',
-  },
-  topTabLabelActive: {
-    color: '#ffffff',
   },
   smallButton: {
     borderWidth: 1,
@@ -5341,6 +7448,7 @@ const styles = StyleSheet.create({
   jobsListWrap: {
     padding: 16,
     gap: 12,
+    paddingBottom: 140,
   },
   jobCard: {
     borderRadius: 14,
@@ -5676,6 +7784,20 @@ const styles = StyleSheet.create({
     padding: 10,
     gap: 6,
   },
+  builderOptionRow: {
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#d1d5db',
+    backgroundColor: '#ffffff',
+    padding: 10,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+  },
+  builderOptionBody: {
+    flex: 1,
+    gap: 6,
+  },
   listRowHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -5852,30 +7974,35 @@ const styles = StyleSheet.create({
   },
   bottomTabs: {
     borderTopWidth: 1,
-    borderTopColor: '#d1d5db',
+    borderTopColor: '#e2e8f0',
     backgroundColor: '#ffffff',
     flexDirection: 'row',
     paddingHorizontal: 10,
-    paddingVertical: 8,
+    paddingTop: 8,
+    paddingBottom: 10,
     gap: 8,
   },
   bottomTabButton: {
     flex: 1,
-    borderRadius: 10,
-    paddingVertical: 10,
+    borderRadius: 14,
+    paddingVertical: 8,
     alignItems: 'center',
+    justifyContent: 'center',
     backgroundColor: '#f1f5f9',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
   },
   bottomTabButtonActive: {
-    backgroundColor: '#0f766e',
+    backgroundColor: '#dcfce7',
+    borderColor: '#22c55e',
   },
   bottomTabLabel: {
-    fontSize: 13,
+    fontSize: 11,
     fontWeight: '700',
-    color: '#0f172a',
+    color: '#334155',
   },
   bottomTabLabelActive: {
-    color: '#ffffff',
+    color: '#166534',
   },
   modalBackdrop: {
     flex: 1,
