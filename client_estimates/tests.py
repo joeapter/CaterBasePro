@@ -146,6 +146,61 @@ class XpenzApiTests(TestCase):
         self.assertTrue(first["can_add_expenses"])
         self.assertTrue(first["can_manage_staff"])
 
+    def test_estimate_print_html_endpoint_returns_admin_render(self):
+        token = self._login_and_get_token()
+        response = self.client.get(
+            reverse("xpenz_estimate_print_html", args=[self.estimate.id]),
+            {"variant": "estimate"},
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("text/html", response["Content-Type"])
+        self.assertContains(response, self.estimate.customer_name)
+
+    def test_estimate_builder_saves_per_meal_overrides(self):
+        token = self._login_and_get_token()
+        self.estimate.meal_plan = ["Friday Night", "Shabbos Day"]
+        self.estimate.save(update_fields=["meal_plan"])
+
+        response = self.client.post(
+            reverse("xpenz_estimate_builder", args=[self.estimate.id]),
+            data=json.dumps(
+                {
+                    "estimate": {
+                        "manual_meal_totals": {
+                            "Friday Night": "145.5",
+                            "Shabbos Day": "155.25",
+                        },
+                        "meal_guest_overrides": {
+                            "Friday Night": {"adults": "100", "kids": "12"},
+                            "Shabbos Day": {"adults": "96"},
+                        },
+                    }
+                }
+            ),
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.estimate.refresh_from_db()
+        self.assertEqual(
+            self.estimate.manual_meal_totals,
+            {
+                "Friday Night": "145.50",
+                "Shabbos Day": "155.25",
+            },
+        )
+        self.assertEqual(
+            self.estimate.meal_guest_overrides,
+            {
+                "Friday Night": {"adults": 100, "kids": 12},
+                "Shabbos Day": {"adults": 96},
+            },
+        )
+        payload = response.json()
+        self.assertEqual(payload["estimate"]["manual_meal_totals"]["Friday Night"], "145.50")
+        self.assertEqual(payload["estimate"]["meal_guest_overrides"]["Friday Night"]["adults"], 100)
+
     def test_expense_upload_requires_receipt_file(self):
         token = self._login_and_get_token()
         response = self.client.post(

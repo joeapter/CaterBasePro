@@ -1,6 +1,8 @@
 import { StatusBar } from 'expo-status-bar';
 import * as ImagePicker from 'expo-image-picker';
+import * as Print from 'expo-print';
 import * as SecureStore from 'expo-secure-store';
+import * as Sharing from 'expo-sharing';
 import {
   RecordingPresets,
   requestRecordingPermissionsAsync,
@@ -43,7 +45,6 @@ import {
   Modal,
   Platform,
   Pressable,
-  Share,
   ScrollView,
   StyleSheet,
   Text,
@@ -91,6 +92,8 @@ type RootTabParamList = {
   Expenses: undefined;
   Staff: undefined;
 };
+
+type EstimatePrintVariant = 'estimate' | 'flat' | 'planner';
 
 type EstimateBuilderStep =
   | 'customer'
@@ -162,6 +165,27 @@ type EstimateBuilderSummary = {
   balance_due: string;
 };
 
+type EstimateBuilderMealSection = {
+  name: string;
+  price_per_guest: string;
+  price_per_child: string;
+  total: string;
+  kids_total: string;
+  guest_count: string;
+  guest_count_kids: string;
+};
+
+type EstimateBuilderMealGuestOverride = {
+  adults?: number;
+  kids?: number;
+};
+
+type EstimateBuilderMealOverrideDraft = {
+  override_price: string;
+  adults: string;
+  kids: string;
+};
+
 type EstimateBuilderEstimate = EstimateRow & {
   can_edit: boolean;
   customer_phone: string;
@@ -194,6 +218,9 @@ type EstimateBuilderEstimate = EstimateRow & {
   kids_discount_percentage: string;
   exchange_rate: string;
   meal_plan: string[];
+  manual_meal_totals: Record<string, string>;
+  meal_guest_overrides: Record<string, EstimateBuilderMealGuestOverride>;
+  meal_sections: EstimateBuilderMealSection[];
   tablecloth_details: Record<string, unknown>;
   summary: EstimateBuilderSummary;
 };
@@ -895,6 +922,33 @@ function parseMealPlanInput(rawValue: string) {
   return mergeOptionValues(names.length ? names : ['Signature Menu']);
 }
 
+function normalizeEstimateMealKey(value: string) {
+  return (value || '').trim().toLowerCase();
+}
+
+function parseNonNegativeDecimalInput(rawValue: string) {
+  const value = (rawValue || '').trim();
+  if (!value) return null;
+  const parsed = Number.parseFloat(value);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return Number.NaN;
+  }
+  return Number(parsed.toFixed(2));
+}
+
+function parseNonNegativeIntegerInput(rawValue: string) {
+  const value = (rawValue || '').trim();
+  if (!value) return null;
+  if (!/^\d+$/.test(value)) {
+    return Number.NaN;
+  }
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return Number.NaN;
+  }
+  return parsed;
+}
+
 function buildPlannerFieldCardsPayload(
   rows: PlannerEditorFieldCard[],
 ): { cards: PlannerFieldCardPayloadRow[]; validationError: string | null } {
@@ -1096,8 +1150,12 @@ function AppShell() {
   const [estimateBuilderExtraLines, setEstimateBuilderExtraLines] = useState<EstimateBuilderExtraLine[]>([]);
   const [estimateBuilderMealPlanInput, setEstimateBuilderMealPlanInput] = useState('');
   const [estimateBuilderActiveMeal, setEstimateBuilderActiveMeal] = useState('');
+  const [estimateBuilderMealOverrideDrafts, setEstimateBuilderMealOverrideDrafts] = useState<
+    Record<string, EstimateBuilderMealOverrideDraft>
+  >({});
   const [estimateBuilderMenuSearch, setEstimateBuilderMenuSearch] = useState('');
   const [estimateBuilderExtrasSearch, setEstimateBuilderExtrasSearch] = useState('');
+  const [generatingPrintPdf, setGeneratingPrintPdf] = useState(false);
   const [savedEntries, setSavedEntries] = useState<SavedEntry[]>([]);
   const [staffRoleOptions, setStaffRoleOptions] = useState<StaffRoleOption[]>([]);
   const [staffEntries, setStaffEntries] = useState<StaffEntry[]>([]);
@@ -2282,6 +2340,7 @@ function AppShell() {
       setEstimateBuilderActiveMeal('');
       setEstimateBuilderMenuSearch('');
       setEstimateBuilderExtrasSearch('');
+      setGeneratingPrintPdf(false);
       setEstimates([]);
       setSavedEntries([]);
       setStaffRoleOptions([]);
@@ -2567,54 +2626,127 @@ function AppShell() {
     [apiBaseUrl],
   );
 
+  const buildEstimatePrintPdf = useCallback(
+    async (estimate: EstimateRow, variant: EstimatePrintVariant) => {
+      if (!token) {
+        throw new Error('Authentication required.');
+      }
+      const response = await fetch(
+        apiUrl(apiBaseUrl, `/api/xpenz/estimates/${estimate.id}/print-html/?variant=${variant}`),
+        {
+          method: 'GET',
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        },
+      );
+      if (!response.ok) {
+        let errorMessage = 'Unable to load print preview.';
+        const contentType = response.headers.get('content-type') || '';
+        if (contentType.includes('application/json')) {
+          const payload = await response.json().catch(() => ({}));
+          errorMessage = payload?.error || errorMessage;
+        }
+        throw new Error(errorMessage);
+      }
+
+      const html = await response.text();
+      const baseHref = `${normalizeBaseUrl(apiBaseUrl)}/`;
+      const htmlWithBase = /<base\s/i.test(html)
+        ? html
+        : html.replace(/<head(\s[^>]*)?>/i, (match) => `${match}<base href="${baseHref}">`);
+      const file = await Print.printToFileAsync({
+        html: htmlWithBase,
+      });
+      return { uri: file.uri, html: htmlWithBase };
+    },
+    [apiBaseUrl, token],
+  );
+
   const openEstimatePrintOptions = useCallback(
     (estimate: EstimateRow) => {
-      const estimateUrl =
-        estimate.print_urls?.estimate_print ||
-        apiUrl(apiBaseUrl, `/admin/client_estimates/estimate/${estimate.id}/print/?print=1`);
-      const flatUrl =
-        estimate.print_urls?.estimate_flat_print ||
-        apiUrl(apiBaseUrl, `/admin/client_estimates/estimate/${estimate.id}/print-flat/?print=1`);
-      const plannerUrl =
-        estimate.print_urls?.planner_print ||
-        apiUrl(apiBaseUrl, `/admin/client_estimates/estimate/${estimate.id}/planner-print/?print=1`);
+      if (generatingPrintPdf) {
+        Alert.alert('Please wait', 'A PDF is currently being prepared.');
+        return;
+      }
+      const runPrintFlow = async (variant: EstimatePrintVariant, title: string) => {
+        try {
+          setGeneratingPrintPdf(true);
+          const pdf = await buildEstimatePrintPdf(estimate, variant);
+          setGeneratingPrintPdf(false);
+          Alert.alert(`${title} ready`, 'Preview, share, or print this PDF.', [
+            { text: 'Close', style: 'cancel' },
+            {
+              text: 'Preview',
+              onPress: () => {
+                Linking.openURL(pdf.uri).catch(() => {
+                  Alert.alert('Open failed', 'Unable to open the PDF preview.');
+                });
+              },
+            },
+            {
+              text: 'Share',
+              onPress: async () => {
+                try {
+                  const isSharingAvailable = await Sharing.isAvailableAsync();
+                  if (!isSharingAvailable) {
+                    throw new Error('Sharing is not available on this device.');
+                  }
+                  await Sharing.shareAsync(pdf.uri, {
+                    dialogTitle: title,
+                  });
+                } catch (error) {
+                  Alert.alert(
+                    'Share failed',
+                    error instanceof Error ? error.message : 'Unable to share this PDF.',
+                  );
+                }
+              },
+            },
+            {
+              text: 'Print',
+              onPress: async () => {
+                try {
+                  await Print.printAsync({ html: pdf.html });
+                } catch {
+                  Alert.alert('Print failed', 'Unable to open the print dialog.');
+                }
+              },
+            },
+          ]);
+        } catch (error) {
+          Alert.alert(
+            'Print failed',
+            error instanceof Error ? error.message : 'Unable to prepare this print view.',
+          );
+        } finally {
+          setGeneratingPrintPdf(false);
+        }
+      };
 
       Alert.alert('Print & Share', estimate.job_name, [
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'Estimate PDF',
           onPress: () => {
-            Linking.openURL(estimateUrl).catch(() => Alert.alert('Open failed', 'Unable to open estimate print view.'));
+            runPrintFlow('estimate', 'Estimate PDF');
           },
         },
         {
           text: 'Flat PDF',
           onPress: () => {
-            Linking.openURL(flatUrl).catch(() => Alert.alert('Open failed', 'Unable to open flat print view.'));
+            runPrintFlow('flat', 'Flat PDF');
           },
         },
         {
           text: 'Planner Print',
           onPress: () => {
-            Linking.openURL(plannerUrl).catch(() => Alert.alert('Open failed', 'Unable to open planner print view.'));
-          },
-        },
-        {
-          text: 'Share Estimate Link',
-          onPress: async () => {
-            try {
-              await Share.share({
-                message: estimateUrl,
-                url: estimateUrl,
-              });
-            } catch {
-              Alert.alert('Share failed', 'Unable to share this link.');
-            }
+            runPrintFlow('planner', 'Planner Print');
           },
         },
       ]);
     },
-    [apiBaseUrl],
+    [buildEstimatePrintPdf, generatingPrintPdf],
   );
 
   const submitEstimateFromMobile = useCallback(async () => {
@@ -2702,10 +2834,100 @@ function AppShell() {
     if (!mealPlanValues.length) {
       mealPlanValues = ['Signature Menu'];
     }
-    setEstimateBuilderEstimate(estimate);
+    const rawManualMealTotals =
+      estimate.manual_meal_totals && typeof estimate.manual_meal_totals === 'object'
+        ? (estimate.manual_meal_totals as Record<string, unknown>)
+        : {};
+    const normalizedManualMealTotals: Record<string, string> = {};
+    const manualMealTotalsByKey = new Map<string, string>();
+    for (const [rawMealName, rawValue] of Object.entries(rawManualMealTotals)) {
+      const mealName = (rawMealName || '').trim();
+      const mealKey = normalizeEstimateMealKey(mealName);
+      if (!mealName || !mealKey) {
+        continue;
+      }
+      const value = String(rawValue ?? '').trim();
+      if (!value) {
+        continue;
+      }
+      normalizedManualMealTotals[mealName] = value;
+      manualMealTotalsByKey.set(mealKey, value);
+    }
+
+    const rawMealGuestOverrides =
+      estimate.meal_guest_overrides && typeof estimate.meal_guest_overrides === 'object'
+        ? (estimate.meal_guest_overrides as Record<string, unknown>)
+        : {};
+    const normalizedMealGuestOverrides: Record<string, EstimateBuilderMealGuestOverride> = {};
+    const mealGuestOverridesByKey = new Map<string, EstimateBuilderMealGuestOverride>();
+    for (const [rawMealName, rawValue] of Object.entries(rawMealGuestOverrides)) {
+      const mealName = (rawMealName || '').trim();
+      if (!mealName || !rawValue || typeof rawValue !== 'object') {
+        continue;
+      }
+      const row = rawValue as Record<string, unknown>;
+      const adults = Number.parseInt(String(row.adults ?? '').trim(), 10);
+      const kids = Number.parseInt(String(row.kids ?? '').trim(), 10);
+      const normalizedRow: EstimateBuilderMealGuestOverride = {};
+      if (Number.isFinite(adults) && adults >= 0) {
+        normalizedRow.adults = adults;
+      }
+      if (Number.isFinite(kids) && kids >= 0) {
+        normalizedRow.kids = kids;
+      }
+      if (normalizedRow.adults != null || normalizedRow.kids != null) {
+        normalizedMealGuestOverrides[mealName] = normalizedRow;
+        mealGuestOverridesByKey.set(normalizeEstimateMealKey(mealName), normalizedRow);
+      }
+    }
+
+    const mealSections = Array.isArray(estimate.meal_sections)
+      ? estimate.meal_sections.filter(
+          (row) =>
+            !!row &&
+            typeof row === 'object' &&
+            typeof (row as EstimateBuilderMealSection).name === 'string',
+        )
+      : [];
+
+    const normalizedEstimate: EstimateBuilderEstimate = {
+      ...estimate,
+      manual_meal_totals: normalizedManualMealTotals,
+      meal_guest_overrides: normalizedMealGuestOverrides,
+      meal_sections: mealSections,
+    };
+
+    const mealOverrideDrafts: Record<string, EstimateBuilderMealOverrideDraft> = {};
+    const draftMealNames = mergeOptionValues(
+      mealPlanValues,
+      Object.keys(normalizedManualMealTotals),
+      Object.keys(normalizedMealGuestOverrides),
+    );
+    for (const mealName of draftMealNames) {
+      const mealKey = normalizeEstimateMealKey(mealName);
+      if (!mealKey) {
+        continue;
+      }
+      const overridePrice = String(manualMealTotalsByKey.get(mealKey) ?? '').trim();
+      const guestOverride = mealGuestOverridesByKey.get(mealKey) || {};
+      mealOverrideDrafts[mealKey] = {
+        override_price: overridePrice,
+        adults:
+          guestOverride.adults == null || Number.isNaN(guestOverride.adults)
+            ? ''
+            : String(guestOverride.adults),
+        kids:
+          guestOverride.kids == null || Number.isNaN(guestOverride.kids)
+            ? ''
+            : String(guestOverride.kids),
+      };
+    }
+
+    setEstimateBuilderEstimate(normalizedEstimate);
     setEstimateBuilderCatalog(catalog);
     setEstimateBuilderMenuChoices(menuChoices);
     setEstimateBuilderExtraLines(extraLines);
+    setEstimateBuilderMealOverrideDrafts(mealOverrideDrafts);
     setEstimateBuilderMealPlanInput(mealPlanValues.join('\n'));
     setEstimateBuilderActiveMeal((previous) =>
       previous && mealPlanValues.some((name) => name.toLowerCase() === previous.toLowerCase())
@@ -2725,6 +2947,7 @@ function AppShell() {
       setEstimateBuilderStep('customer');
       setEstimateBuilderMenuSearch('');
       setEstimateBuilderExtrasSearch('');
+      setEstimateBuilderMealOverrideDrafts({});
       try {
         const payload = await authFetchJson(
           `/api/xpenz/estimates/${estimate.id}/builder/`,
@@ -2755,9 +2978,69 @@ function AppShell() {
     setEstimateBuilderExtraLines([]);
     setEstimateBuilderMealPlanInput('');
     setEstimateBuilderActiveMeal('');
+    setEstimateBuilderMealOverrideDrafts({});
     setEstimateBuilderMenuSearch('');
     setEstimateBuilderExtrasSearch('');
   }, []);
+
+  const buildEstimateBuilderMealOverridesPayload = useCallback(() => {
+    const manualMealTotals: Record<string, string> = {};
+    const mealGuestOverrides: Record<string, EstimateBuilderMealGuestOverride> = {};
+    const consumedKeys = new Set<string>();
+
+    for (const mealName of estimateBuilderMealPlan) {
+      const mealKey = normalizeEstimateMealKey(mealName);
+      if (!mealKey || consumedKeys.has(mealKey)) {
+        continue;
+      }
+      consumedKeys.add(mealKey);
+      const draft = estimateBuilderMealOverrideDrafts[mealKey];
+      if (!draft) {
+        continue;
+      }
+
+      const priceOverride = parseNonNegativeDecimalInput(draft.override_price);
+      if (Number.isNaN(priceOverride)) {
+        return {
+          ok: false as const,
+          error: `Price override for "${mealName}" must be a non-negative number.`,
+        };
+      }
+      if (priceOverride != null) {
+        manualMealTotals[mealName] = priceOverride.toFixed(2);
+      }
+
+      const adultsOverride = parseNonNegativeIntegerInput(draft.adults);
+      if (Number.isNaN(adultsOverride)) {
+        return {
+          ok: false as const,
+          error: `Adults override for "${mealName}" must be a non-negative whole number.`,
+        };
+      }
+      const kidsOverride = parseNonNegativeIntegerInput(draft.kids);
+      if (Number.isNaN(kidsOverride)) {
+        return {
+          ok: false as const,
+          error: `Kids override for "${mealName}" must be a non-negative whole number.`,
+        };
+      }
+      if (adultsOverride != null || kidsOverride != null) {
+        mealGuestOverrides[mealName] = {};
+        if (adultsOverride != null) {
+          mealGuestOverrides[mealName].adults = adultsOverride;
+        }
+        if (kidsOverride != null) {
+          mealGuestOverrides[mealName].kids = kidsOverride;
+        }
+      }
+    }
+
+    return {
+      ok: true as const,
+      manualMealTotals,
+      mealGuestOverrides,
+    };
+  }, [estimateBuilderMealOverrideDrafts, estimateBuilderMealPlan]);
 
   const saveEstimateBuilder = useCallback(async () => {
     if (!estimateBuilderEstimate || !token) {
@@ -2769,6 +3052,11 @@ function AppShell() {
     }
     if (!estimateBuilderEstimate.customer_name.trim()) {
       Alert.alert('Missing customer', 'Enter a customer name before saving.');
+      return;
+    }
+    const mealOverridePayload = buildEstimateBuilderMealOverridesPayload();
+    if (!mealOverridePayload.ok) {
+      Alert.alert('Invalid meal override', mealOverridePayload.error);
       return;
     }
     setEstimateBuilderSaving(true);
@@ -2818,6 +3106,8 @@ function AppShell() {
               signature_name: estimateBuilderEstimate.signature_name,
               signature_title: estimateBuilderEstimate.signature_title,
               signature_date: estimateBuilderEstimate.signature_date,
+              manual_meal_totals: mealOverridePayload.manualMealTotals,
+              meal_guest_overrides: mealOverridePayload.mealGuestOverrides,
               tablecloth_details: estimateBuilderEstimate.tablecloth_details,
             },
             meal_plan: estimateBuilderMealPlan,
@@ -2840,6 +3130,7 @@ function AppShell() {
   }, [
     applyEstimateBuilderPayload,
     authFetchJson,
+    buildEstimateBuilderMealOverridesPayload,
     estimateBuilderEstimate,
     estimateBuilderExtraLines,
     estimateBuilderMealPlan,
@@ -2852,6 +3143,158 @@ function AppShell() {
     () => estimateBuilderActiveMeal || estimateBuilderMealPlan[0] || 'Signature Menu',
     [estimateBuilderActiveMeal, estimateBuilderMealPlan],
   );
+
+  const estimateBuilderMealSectionMap = useMemo(() => {
+    const map = new Map<string, EstimateBuilderMealSection>();
+    const sections = estimateBuilderEstimate?.meal_sections || [];
+    for (const section of sections) {
+      const mealName = (section?.name || '').trim();
+      const mealKey = normalizeEstimateMealKey(mealName);
+      if (!mealName || !mealKey || map.has(mealKey)) {
+        continue;
+      }
+      map.set(mealKey, section);
+    }
+    return map;
+  }, [estimateBuilderEstimate?.meal_sections]);
+
+  const activeEstimateBuilderMealKey = useMemo(
+    () => normalizeEstimateMealKey(activeEstimateBuilderMeal),
+    [activeEstimateBuilderMeal],
+  );
+
+  const activeEstimateBuilderMealSection = useMemo(
+    () => estimateBuilderMealSectionMap.get(activeEstimateBuilderMealKey) || null,
+    [activeEstimateBuilderMealKey, estimateBuilderMealSectionMap],
+  );
+
+  const activeEstimateBuilderMealDraft = useMemo(
+    () =>
+      estimateBuilderMealOverrideDrafts[activeEstimateBuilderMealKey] || {
+        override_price: '',
+        adults: '',
+        kids: '',
+      },
+    [activeEstimateBuilderMealKey, estimateBuilderMealOverrideDrafts],
+  );
+
+  const activeEstimateBuilderMealDefaultAdults = useMemo(() => {
+    const sectionValue = Number.parseInt(
+      String(activeEstimateBuilderMealSection?.guest_count ?? '').trim(),
+      10,
+    );
+    if (Number.isFinite(sectionValue) && sectionValue >= 0) {
+      return sectionValue;
+    }
+    return estimateBuilderEstimate?.guest_count || 0;
+  }, [activeEstimateBuilderMealSection?.guest_count, estimateBuilderEstimate?.guest_count]);
+
+  const activeEstimateBuilderMealDefaultKids = useMemo(() => {
+    const sectionValue = Number.parseInt(
+      String(activeEstimateBuilderMealSection?.guest_count_kids ?? '').trim(),
+      10,
+    );
+    if (Number.isFinite(sectionValue) && sectionValue >= 0) {
+      return sectionValue;
+    }
+    return estimateBuilderEstimate?.guest_count_kids || 0;
+  }, [activeEstimateBuilderMealSection?.guest_count_kids, estimateBuilderEstimate?.guest_count_kids]);
+
+  const activeEstimateBuilderMealEffectiveAdults = useMemo(() => {
+    const parsed = parseNonNegativeIntegerInput(activeEstimateBuilderMealDraft.adults);
+    if (Number.isNaN(parsed)) {
+      return activeEstimateBuilderMealDefaultAdults;
+    }
+    return parsed == null ? activeEstimateBuilderMealDefaultAdults : parsed;
+  }, [activeEstimateBuilderMealDefaultAdults, activeEstimateBuilderMealDraft.adults]);
+
+  const activeEstimateBuilderMealEffectiveKids = useMemo(() => {
+    const parsed = parseNonNegativeIntegerInput(activeEstimateBuilderMealDraft.kids);
+    if (Number.isNaN(parsed)) {
+      return activeEstimateBuilderMealDefaultKids;
+    }
+    return parsed == null ? activeEstimateBuilderMealDefaultKids : parsed;
+  }, [activeEstimateBuilderMealDefaultKids, activeEstimateBuilderMealDraft.kids]);
+
+  const activeEstimateBuilderMealEffectivePricePerGuest = useMemo(() => {
+    const overrideValue = parseNonNegativeDecimalInput(activeEstimateBuilderMealDraft.override_price);
+    if (Number.isFinite(overrideValue as number)) {
+      return (overrideValue as number).toFixed(2);
+    }
+    return (activeEstimateBuilderMealSection?.price_per_guest || '').trim();
+  }, [activeEstimateBuilderMealDraft.override_price, activeEstimateBuilderMealSection?.price_per_guest]);
+
+  const estimateBuilderHeaderPricePerGuest = useMemo(() => {
+    if (activeEstimateBuilderMealEffectivePricePerGuest) {
+      return activeEstimateBuilderMealEffectivePricePerGuest;
+    }
+    return (estimateBuilderEstimate?.summary.food_price_per_person || '').trim();
+  }, [
+    activeEstimateBuilderMealEffectivePricePerGuest,
+    estimateBuilderEstimate?.summary.food_price_per_person,
+  ]);
+
+  const updateEstimateBuilderMealOverrideDraft = useCallback(
+    (
+      mealName: string,
+      field: keyof EstimateBuilderMealOverrideDraft,
+      value: string,
+    ) => {
+      const mealKey = normalizeEstimateMealKey(mealName);
+      if (!mealKey) {
+        return;
+      }
+      setEstimateBuilderMealOverrideDrafts((previous) => ({
+        ...previous,
+        [mealKey]: {
+          ...(previous[mealKey] || {
+            override_price: '',
+            adults: '',
+            kids: '',
+          }),
+          [field]: value,
+        },
+      }));
+    },
+    [],
+  );
+
+  const applyEstimateBuilderMealPriceOverride = useCallback(() => {
+    const draft =
+      estimateBuilderMealOverrideDrafts[activeEstimateBuilderMealKey] ||
+      activeEstimateBuilderMealDraft;
+    const parsedValue = parseNonNegativeDecimalInput(draft.override_price);
+    if (Number.isNaN(parsedValue)) {
+      Alert.alert('Invalid override', 'Override per guest must be a non-negative number.');
+      return false;
+    }
+    return true;
+  }, [
+    activeEstimateBuilderMealDraft,
+    activeEstimateBuilderMealKey,
+    estimateBuilderMealOverrideDrafts,
+  ]);
+
+  const applyEstimateBuilderMealGuestOverride = useCallback(() => {
+    const draft =
+      estimateBuilderMealOverrideDrafts[activeEstimateBuilderMealKey] ||
+      activeEstimateBuilderMealDraft;
+    const parsedAdults = parseNonNegativeIntegerInput(draft.adults);
+    if (Number.isNaN(parsedAdults)) {
+      Alert.alert('Invalid guest count', 'Adults override must be a non-negative whole number.');
+      return false;
+    }
+    const parsedKids = parseNonNegativeIntegerInput(draft.kids);
+    if (Number.isNaN(parsedKids)) {
+      Alert.alert('Invalid guest count', 'Kids override must be a non-negative whole number.');
+      return false;
+    }
+    return true;
+  }, [
+    activeEstimateBuilderMealDraft,
+    activeEstimateBuilderMealKey,
+    estimateBuilderMealOverrideDrafts,
+  ]);
 
   const toggleEstimateBuilderMenuItem = useCallback(
     (item: EstimateBuilderMenuItem) => {
@@ -4775,11 +5218,23 @@ function AppShell() {
                   keyboardDismissMode="on-drag"
                 >
                   <View style={styles.sectionCard}>
-                    <Text style={styles.savedTitle}>{estimateBuilderEstimate.job_name}</Text>
-                    <Text style={styles.subtleText}>
-                      #{estimateBuilderEstimate.estimate_number ?? estimateBuilderEstimate.id} •{' '}
-                      {estimateBuilderEstimate.caterer_name}
-                    </Text>
+                    <View style={styles.builderEstimateHeaderRow}>
+                      <View style={styles.builderEstimateHeaderMain}>
+                        <Text style={styles.savedTitle}>{estimateBuilderEstimate.job_name}</Text>
+                        <Text style={styles.subtleText}>
+                          #{estimateBuilderEstimate.estimate_number ?? estimateBuilderEstimate.id} •{' '}
+                          {estimateBuilderEstimate.caterer_name}
+                        </Text>
+                      </View>
+                      <View style={styles.builderEstimatePriceCard}>
+                        <Text style={styles.builderEstimatePriceLabel}>Price / guest</Text>
+                        <Text style={styles.builderEstimatePriceValue}>
+                          {estimateBuilderHeaderPricePerGuest
+                            ? `${SHEKEL_SYMBOL}${estimateBuilderHeaderPricePerGuest}`
+                            : '--'}
+                        </Text>
+                      </View>
+                    </View>
                     {!estimateBuilderEstimate.can_edit ? (
                       <Text style={styles.subtleText}>
                         View-only access. You can print but cannot edit.
@@ -5050,6 +5505,78 @@ function AppShell() {
                             </Text>
                           </Pressable>
                         ))}
+                      </View>
+                      <View style={styles.builderMealOverrideCard}>
+                        <Text style={styles.savedTitle}>{activeEstimateBuilderMeal} Overrides</Text>
+                        <Text style={styles.subtleText}>
+                          {activeEstimateBuilderMealEffectivePricePerGuest
+                            ? `${SHEKEL_SYMBOL}${activeEstimateBuilderMealEffectivePricePerGuest} / guest • ${activeEstimateBuilderMealEffectiveAdults} adults${activeEstimateBuilderMealEffectiveKids ? ` / ${activeEstimateBuilderMealEffectiveKids} kids` : ''}`
+                            : `${activeEstimateBuilderMealEffectiveAdults} adults${activeEstimateBuilderMealEffectiveKids ? ` / ${activeEstimateBuilderMealEffectiveKids} kids` : ''}`}
+                        </Text>
+                        <View style={styles.builderMealOverrideRow}>
+                          <TextInput
+                            style={[styles.input, styles.builderMealOverrideInput]}
+                            value={activeEstimateBuilderMealDraft.override_price}
+                            onChangeText={(value) =>
+                              updateEstimateBuilderMealOverrideDraft(
+                                activeEstimateBuilderMeal,
+                                'override_price',
+                                value,
+                              )
+                            }
+                            keyboardType="decimal-pad"
+                            inputAccessoryViewID={
+                              Platform.OS === 'ios' ? NUMERIC_INPUT_ACCESSORY_ID : undefined
+                            }
+                            placeholder="Override per guest"
+                          />
+                          <Pressable
+                            style={styles.smallButton}
+                            onPress={applyEstimateBuilderMealPriceOverride}
+                          >
+                            <Text style={styles.smallButtonText}>Apply</Text>
+                          </Pressable>
+                        </View>
+                        <View style={styles.builderMealOverrideRow}>
+                          <TextInput
+                            style={[styles.input, styles.builderMealGuestInput]}
+                            value={activeEstimateBuilderMealDraft.adults}
+                            onChangeText={(value) =>
+                              updateEstimateBuilderMealOverrideDraft(
+                                activeEstimateBuilderMeal,
+                                'adults',
+                                value,
+                              )
+                            }
+                            keyboardType="number-pad"
+                            inputAccessoryViewID={
+                              Platform.OS === 'ios' ? NUMERIC_INPUT_ACCESSORY_ID : undefined
+                            }
+                            placeholder={`Adults (${activeEstimateBuilderMealDefaultAdults})`}
+                          />
+                          <TextInput
+                            style={[styles.input, styles.builderMealGuestInput]}
+                            value={activeEstimateBuilderMealDraft.kids}
+                            onChangeText={(value) =>
+                              updateEstimateBuilderMealOverrideDraft(
+                                activeEstimateBuilderMeal,
+                                'kids',
+                                value,
+                              )
+                            }
+                            keyboardType="number-pad"
+                            inputAccessoryViewID={
+                              Platform.OS === 'ios' ? NUMERIC_INPUT_ACCESSORY_ID : undefined
+                            }
+                            placeholder={`Kids (${activeEstimateBuilderMealDefaultKids})`}
+                          />
+                          <Pressable
+                            style={styles.smallButton}
+                            onPress={applyEstimateBuilderMealGuestOverride}
+                          >
+                            <Text style={styles.smallButtonText}>Set guests</Text>
+                          </Pressable>
+                        </View>
                       </View>
                       <TextInput
                         style={styles.input}
@@ -5741,10 +6268,11 @@ function AppShell() {
                     </View>
                   ) : null}
                 </ScrollView>
-                <View style={styles.plannerEditorFooter}>
+                <View style={[styles.plannerEditorFooter, styles.estimateBuilderFooter]}>
                   <Pressable
                     style={[
                       styles.primaryButton,
+                      styles.estimateBuilderSaveButton,
                       (estimateBuilderSaving || !estimateBuilderEstimate.can_edit) && styles.buttonDisabled,
                     ]}
                     onPress={saveEstimateBuilder}
@@ -5753,11 +6281,8 @@ function AppShell() {
                     {estimateBuilderSaving ? (
                       <ActivityIndicator color="#ffffff" />
                     ) : (
-                      <Text style={styles.primaryButtonText}>Save Builder</Text>
+                      <Text style={styles.primaryButtonText}>Save Estimate</Text>
                     )}
-                  </Pressable>
-                  <Pressable style={styles.smallButton} onPress={closeEstimateBuilder}>
-                    <Text style={styles.smallButtonText}>Close</Text>
                   </Pressable>
                 </View>
               </>
@@ -7861,6 +8386,60 @@ const styles = StyleSheet.create({
     padding: 12,
     gap: 8,
   },
+  builderEstimateHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  builderEstimateHeaderMain: {
+    flex: 1,
+    gap: 2,
+  },
+  builderEstimatePriceCard: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#cbd5e1',
+    borderRadius: 10,
+    backgroundColor: '#f8fafc',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    minWidth: 110,
+  },
+  builderEstimatePriceLabel: {
+    color: '#64748b',
+    fontSize: 11,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  builderEstimatePriceValue: {
+    color: '#0f172a',
+    fontSize: 14,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  builderMealOverrideCard: {
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#d1d5db',
+    backgroundColor: '#f8fafc',
+    padding: 10,
+    gap: 8,
+  },
+  builderMealOverrideRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  builderMealOverrideInput: {
+    flex: 1,
+    marginBottom: 0,
+  },
+  builderMealGuestInput: {
+    flex: 1,
+    marginBottom: 0,
+  },
   sectionTitle: {
     fontSize: 20,
     fontWeight: '600',
@@ -7955,6 +8534,12 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontSize: 12,
     fontWeight: '700',
+  },
+  estimateBuilderSaveButton: {
+    minWidth: 210,
+  },
+  estimateBuilderFooter: {
+    justifyContent: 'center',
   },
   jobsListWrap: {
     padding: 16,

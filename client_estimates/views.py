@@ -7,6 +7,7 @@ from urllib.parse import quote_plus
 
 from django import forms
 from django.conf import settings
+from django.contrib import admin as django_admin
 from django.contrib import messages
 from django.contrib.auth import authenticate, get_user_model, login
 from django.core import signing
@@ -1713,6 +1714,66 @@ def _serialize_estimate_builder_payload(request, user, estimate, access_map=None
         "balance_due": _to_decimal_string(estimate.balance_due, "0.00") if can_view_billing else "",
     }
 
+    meal_sections = []
+    for section in estimate.meal_sections():
+        meal_sections.append(
+            {
+                "name": section.get("name", ""),
+                "price_per_guest": (
+                    _to_decimal_string(section.get("price_per_guest"), "0.00")
+                    if can_view_billing
+                    else ""
+                ),
+                "price_per_child": (
+                    _to_decimal_string(section.get("price_per_child"), "0.00")
+                    if can_view_billing
+                    else ""
+                ),
+                "total": (
+                    _to_decimal_string(section.get("total"), "0.00")
+                    if can_view_billing
+                    else ""
+                ),
+                "kids_total": (
+                    _to_decimal_string(section.get("kids_total"), "0.00")
+                    if can_view_billing
+                    else ""
+                ),
+                "guest_count": _to_decimal_string(section.get("guest_count"), "0"),
+                "guest_count_kids": _to_decimal_string(section.get("guest_count_kids"), "0"),
+            }
+        )
+
+    manual_meal_totals = {}
+    for raw_meal, raw_value in (estimate.manual_meal_totals or {}).items():
+        meal_name = _normalize_item_text(raw_meal)
+        if not meal_name:
+            continue
+        parsed_value = Estimate._clean_decimal(raw_value, None)
+        if parsed_value is None:
+            continue
+        manual_meal_totals[meal_name] = _to_decimal_string(
+            parsed_value.quantize(Decimal("0.01")),
+            "0.00",
+        )
+
+    meal_guest_overrides = {}
+    for raw_meal, raw_override in (estimate.meal_guest_overrides or {}).items():
+        meal_name = _normalize_item_text(raw_meal)
+        if not meal_name or not isinstance(raw_override, dict):
+            continue
+        normalized_row = {}
+        for key in ("adults", "kids"):
+            parsed_value = Estimate._clean_decimal(raw_override.get(key), None)
+            if parsed_value is None:
+                continue
+            if parsed_value == parsed_value.to_integral_value():
+                normalized_row[key] = int(parsed_value)
+            else:
+                normalized_row[key] = float(parsed_value)
+        if normalized_row:
+            meal_guest_overrides[meal_name] = normalized_row
+
     return {
         "ok": True,
         "estimate_id": estimate.id,
@@ -1752,6 +1813,9 @@ def _serialize_estimate_builder_payload(request, user, estimate, access_map=None
             "kids_discount_percentage": _to_decimal_string(estimate.kids_discount_percentage, "0.00"),
             "exchange_rate": _to_decimal_string(estimate.exchange_rate, "1.0000"),
             "meal_plan": meal_plan,
+            "manual_meal_totals": manual_meal_totals,
+            "meal_guest_overrides": meal_guest_overrides,
+            "meal_sections": meal_sections,
             "tablecloth_details": estimate.tablecloth_details or {},
             "summary": summary,
         },
@@ -2039,6 +2103,67 @@ def xpenz_estimate_builder(request, estimate_id):
             }
         estimate.tablecloth_details = parsed_tablecloths
 
+    if "manual_meal_totals" in estimate_payload:
+        raw_manual_totals = estimate_payload.get("manual_meal_totals")
+        if isinstance(raw_manual_totals, str):
+            try:
+                raw_manual_totals = json.loads(raw_manual_totals) if raw_manual_totals else {}
+            except (json.JSONDecodeError, TypeError, ValueError):
+                raw_manual_totals = {}
+        if not isinstance(raw_manual_totals, dict):
+            return _json_error("Manual meal totals must be a JSON object.", status=400)
+        parsed_manual_totals = {}
+        for raw_meal_name, raw_value in raw_manual_totals.items():
+            meal_name = _normalize_item_text(raw_meal_name)
+            if not meal_name:
+                continue
+            value_text = str(raw_value).strip() if raw_value is not None else ""
+            if not value_text:
+                continue
+            parsed_value = _parse_decimal(value_text, allow_none=True)
+            if parsed_value is None:
+                return _json_error(
+                    f'Meal override for "{meal_name}" must be a non-negative number.',
+                    status=400,
+                )
+            parsed_manual_totals[meal_name] = str(parsed_value)
+        estimate.manual_meal_totals = parsed_manual_totals
+
+    if "meal_guest_overrides" in estimate_payload:
+        raw_guest_overrides = estimate_payload.get("meal_guest_overrides")
+        if isinstance(raw_guest_overrides, str):
+            try:
+                raw_guest_overrides = (
+                    json.loads(raw_guest_overrides) if raw_guest_overrides else {}
+                )
+            except (json.JSONDecodeError, TypeError, ValueError):
+                raw_guest_overrides = {}
+        if not isinstance(raw_guest_overrides, dict):
+            return _json_error("Meal guest overrides must be a JSON object.", status=400)
+        parsed_guest_overrides = {}
+        for raw_meal_name, raw_row in raw_guest_overrides.items():
+            meal_name = _normalize_item_text(raw_meal_name)
+            if not meal_name:
+                continue
+            if not isinstance(raw_row, dict):
+                continue
+            parsed_row = {}
+            for key in ("adults", "kids"):
+                value_text = str(raw_row.get(key)).strip() if raw_row.get(key) is not None else ""
+                if not value_text:
+                    continue
+                parsed_value = _parse_positive_int(value_text, allow_none=True)
+                if parsed_value is None:
+                    label = "Adults" if key == "adults" else "Kids"
+                    return _json_error(
+                        f'{label} override for "{meal_name}" must be a non-negative integer.',
+                        status=400,
+                    )
+                parsed_row[key] = parsed_value
+            if parsed_row:
+                parsed_guest_overrides[meal_name] = parsed_row
+        estimate.meal_guest_overrides = parsed_guest_overrides
+
     estimate.save()
 
     menu_choices_payload = payload.get("menu_choices")
@@ -2146,6 +2271,54 @@ def xpenz_estimate_builder(request, estimate_id):
     return JsonResponse(
         _serialize_estimate_builder_payload(request, user, estimate, access_map=access_map)
     )
+
+
+@csrf_exempt
+def xpenz_estimate_print_html(request, estimate_id):
+    user = _xpenz_authenticated_user(request)
+    if not user:
+        return _json_error("Authentication required.", status=401)
+
+    access_map = _mobile_access_map_for_user(user)
+    if not user.is_superuser and not access_map:
+        return _json_error("No mobile app access is configured for this user.", status=403)
+
+    estimate = get_object_or_404(
+        Estimate.objects.select_related("caterer", "caterer__owner"),
+        pk=estimate_id,
+    )
+    if not _can_access_estimate(user, estimate, access_map=access_map):
+        return _json_error("You do not have access to this estimate.", status=403)
+
+    variant = (request.GET.get("variant") or "estimate").strip().lower()
+    if variant not in {"estimate", "flat", "planner"}:
+        return _json_error("Invalid print variant.", status=400)
+
+    # Delegate to admin print rendering so page-breaks, compacting, and styling
+    # stay identical to the admin panel output.
+    from .admin import EstimateAdmin
+
+    effective_user = user
+    if not user.is_superuser and estimate.caterer.owner_id != user.id:
+        access = _mobile_access_for_caterer(
+            user, estimate.caterer_id, access_map=access_map
+        ) or {}
+        can_view_billing = bool(access.get("can_view_job_billing"))
+        if variant in {"estimate", "flat"} and not can_view_billing:
+            return _json_error(
+                "You do not have permission to view billing printouts.",
+                status=403,
+            )
+        effective_user = estimate.caterer.owner
+
+    request.user = effective_user
+    admin_view = EstimateAdmin(Estimate, django_admin.site)
+
+    if variant == "planner":
+        return admin_view.print_planner(request, estimate_id)
+    if variant == "flat":
+        return admin_view.print_estimate_flat(request, estimate_id)
+    return admin_view.print_estimate(request, estimate_id)
 
 
 @csrf_exempt
