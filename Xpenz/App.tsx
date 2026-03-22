@@ -1274,6 +1274,7 @@ function AppShell() {
   const [plannerNewOptionName, setPlannerNewOptionName] = useState('');
   const tabNavigationRef = useRef<NavigationContainerRef<RootTabParamList> | null>(null);
   const savedItemSearchInputRef = useRef<TextInput | null>(null);
+  const authRecoveryInFlightRef = useRef(false);
 
   const [drafts, setDrafts] = useState<ExpenseDraft[]>([]);
   const [activeRecordingDraftId, setActiveRecordingDraftId] = useState<string | null>(null);
@@ -1281,6 +1282,43 @@ function AppShell() {
   const [recordingStartedAt, setRecordingStartedAt] = useState<number | null>(null);
 
   const isRecording = !!recorderState.isRecording;
+
+  const handleAuthFailure = useCallback(
+    async (status: number, errorMessage: string) => {
+      const normalized = (errorMessage || '').toLowerCase();
+      const accessRemoved =
+        status === 403 &&
+        (normalized.includes('no mobile app access') || normalized.includes('access'));
+      const isAuthFailure = status === 401 || accessRemoved;
+      if (!isAuthFailure || authRecoveryInFlightRef.current) {
+        return;
+      }
+      authRecoveryInFlightRef.current = true;
+      await Promise.all([
+        SecureStore.deleteItemAsync(TOKEN_KEY),
+        SecureStore.deleteItemAsync(BASE_URL_KEY),
+      ]).catch(() => {
+        // Ignore secure-store cleanup errors during forced logout.
+      });
+      setToken('');
+      setSelectedEstimate(null);
+      setSelectedShoppingList(null);
+      setSelectedPlannerEstimate(null);
+      setShoppingItems([]);
+      setShoppingLists([]);
+      setSavedEntries([]);
+      setStaffEntries([]);
+      setMenuOpen(false);
+      setMainTab('estimates');
+      Alert.alert(
+        accessRemoved ? 'Mobile access removed' : 'Session expired',
+        accessRemoved
+          ? 'Your mobile app access was changed. Please contact admin or log in again.'
+          : 'Your session expired. Please log in again.',
+      );
+    },
+    [],
+  );
 
   const authFetchJson = useCallback(
     async (
@@ -1295,19 +1333,26 @@ function AppShell() {
         ...(init.headers ?? {}),
         Authorization: `Bearer ${activeToken}`,
       };
+      if (!activeToken) {
+        const missingAuthError = new Error('Authentication required.') as ApiRequestError;
+        missingAuthError.status = 401;
+        throw missingAuthError;
+      }
       const response = await fetch(apiUrl(activeBase, path), {
         ...init,
         headers,
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || payload.ok === false) {
-        const error = new Error(payload.error || `Request failed (${response.status})`) as ApiRequestError;
+        const errorMessage = payload.error || `Request failed (${response.status})`;
+        const error = new Error(errorMessage) as ApiRequestError;
         error.status = response.status;
+        await handleAuthFailure(response.status, String(errorMessage || ''));
         throw error;
       }
       return payload;
     },
-    [apiBaseUrl, token],
+    [apiBaseUrl, handleAuthFailure, token],
   );
 
   const loadEstimates = useCallback(
@@ -2227,6 +2272,12 @@ function AppShell() {
 
     bootstrap();
   }, [loadEstimates, loadShoppingCatalog, loadShoppingLists]);
+
+  useEffect(() => {
+    if (token) {
+      authRecoveryInFlightRef.current = false;
+    }
+  }, [token]);
 
   useEffect(() => {
     SecureStore.setItemAsync(SHOPPING_LAST_QTY_KEY, JSON.stringify(savedItemLastQtyByKey)).catch(() => {
@@ -3821,10 +3872,9 @@ function AppShell() {
     }
     setCreatingShoppingList(true);
     try {
-      const response = await fetch(apiUrl(apiBaseUrl, '/api/xpenz/shopping-lists/'), {
+      const payload = await authFetchJson('/api/xpenz/shopping-lists/', {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
@@ -3833,9 +3883,8 @@ function AppShell() {
           estimate_id: estimateId,
         }),
       });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok || payload.ok === false || !payload.shopping_list) {
-        throw new Error(payload.error || 'Unable to create shopping list.');
+      if (!payload.shopping_list) {
+        throw new Error('Unable to create shopping list.');
       }
       setShoppingListTitle('');
       setShoppingEstimateRefId(null);
@@ -3858,7 +3907,7 @@ function AppShell() {
       setCreatingShoppingList(false);
     }
   }, [
-    apiBaseUrl,
+    authFetchJson,
     catererChoices,
     estimates,
     loadShoppingCatalog,
@@ -3907,26 +3956,18 @@ function AppShell() {
 
       setAddingShoppingItem(true);
       try {
-        const response = await fetch(
-          apiUrl(apiBaseUrl, `/api/xpenz/shopping-lists/${selectedShoppingList.id}/items/`),
-          {
-            method: 'POST',
-            headers: {
-              Authorization: `Bearer ${token}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              item_name: itemName,
-              item_type: itemTypeRaw.trim(),
-              quantity: quantityRaw.trim() || '1',
-              item_unit: itemUnitRaw.trim(),
-            }),
+        await authFetchJson(`/api/xpenz/shopping-lists/${selectedShoppingList.id}/items/`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
           },
-        );
-        const payload = await response.json().catch(() => ({}));
-        if (!response.ok || payload.ok === false) {
-          throw new Error(payload.error || 'Unable to add shopping item.');
-        }
+          body: JSON.stringify({
+            item_name: itemName,
+            item_type: itemTypeRaw.trim(),
+            quantity: quantityRaw.trim() || '1',
+            item_unit: itemUnitRaw.trim(),
+          }),
+        });
         await Promise.all([
           loadShoppingListDetail(selectedShoppingList.id, undefined, undefined, true),
           loadShoppingLists(),
@@ -3943,7 +3984,7 @@ function AppShell() {
         setAddingShoppingItem(false);
       }
     },
-    [apiBaseUrl, loadShoppingCatalog, loadShoppingListDetail, loadShoppingLists, selectedShoppingList, token],
+    [authFetchJson, loadShoppingCatalog, loadShoppingListDetail, loadShoppingLists, selectedShoppingList, token],
   );
 
   const openSavedItemQuickAdd = useCallback(
@@ -4150,22 +4191,12 @@ function AppShell() {
       if (!added) {
         return;
       }
-      const response = await fetch(
-        apiUrl(
-          apiBaseUrl,
-          `/api/xpenz/shopping-lists/${selectedShoppingList.id}/items/${shoppingEditingItemId}/remove/`,
-        ),
+      await authFetchJson(
+        `/api/xpenz/shopping-lists/${selectedShoppingList.id}/items/${shoppingEditingItemId}/remove/`,
         {
           method: 'POST',
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
         },
       );
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok || payload.ok === false) {
-        throw new Error(payload.error || 'Unable to replace shopping item.');
-      }
       await Promise.all([
         loadShoppingListDetail(selectedShoppingList.id, undefined, undefined, true),
         loadShoppingLists(),
@@ -4182,7 +4213,7 @@ function AppShell() {
       setSavingShoppingEdit(false);
     }
   }, [
-    apiBaseUrl,
+    authFetchJson,
     closeShoppingItemEditor,
     loadShoppingListDetail,
     loadShoppingLists,
@@ -4204,22 +4235,12 @@ function AppShell() {
       }
       setRemovingShoppingItemId(item.id);
       try {
-        const response = await fetch(
-          apiUrl(
-            apiBaseUrl,
-            `/api/xpenz/shopping-lists/${selectedShoppingList.id}/items/${item.id}/remove/`,
-          ),
+        await authFetchJson(
+          `/api/xpenz/shopping-lists/${selectedShoppingList.id}/items/${item.id}/remove/`,
           {
             method: 'POST',
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
           },
         );
-        const payload = await response.json().catch(() => ({}));
-        if (!response.ok || payload.ok === false) {
-          throw new Error(payload.error || 'Unable to remove item.');
-        }
         await Promise.all([
           loadShoppingListDetail(selectedShoppingList.id, undefined, undefined, true),
           loadShoppingLists(),
@@ -4233,7 +4254,7 @@ function AppShell() {
         setRemovingShoppingItemId(null);
       }
     },
-    [apiBaseUrl, loadShoppingListDetail, loadShoppingLists, removingShoppingItemId, selectedShoppingList, token],
+    [authFetchJson, loadShoppingListDetail, loadShoppingLists, removingShoppingItemId, selectedShoppingList, token],
   );
 
   const handleDeleteShoppingList = useCallback((targetList: ShoppingListRow) => {
@@ -4251,22 +4272,9 @@ function AppShell() {
           onPress: async () => {
             setDeletingShoppingListId(targetList.id);
             try {
-              const response = await fetch(
-                apiUrl(
-                  apiBaseUrl,
-                  `/api/xpenz/shopping-lists/${targetList.id}/delete/`,
-                ),
-                {
-                  method: 'POST',
-                  headers: {
-                    Authorization: `Bearer ${token}`,
-                  },
-                },
-              );
-              const payload = await response.json().catch(() => ({}));
-              if (!response.ok || payload.ok === false) {
-                throw new Error(payload.error || 'Unable to delete shopping list.');
-              }
+              await authFetchJson(`/api/xpenz/shopping-lists/${targetList.id}/delete/`, {
+                method: 'POST',
+              });
               if (selectedShoppingList?.id === targetList.id) {
                 setSelectedShoppingList(null);
                 setShoppingItems([]);
@@ -4290,7 +4298,7 @@ function AppShell() {
       ],
     );
   }, [
-    apiBaseUrl,
+    authFetchJson,
     deletingShoppingListId,
     loadShoppingCatalog,
     loadShoppingLists,
@@ -6879,24 +6887,34 @@ function AppShell() {
               style={styles.headerIconButton}
               onPress={() => {
                 if (mainTab === 'estimates' || mainTab === 'expenses' || mainTab === 'staff') {
-                  loadEstimates();
+                  void loadEstimates().catch(() => {
+                    // Error state is surfaced by called handlers.
+                  });
                   return;
                 }
                 if (mainTab === 'shopping' && selectedShoppingList) {
-                  Promise.all([
+                  void Promise.all([
                     loadShoppingListDetail(selectedShoppingList.id),
                     loadShoppingCatalog(),
-                  ]);
+                  ]).catch(() => {
+                    // Error state is surfaced by called handlers.
+                  });
                   return;
                 }
                 if (mainTab === 'shopping') {
-                  Promise.all([loadShoppingLists(), loadShoppingCatalog()]);
+                  void Promise.all([loadShoppingLists(), loadShoppingCatalog()]).catch(() => {
+                    // Error state is surfaced by called handlers.
+                  });
                   return;
                 }
                 if (selectedPlannerEstimate) {
-                  loadPlannerData(selectedPlannerEstimate.id);
+                  void loadPlannerData(selectedPlannerEstimate.id).catch(() => {
+                    // Error state is surfaced by called handlers.
+                  });
                 } else {
-                  loadEstimates();
+                  void loadEstimates().catch(() => {
+                    // Error state is surfaced by called handlers.
+                  });
                 }
               }}
             >
@@ -7031,12 +7049,14 @@ function AppShell() {
                     <View style={styles.nativeHeaderActions}>
                       <Pressable
                         style={styles.headerIconButton}
-                        onPress={() =>
-                          Promise.all([
+                        onPress={() => {
+                          void Promise.all([
                             loadShoppingListDetail(selectedShoppingList.id),
                             loadShoppingCatalog(),
-                          ])
-                        }
+                          ]).catch(() => {
+                            // Error state is surfaced by called handlers.
+                          });
+                        }}
                       >
                         <RefreshCcw size={18} color="#64748b" />
                       </Pressable>
@@ -7070,7 +7090,14 @@ function AppShell() {
                     <View style={styles.nativeFormGroup}>
                       <View style={styles.nativeRowBetween}>
                         <Text style={styles.nativeSectionHeading}>Saved Items</Text>
-                        <Pressable style={styles.headerTextButton} onPress={() => loadShoppingCatalog()}>
+                        <Pressable
+                          style={styles.headerTextButton}
+                          onPress={() => {
+                            void loadShoppingCatalog().catch(() => {
+                              // Error state is surfaced by called handlers.
+                            });
+                          }}
+                        >
                           <Text style={styles.headerTextButtonLabel}>Refresh</Text>
                         </Pressable>
                       </View>
@@ -7429,7 +7456,14 @@ function AppShell() {
                 <View style={styles.nativeSectionBlock}>
                   <View style={styles.nativeRowBetween}>
                     <Text style={styles.nativeSectionHeading}>Your Lists</Text>
-                    <Pressable style={styles.headerIconButton} onPress={() => loadShoppingLists()}>
+                    <Pressable
+                      style={styles.headerIconButton}
+                      onPress={() => {
+                        void loadShoppingLists().catch(() => {
+                          // Error state is surfaced by called handlers.
+                        });
+                      }}
+                    >
                       <RefreshCcw size={16} color="#64748b" />
                     </Pressable>
                   </View>

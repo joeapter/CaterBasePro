@@ -19,6 +19,7 @@ from .models import (
     ShoppingList,
     ShoppingListItem,
     EstimateStaffTimeEntry,
+    XpenzMobileToken,
 )
 
 
@@ -105,6 +106,21 @@ class XpenzApiTests(TestCase):
         payload = response.json()
         self.assertTrue(payload["ok"])
         self.assertIn("token", payload)
+
+    def test_login_reuses_existing_mobile_token(self):
+        first_token = self._login_and_get_token()
+        second_token = self._login_and_get_token()
+        self.assertEqual(first_token, second_token)
+        self.assertEqual(
+            XpenzMobileToken.objects.filter(user=self.user).count(),
+            1,
+        )
+
+        response = self.client.get(
+            reverse("xpenz_estimate_list"),
+            HTTP_AUTHORIZATION=f"Bearer {first_token}",
+        )
+        self.assertEqual(response.status_code, 200)
 
     def test_estimate_list_is_scoped_to_owner(self):
         token = self._login_and_get_token()

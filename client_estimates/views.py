@@ -1357,9 +1357,8 @@ def xpenz_mobile_login(request):
         return _json_error("No mobile app access is configured for this user.", status=403)
 
     token, _created = XpenzMobileToken.objects.get_or_create(user=user)
-    token.rotate(save=False)
     token.last_used_at = timezone.now()
-    token.save()
+    token.save(update_fields=["last_used_at"])
 
     return JsonResponse(
         {
