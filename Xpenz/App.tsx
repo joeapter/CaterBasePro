@@ -466,8 +466,8 @@ const DEFAULT_SHOPPING_UNIT_OPTIONS = ['Kg', 'Pieces', 'Cans'];
 const NUMERIC_INPUT_ACCESSORY_ID = 'xpenz-numeric-accessory';
 const TAB_BAR_HEIGHT = 49;
 const TAB_BAR_TOUCH_TOP_EXTRA = 14;
-const PDF_A4_WIDTH_POINTS = 595.28;
-const PDF_A4_HEIGHT_POINTS = 841.89;
+const PDF_A4_WIDTH_POINTS = 595;
+const PDF_A4_HEIGHT_POINTS = 842;
 const TAB_NAME_BY_MAIN: Record<MainTab, keyof RootTabParamList> = {
   estimates: 'Estimates',
   shopping: 'Shopping',
@@ -879,6 +879,50 @@ function apiUrl(baseUrl: string, path: string) {
   const cleanBase = normalizeBaseUrl(baseUrl);
   const cleanPath = path.startsWith('/') ? path : `/${path}`;
   return `${cleanBase}${cleanPath}`;
+}
+
+function enforceA4PageClamp(html: string) {
+  const clampStyles = `
+<style id="xpenz-a4-clamp">
+  @page {
+    size: 595pt 842pt !important;
+    margin: 0 !important;
+  }
+  html, body {
+    width: 595pt !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+  .estimate-sheet,
+  .sheet {
+    box-sizing: border-box !important;
+    width: 595pt !important;
+    min-height: 842pt !important;
+    height: 842pt !important;
+    max-height: 842pt !important;
+    margin: 0 !important;
+    overflow: hidden !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid-page !important;
+    page-break-after: always !important;
+    break-after: page !important;
+  }
+  .estimate-sheet:last-of-type,
+  .sheet:last-of-type {
+    page-break-after: auto !important;
+    break-after: auto !important;
+  }
+  .estimate-sheet[class*="sheet-bg--"] {
+    background-repeat: no-repeat !important;
+    background-size: 100% 100% !important;
+    background-position: center top !important;
+  }
+</style>`;
+
+  if (/<\/head>/i.test(html)) {
+    return html.replace(/<\/head>/i, `${clampStyles}</head>`);
+  }
+  return `${clampStyles}${html}`;
 }
 
 function localId() {
@@ -2709,7 +2753,7 @@ function AppShell() {
       const htmlWithBase = /<base\s/i.test(html)
         ? html
         : html.replace(/<head(\s[^>]*)?>/i, (match) => `${match}<base href="${baseHref}">`);
-      const htmlForPdf = htmlWithBase;
+      const htmlForPdf = enforceA4PageClamp(htmlWithBase);
       const file = await Print.printToFileAsync({
         html: htmlForPdf,
         width: PDF_A4_WIDTH_POINTS,
