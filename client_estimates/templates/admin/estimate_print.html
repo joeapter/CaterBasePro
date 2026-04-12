@@ -539,7 +539,7 @@
 
             <section>
                 <h2>{% translate 'Menu Selection' %}</h2>
-                <article class="meal-card{% if forloop.first and menu_compact_level %} meal-card--{{ menu_compact_level }}{% endif %}">
+                <article class="meal-card{% if meal.compact_level %} meal-card--{{ meal.compact_level }}{% endif %}">
                     <header>
                         <h3>{{ meal.name }}</h3>
                     </header>

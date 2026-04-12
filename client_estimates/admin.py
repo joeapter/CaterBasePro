@@ -2306,20 +2306,15 @@ class EstimateAdmin(admin.ModelAdmin):
                 }
 
         meal_sections = estimate.meal_sections()
-        first_menu_item_count = 0
-        if meal_sections:
-            first_meal = meal_sections[0]
-            first_menu_item_count = sum(
-                len(category.get("choices", [])) for category in first_meal.get("categories", [])
-            )
-            first_menu_item_count += sum(
-                len(category.get("choices", [])) for category in first_meal.get("kids_categories", [])
-            )
-        menu_compact_level = ""
-        if first_menu_item_count >= 16:
-            menu_compact_level = "tight"
-        elif first_menu_item_count >= 13:
-            menu_compact_level = "compact"
+        for _section in meal_sections:
+            _count = sum(len(c.get("choices", [])) for c in _section.get("categories", []))
+            _count += sum(len(c.get("choices", [])) for c in _section.get("kids_categories", []))
+            if _count >= 16:
+                _section["compact_level"] = "tight"
+            elif _count >= 13:
+                _section["compact_level"] = "compact"
+            else:
+                _section["compact_level"] = ""
         meal_total_amount = (
             sum((section["total"] for section in meal_sections), Decimal("0.00"))
             if meal_sections
@@ -2360,7 +2355,6 @@ class EstimateAdmin(admin.ModelAdmin):
             "meal_total_amount": meal_total_amount,
             "kids_total_amount": kids_total_amount,
             "service_style": service_style,
-            "menu_compact_level": menu_compact_level,
             "contact_lines": [
                 line for line in [
                     caterer.company_phone,
@@ -2441,20 +2435,15 @@ class EstimateAdmin(admin.ModelAdmin):
             dishes_subtotal = (estimate.dishes_total - dishes_delivery_fee).quantize(Decimal("0.01"))
 
         meal_sections = estimate.meal_sections()
-        first_menu_item_count = 0
-        if meal_sections:
-            first_meal = meal_sections[0]
-            first_menu_item_count = sum(
-                len(category.get("choices", [])) for category in first_meal.get("categories", [])
-            )
-            first_menu_item_count += sum(
-                len(category.get("choices", [])) for category in first_meal.get("kids_categories", [])
-            )
-        menu_compact_level = ""
-        if first_menu_item_count >= 16:
-            menu_compact_level = "tight"
-        elif first_menu_item_count >= 13:
-            menu_compact_level = "compact"
+        for _section in meal_sections:
+            _count = sum(len(c.get("choices", [])) for c in _section.get("categories", []))
+            _count += sum(len(c.get("choices", [])) for c in _section.get("kids_categories", []))
+            if _count >= 16:
+                _section["compact_level"] = "tight"
+            elif _count >= 13:
+                _section["compact_level"] = "compact"
+            else:
+                _section["compact_level"] = ""
         meal_total_amount = (
             sum((section["total"] + section.get("kids_total", Decimal("0.00")) for section in meal_sections), Decimal("0.00"))
             if meal_sections
@@ -2502,7 +2491,6 @@ class EstimateAdmin(admin.ModelAdmin):
             "meal_total_amount": meal_total_amount,
             "kids_total_amount": kids_total_amount,
             "service_style": service_style,
-            "menu_compact_level": menu_compact_level,
             "contact_lines": [
                 line for line in [
                     caterer.company_phone,
