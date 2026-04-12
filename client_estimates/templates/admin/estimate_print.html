@@ -416,63 +416,158 @@
                 page-break-inside: auto;
                 break-inside: auto;
             }
-            .estimate-sheet.estimate-sheet--compact-extras {
+            .estimate-sheet.estimate-sheet--compact-extras,
+            .estimate-sheet.estimate-sheet--auto-condensed,
+            .estimate-sheet.estimate-sheet--auto-condensed-tight {
                 padding: 8mm 10mm 10mm;
             }
-            .estimate-sheet.estimate-sheet--compact-extras .sheet-header {
+            .estimate-sheet.estimate-sheet--compact-extras .sheet-header,
+            .estimate-sheet.estimate-sheet--auto-condensed .sheet-header,
+            .estimate-sheet.estimate-sheet--auto-condensed-tight .sheet-header {
                 grid-template-columns: minmax(0, 1fr) minmax(90px, 160px) minmax(0, 1fr);
                 padding: 2.5mm 3mm 2mm;
                 gap: 3mm;
                 margin: 0 auto 2mm;
             }
-            .estimate-sheet.estimate-sheet--compact-extras .sheet-header-left h1 {
+            .estimate-sheet.estimate-sheet--compact-extras .sheet-header-left h1,
+            .estimate-sheet.estimate-sheet--auto-condensed .sheet-header-left h1,
+            .estimate-sheet.estimate-sheet--auto-condensed-tight .sheet-header-left h1 {
                 font-size: 15px;
                 letter-spacing: .08em;
             }
-            .estimate-sheet.estimate-sheet--compact-extras .estimate-number {
+            .estimate-sheet.estimate-sheet--compact-extras .estimate-number,
+            .estimate-sheet.estimate-sheet--auto-condensed .estimate-number,
+            .estimate-sheet.estimate-sheet--auto-condensed-tight .estimate-number {
                 font-size: 13px;
                 letter-spacing: .08em;
                 margin-bottom: 3px;
             }
-            .estimate-sheet.estimate-sheet--compact-extras .meta-table {
+            .estimate-sheet.estimate-sheet--compact-extras .meta-table,
+            .estimate-sheet.estimate-sheet--auto-condensed .meta-table,
+            .estimate-sheet.estimate-sheet--auto-condensed-tight .meta-table {
                 font-size: 10px;
             }
-            .estimate-sheet.estimate-sheet--compact-extras .sheet-logo img {
+            .estimate-sheet.estimate-sheet--compact-extras .sheet-logo img,
+            .estimate-sheet.estimate-sheet--auto-condensed .sheet-logo img,
+            .estimate-sheet.estimate-sheet--auto-condensed-tight .sheet-logo img {
                 max-height: 58px;
                 max-width: 150px;
             }
-            .estimate-sheet.estimate-sheet--compact-extras section {
+            .estimate-sheet.estimate-sheet--compact-extras section,
+            .estimate-sheet.estimate-sheet--auto-condensed section,
+            .estimate-sheet.estimate-sheet--auto-condensed-tight section {
                 margin-bottom: 9px;
             }
-            .estimate-sheet.estimate-sheet--compact-extras h2 {
+            .estimate-sheet.estimate-sheet--compact-extras h2,
+            .estimate-sheet.estimate-sheet--auto-condensed h2,
+            .estimate-sheet.estimate-sheet--auto-condensed-tight h2 {
                 font-size: 15px;
                 margin: 0 0 4px;
                 letter-spacing: .08em;
             }
-            .estimate-sheet.estimate-sheet--compact-extras h4 {
+            .estimate-sheet.estimate-sheet--compact-extras h4,
+            .estimate-sheet.estimate-sheet--auto-condensed h4,
+            .estimate-sheet.estimate-sheet--auto-condensed-tight h4 {
                 margin: 8px 0 4px !important;
                 font-size: 12px;
             }
             .estimate-sheet.estimate-sheet--compact-extras .info-table,
-            .estimate-sheet.estimate-sheet--compact-extras .summary-table {
+            .estimate-sheet.estimate-sheet--compact-extras .summary-table,
+            .estimate-sheet.estimate-sheet--auto-condensed .info-table,
+            .estimate-sheet.estimate-sheet--auto-condensed .summary-table,
+            .estimate-sheet.estimate-sheet--auto-condensed-tight .info-table,
+            .estimate-sheet.estimate-sheet--auto-condensed-tight .summary-table {
                 font-size: 12px;
             }
             .estimate-sheet.estimate-sheet--compact-extras .info-table th,
             .estimate-sheet.estimate-sheet--compact-extras .info-table td,
             .estimate-sheet.estimate-sheet--compact-extras .summary-table th,
-            .estimate-sheet.estimate-sheet--compact-extras .summary-table td {
+            .estimate-sheet.estimate-sheet--compact-extras .summary-table td,
+            .estimate-sheet.estimate-sheet--auto-condensed .info-table th,
+            .estimate-sheet.estimate-sheet--auto-condensed .info-table td,
+            .estimate-sheet.estimate-sheet--auto-condensed .summary-table th,
+            .estimate-sheet.estimate-sheet--auto-condensed .summary-table td,
+            .estimate-sheet.estimate-sheet--auto-condensed-tight .info-table th,
+            .estimate-sheet.estimate-sheet--auto-condensed-tight .info-table td,
+            .estimate-sheet.estimate-sheet--auto-condensed-tight .summary-table th,
+            .estimate-sheet.estimate-sheet--auto-condensed-tight .summary-table td {
                 padding: 5px 6px;
                 line-height: 1.2;
             }
             .estimate-sheet.estimate-sheet--compact-extras .summary-table--tight th,
-            .estimate-sheet.estimate-sheet--compact-extras .summary-table--tight td {
+            .estimate-sheet.estimate-sheet--compact-extras .summary-table--tight td,
+            .estimate-sheet.estimate-sheet--auto-condensed .summary-table--tight th,
+            .estimate-sheet.estimate-sheet--auto-condensed .summary-table--tight td,
+            .estimate-sheet.estimate-sheet--auto-condensed-tight .summary-table--tight th,
+            .estimate-sheet.estimate-sheet--auto-condensed-tight .summary-table--tight td {
                 font-size: 11px;
                 padding: 4px 4px;
             }
             .estimate-sheet.estimate-sheet--compact-extras .muted,
-            .estimate-sheet.estimate-sheet--compact-extras .no-items {
+            .estimate-sheet.estimate-sheet--compact-extras .no-items,
+            .estimate-sheet.estimate-sheet--auto-condensed .muted,
+            .estimate-sheet.estimate-sheet--auto-condensed .no-items,
+            .estimate-sheet.estimate-sheet--auto-condensed-tight .muted,
+            .estimate-sheet.estimate-sheet--auto-condensed-tight .no-items {
                 font-size: 11px;
                 line-height: 1.2;
+            }
+            .estimate-sheet.estimate-sheet--auto-condensed-tight {
+                padding: 6mm 8mm 8mm;
+            }
+            .estimate-sheet.estimate-sheet--auto-condensed-tight .sheet-header {
+                grid-template-columns: minmax(0, 1fr) minmax(80px, 130px) minmax(0, 1fr);
+                padding: 2mm 2mm 1.5mm;
+                gap: 2mm;
+                margin: 0 auto 1.5mm;
+            }
+            .estimate-sheet.estimate-sheet--auto-condensed-tight .sheet-header-left h1 {
+                font-size: 13px;
+                letter-spacing: .06em;
+            }
+            .estimate-sheet.estimate-sheet--auto-condensed-tight .estimate-number {
+                font-size: 12px;
+                letter-spacing: .06em;
+                margin-bottom: 2px;
+            }
+            .estimate-sheet.estimate-sheet--auto-condensed-tight h2 {
+                font-size: 13px;
+                margin: 0 0 3px;
+            }
+            .estimate-sheet.estimate-sheet--auto-condensed-tight h4 {
+                margin: 6px 0 3px !important;
+                font-size: 11px;
+            }
+            .estimate-sheet.estimate-sheet--auto-condensed-tight .meta-table {
+                font-size: 9px;
+            }
+            .estimate-sheet.estimate-sheet--auto-condensed-tight .sheet-logo img {
+                max-height: 48px;
+                max-width: 120px;
+            }
+            .estimate-sheet.estimate-sheet--auto-condensed-tight section {
+                margin-bottom: 7px;
+            }
+            .estimate-sheet.estimate-sheet--auto-condensed-tight .info-table,
+            .estimate-sheet.estimate-sheet--auto-condensed-tight .summary-table {
+                font-size: 11px;
+            }
+            .estimate-sheet.estimate-sheet--auto-condensed-tight .info-table th,
+            .estimate-sheet.estimate-sheet--auto-condensed-tight .info-table td,
+            .estimate-sheet.estimate-sheet--auto-condensed-tight .summary-table th,
+            .estimate-sheet.estimate-sheet--auto-condensed-tight .summary-table td {
+                padding: 4px 5px;
+                line-height: 1.15;
+            }
+            .estimate-sheet.estimate-sheet--auto-condensed-tight .summary-table--tight th,
+            .estimate-sheet.estimate-sheet--auto-condensed-tight .summary-table--tight td {
+                font-size: 10px;
+                padding: 3px 3px;
+            }
+            .estimate-sheet.estimate-sheet--auto-condensed-tight .muted,
+            .estimate-sheet.estimate-sheet--auto-condensed-tight .no-items {
+                font-size: 10px;
+                line-height: 1.15;
             }
         }
     </style>
@@ -539,7 +634,7 @@
 
             <section>
                 <h2>{% translate 'Menu Selection' %}</h2>
-                <article class="meal-card{% if meal.compact_level %} meal-card--{{ meal.compact_level }}{% endif %}">
+                <article class="meal-card{% if meal.compact_level %} meal-card--{{ meal.compact_level }}{% endif %}" data-line-item-count="{{ meal.line_item_count|default:0 }}">
                     <header>
                         <h3>{{ meal.name }}</h3>
                     </header>
@@ -1099,12 +1194,72 @@
         </div>
     </section>
 </div>
-{% if auto_print %}
 <script>
-    window.addEventListener("load", function() {
-        window.print();
-    });
+    (function() {
+        var shouldAutoPrint = {{ auto_print|yesno:"true,false" }};
+        var overflowSlack = 2;
+
+        function mealLineItemCount(card) {
+            var fromDataset = parseInt(card.getAttribute("data-line-item-count"), 10);
+            if (!Number.isNaN(fromDataset) && fromDataset >= 0) {
+                return fromDataset;
+            }
+            return card.querySelectorAll(".meal-category li").length;
+        }
+
+        function applyMealCardDensity() {
+            var mealCards = document.querySelectorAll(".meal-card");
+            mealCards.forEach(function(card) {
+                card.classList.remove("meal-card--compact", "meal-card--tight");
+                var count = mealLineItemCount(card);
+                if (count >= 16) {
+                    card.classList.add("meal-card--tight");
+                    return;
+                }
+                if (count >= 13) {
+                    card.classList.add("meal-card--compact");
+                }
+            });
+        }
+
+        function isOverflowing(sheet) {
+            return (sheet.scrollHeight - sheet.clientHeight) > overflowSlack;
+        }
+
+        function autoCondenseSheets() {
+            var sheets = document.querySelectorAll(".estimate-sheet");
+            sheets.forEach(function(sheet) {
+                sheet.classList.remove("estimate-sheet--auto-condensed", "estimate-sheet--auto-condensed-tight");
+                if (!isOverflowing(sheet)) {
+                    return;
+                }
+                sheet.classList.add("estimate-sheet--auto-condensed");
+                if (!isOverflowing(sheet)) {
+                    return;
+                }
+                sheet.classList.add("estimate-sheet--auto-condensed-tight");
+            });
+        }
+
+        function printAfterLayout() {
+            if (!shouldAutoPrint) {
+                return;
+            }
+            window.requestAnimationFrame(function() {
+                window.print();
+            });
+        }
+
+        window.addEventListener("beforeprint", function() {
+            applyMealCardDensity();
+            autoCondenseSheets();
+        });
+        window.addEventListener("load", function() {
+            applyMealCardDensity();
+            autoCondenseSheets();
+            printAfterLayout();
+        });
+    })();
 </script>
-{% endif %}
 </body>
 </html>

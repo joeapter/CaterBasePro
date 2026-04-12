@@ -2309,6 +2309,7 @@ class EstimateAdmin(admin.ModelAdmin):
         for _section in meal_sections:
             _count = sum(len(c.get("choices", [])) for c in _section.get("categories", []))
             _count += sum(len(c.get("choices", [])) for c in _section.get("kids_categories", []))
+            _section["line_item_count"] = _count
             if _count >= 16:
                 _section["compact_level"] = "tight"
             elif _count >= 13:
@@ -2438,6 +2439,7 @@ class EstimateAdmin(admin.ModelAdmin):
         for _section in meal_sections:
             _count = sum(len(c.get("choices", [])) for c in _section.get("categories", []))
             _count += sum(len(c.get("choices", [])) for c in _section.get("kids_categories", []))
+            _section["line_item_count"] = _count
             if _count >= 16:
                 _section["compact_level"] = "tight"
             elif _count >= 13:
