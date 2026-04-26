@@ -12,10 +12,12 @@ from .models import (
     CatererAccount,
     CatererUserAccess,
     Estimate,
+    EstimateExtraItem,
     EstimateFoodChoice,
     EstimateExpenseEntry,
     MenuCategory,
     MenuItem,
+    ExtraItem,
     ShoppingList,
     ShoppingListItem,
     EstimateStaffTimeEntry,
@@ -598,6 +600,42 @@ class XpenzApiTests(TestCase):
         )
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "- Client tipped at event.")
+
+    def test_print_pdf_extras_hide_per_event_but_keep_per_person(self):
+        per_event_item = ExtraItem.objects.create(
+            caterer=self.caterer,
+            name="Table Cloths",
+            charge_type="PER_EVENT",
+            price=Decimal("150.00"),
+            cost=Decimal("0.00"),
+        )
+        per_person_item = ExtraItem.objects.create(
+            caterer=self.caterer,
+            name="Custom Dessert",
+            charge_type="PER_PERSON",
+            price=Decimal("25.00"),
+            cost=Decimal("0.00"),
+        )
+        EstimateExtraItem.objects.create(
+            estimate=self.estimate,
+            extra_item=per_event_item,
+            quantity=Decimal("1.00"),
+        )
+        EstimateExtraItem.objects.create(
+            estimate=self.estimate,
+            extra_item=per_person_item,
+            quantity=Decimal("50.00"),
+        )
+
+        self.client.force_login(self.user)
+        response = self.client.get(
+            reverse("admin:client_estimates_estimate_print", args=[self.estimate.id])
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "150.00 ILS")
+        self.assertContains(response, "25.00 ILS / per person")
+        self.assertNotContains(response, "/ per event")
 
     def test_staff_summary_returns_qr_links(self):
         token = self._login_and_get_token("appstaff@example.com")

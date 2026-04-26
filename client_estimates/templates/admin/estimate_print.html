@@ -815,7 +815,7 @@
                                 {% if row.is_included %}
                                     {% translate 'Included' %}
                                 {% else %}
-                                    {{ row.price }} {{ estimate.currency }}{% if row.charge_type %} / {{ row.charge_type|lower }}{% endif %}
+                                    {{ row.price }} {{ estimate.currency }}{% if row.price_unit_label %} / {{ row.price_unit_label }}{% endif %}
                                 {% endif %}
                             </td>
                             <td>{{ row.notes }}</td>
