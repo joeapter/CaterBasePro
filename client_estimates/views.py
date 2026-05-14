@@ -16,6 +16,7 @@ from django.core.exceptions import PermissionDenied
 from django.db.models import Count, Q
 from django.db.models.functions import Coalesce
 from django.core.mail import send_mail
+from django.db import transaction
 from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -3077,15 +3078,25 @@ def xpenz_shopping_list_items(request, shopping_list_id):
         payload = {}
 
     item_name = _normalize_item_text(
-        payload.get("item_name") if payload.get("item_name") is not None else request.POST.get("item_name", "")
+        payload.get("item_name")
+        if payload.get("item_name") is not None
+        else request.POST.get("item_name", "")
     )
     item_type = _normalize_item_text(
-        payload.get("item_type") if payload.get("item_type") is not None else request.POST.get("item_type", "")
+        payload.get("item_type")
+        if payload.get("item_type") is not None
+        else request.POST.get("item_type", "")
     )
     item_unit = _normalize_item_text(
-        payload.get("item_unit") if payload.get("item_unit") is not None else request.POST.get("item_unit", "")
+        payload.get("item_unit")
+        if payload.get("item_unit") is not None
+        else request.POST.get("item_unit", "")
     )
-    raw_quantity = payload.get("quantity") if payload.get("quantity") is not None else request.POST.get("quantity")
+    raw_quantity = (
+        payload.get("quantity")
+        if payload.get("quantity") is not None
+        else request.POST.get("quantity")
+    )
     quantity = _parse_quantity(raw_quantity or "")
     if quantity is None:
         return _json_error("Quantity must be a positive number.", status=400)
@@ -3189,6 +3200,118 @@ def xpenz_shopping_list_remove_item(request, shopping_list_id, item_id):
     item.save(update_fields=["is_completed", "completed_by", "completed_at", "updated_at"])
     ShoppingList.objects.filter(pk=shopping_list.pk).update(updated_at=now)
     return JsonResponse({"ok": True, "shopping_list_id": shopping_list.id, "item_id": item_id})
+
+
+@csrf_exempt
+def xpenz_shopping_list_update_item(request, shopping_list_id, item_id):
+    user = _xpenz_authenticated_user(request)
+    if not user:
+        return _json_error("Authentication required.", status=401)
+    if request.method != "POST":
+        return _json_error("Method not allowed.", status=405)
+
+    access_map = _mobile_access_map_for_user(user)
+    if not user.is_superuser and not access_map:
+        return _json_error("No mobile app access is configured for this user.", status=403)
+
+    try:
+        shopping_list = _shopping_list_for_user(user, shopping_list_id, access_map)
+    except PermissionDenied:
+        return _json_error("You do not have access to this shopping list.", status=403)
+    if shopping_list.deleted_at:
+        return _json_error("Shopping list not found.", status=404)
+
+    payload = {}
+    if request.body:
+        try:
+            payload = json.loads(request.body.decode("utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            payload = {}
+    if not isinstance(payload, dict):
+        payload = {}
+
+    item_name = _normalize_item_text(
+        payload.get("item_name")
+        if payload.get("item_name") is not None
+        else request.POST.get("item_name", "")
+    )
+    item_type = _normalize_item_text(
+        payload.get("item_type")
+        if payload.get("item_type") is not None
+        else request.POST.get("item_type", "")
+    )
+    item_unit = _normalize_item_text(
+        payload.get("item_unit")
+        if payload.get("item_unit") is not None
+        else request.POST.get("item_unit", "")
+    )
+    raw_quantity = (
+        payload.get("quantity")
+        if payload.get("quantity") is not None
+        else request.POST.get("quantity")
+    )
+    quantity = _parse_quantity(raw_quantity or "")
+    if quantity is None:
+        return _json_error("Quantity must be a positive number.", status=400)
+    if not item_name:
+        return _json_error("`item_name` is required.", status=400)
+
+    category = _resolve_shopping_category(shopping_list.caterer_id, item_name)
+    now = timezone.now()
+    with transaction.atomic():
+        item = get_object_or_404(
+            ShoppingListItem.objects.select_for_update(),
+            pk=item_id,
+            shopping_list=shopping_list,
+            is_completed=False,
+        )
+        existing = (
+            ShoppingListItem.objects.select_for_update()
+            .filter(
+                shopping_list=shopping_list,
+                is_completed=False,
+                item_name__iexact=item_name,
+                item_type__iexact=item_type,
+                item_unit__iexact=item_unit,
+            )
+            .exclude(pk=item.pk)
+            .first()
+        )
+        if existing:
+            existing.quantity = (existing.quantity or Decimal("0.00")) + quantity
+            existing.category = category
+            existing.save(update_fields=["quantity", "category", "updated_at"])
+            item.delete()
+            response_item = existing
+            merged = True
+        else:
+            item.item_name = item_name
+            item.item_type = item_type
+            item.item_unit = item_unit
+            item.quantity = quantity
+            item.category = category
+            item.save(
+                update_fields=[
+                    "item_name",
+                    "item_type",
+                    "item_unit",
+                    "quantity",
+                    "category",
+                    "updated_at",
+                ]
+            )
+            response_item = item
+            merged = False
+        ShoppingList.objects.filter(pk=shopping_list.pk).update(updated_at=now)
+
+    return JsonResponse(
+        {
+            "ok": True,
+            "shopping_list_id": shopping_list.id,
+            "item": _serialize_shopping_item(response_item),
+            "merged": merged,
+        }
+    )
 
 
 @csrf_exempt

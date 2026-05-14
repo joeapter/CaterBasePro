@@ -937,6 +937,108 @@ class XpenzApiTests(TestCase):
         self.assertIsNotNone(row)
         self.assertEqual(row["item_count"], 0)
 
+    def test_shopping_list_update_item_keeps_same_row_active(self):
+        token = self._login_and_get_token("appstaff@example.com")
+        shopping_list = ShoppingList.objects.create(
+            caterer=self.caterer,
+            title="Edit row",
+            created_by=self.app_user,
+        )
+        item = ShoppingListItem.objects.create(
+            shopping_list=shopping_list,
+            item_name="Tomato",
+            item_unit="Kg",
+            quantity=Decimal("2.00"),
+            category="PRODUCE",
+            created_by=self.app_user,
+        )
+
+        update_response = self.client.post(
+            reverse("xpenz_shopping_list_update_item", args=[shopping_list.id, item.id]),
+            data=json.dumps(
+                {
+                    "item_name": "Tomato",
+                    "item_type": "",
+                    "item_unit": "Kg",
+                    "quantity": "5",
+                }
+            ),
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        self.assertEqual(update_response.status_code, 200)
+        payload = update_response.json()
+        self.assertFalse(payload["merged"])
+        self.assertEqual(payload["item"]["id"], item.id)
+        self.assertEqual(payload["item"]["quantity"], "5")
+
+        item.refresh_from_db()
+        self.assertFalse(item.is_completed)
+        self.assertEqual(item.quantity, Decimal("5.00"))
+
+        detail_response = self.client.get(
+            reverse("xpenz_shopping_list_detail", args=[shopping_list.id]),
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        self.assertEqual(detail_response.status_code, 200)
+        self.assertEqual(len(detail_response.json()["items"]), 1)
+        self.assertEqual(detail_response.json()["items"][0]["id"], item.id)
+
+    def test_shopping_list_update_item_merges_with_matching_active_row(self):
+        token = self._login_and_get_token("appstaff@example.com")
+        shopping_list = ShoppingList.objects.create(
+            caterer=self.caterer,
+            title="Merge edit",
+            created_by=self.app_user,
+        )
+        tomato = ShoppingListItem.objects.create(
+            shopping_list=shopping_list,
+            item_name="Tomato",
+            item_unit="Kg",
+            quantity=Decimal("2.00"),
+            category="PRODUCE",
+            created_by=self.app_user,
+        )
+        onion = ShoppingListItem.objects.create(
+            shopping_list=shopping_list,
+            item_name="Onion",
+            item_unit="Kg",
+            quantity=Decimal("3.00"),
+            category="PRODUCE",
+            created_by=self.app_user,
+        )
+
+        update_response = self.client.post(
+            reverse("xpenz_shopping_list_update_item", args=[shopping_list.id, onion.id]),
+            data=json.dumps(
+                {
+                    "item_name": "tomato",
+                    "item_type": "",
+                    "item_unit": "kg",
+                    "quantity": "4",
+                }
+            ),
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        self.assertEqual(update_response.status_code, 200)
+        payload = update_response.json()
+        self.assertTrue(payload["merged"])
+        self.assertEqual(payload["item"]["id"], tomato.id)
+        self.assertEqual(payload["item"]["quantity"], "6")
+
+        self.assertFalse(ShoppingListItem.objects.filter(id=onion.id).exists())
+        tomato.refresh_from_db()
+        self.assertFalse(tomato.is_completed)
+        self.assertEqual(tomato.quantity, Decimal("6.00"))
+
+        detail_response = self.client.get(
+            reverse("xpenz_shopping_list_detail", args=[shopping_list.id]),
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        self.assertEqual(detail_response.status_code, 200)
+        self.assertEqual(len(detail_response.json()["items"]), 1)
+
     def test_shopping_list_delete_hides_list_and_keeps_items_for_catalog(self):
         token = self._login_and_get_token("appstaff@example.com")
         shopping_list = ShoppingList.objects.create(

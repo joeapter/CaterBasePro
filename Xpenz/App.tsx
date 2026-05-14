@@ -4462,19 +4462,24 @@ function AppShell() {
     }
     setSavingShoppingEdit(true);
     try {
-      const added = await submitShoppingItem(
-        shoppingEditName,
-        shoppingEditType,
-        shoppingEditQty,
-        shoppingEditUnit,
-      );
-      if (!added) {
+      const itemName = shoppingEditName.trim();
+      if (!itemName) {
+        Alert.alert('Missing item', 'Enter the shopping item name.');
         return;
       }
       await authFetchJson(
-        `/api/xpenz/shopping-lists/${selectedShoppingList.id}/items/${shoppingEditingItemId}/remove/`,
+        `/api/xpenz/shopping-lists/${selectedShoppingList.id}/items/${shoppingEditingItemId}/update/`,
         {
           method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            item_name: itemName,
+            item_type: shoppingEditType.trim(),
+            quantity: shoppingEditQty.trim() || '1',
+            item_unit: shoppingEditUnit.trim(),
+          }),
         },
       );
       await Promise.all([
@@ -4504,7 +4509,6 @@ function AppShell() {
     shoppingEditType,
     shoppingEditUnit,
     shoppingEditingItemId,
-    submitShoppingItem,
     token,
   ]);
 
