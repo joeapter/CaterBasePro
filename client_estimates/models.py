@@ -1008,8 +1008,9 @@ class Estimate(models.Model):
             meal_guest_count = counts_override.get("adults", Decimal(self.guest_count or 0))
             meal_guest_kids = counts_override.get("kids", Decimal(self.guest_count_kids or 0))
 
-            # If no kids menu items are present, apply discounted adult price for kids.
-            if meal_guest_kids and not kids_items:
+            # Apply discounted adult price for kids when a discount is configured,
+            # or when there are no kids-specific menu items to price from.
+            if meal_guest_kids and (not kids_items or self.kids_discount_percentage):
                 try:
                     pct = Decimal(str(self.kids_discount_percentage or "0")).quantize(Decimal("0.01"))
                 except Exception:
