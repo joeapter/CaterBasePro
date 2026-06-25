@@ -422,6 +422,19 @@ class MenuItemAdmin(admin.ModelAdmin):
     search_fields = ("name",)
     change_list_template = "admin/menu_upload.html"
     ordering = ("category__sort_order", "category__name", "sort_order_override", "name")
+    fieldsets = (
+        (None, {
+            "fields": (
+                "caterer", "category", "name", "description",
+                "sort_order_override", "menu_type", "cost_per_serving",
+                "markup", "default_servings_per_person", "is_active",
+            ),
+        }),
+        ("Wait Staff", {
+            "fields": ("wait_staff_instructions",),
+            "description": "Printed on the Wait Staff Workflow sheet next to this item.",
+        }),
+    )
 
     def get_queryset(self, request):
         return limit_to_user_caterer(super().get_queryset(request), request)
@@ -1414,6 +1427,7 @@ class EstimateAdmin(admin.ModelAdmin):
         "is_invoice",
         "print_estimate_button",
         "workflow_button",
+        "waitstaff_button",
         "flat_print_button",
         "schedule_button",
     )
@@ -1803,6 +1817,16 @@ class EstimateAdmin(admin.ModelAdmin):
                 name=self._admin_url_name("workflow_bulk"),
             ),
             path(
+                "<int:estimate_id>/waitstaff/",
+                self.admin_site.admin_view(self.waitstaff_view),
+                name=self._admin_url_name("waitstaff"),
+            ),
+            path(
+                "waitstaff/bulk/",
+                self.admin_site.admin_view(self.waitstaff_bulk_view),
+                name=self._admin_url_name("waitstaff_bulk"),
+            ),
+            path(
                 "<int:estimate_id>/expenses/<int:entry_id>/delete/",
                 self.admin_site.admin_view(self.delete_expense_entry),
                 name=self._admin_url_name("expense_delete"),
@@ -1821,6 +1845,12 @@ class EstimateAdmin(admin.ModelAdmin):
         return format_html('<a class="button" target="_blank" href="{}">Workflow</a>', f"{url}?print=1")
 
     workflow_button.short_description = "Kitchen"
+
+    def waitstaff_button(self, obj):
+        url = self._admin_reverse("waitstaff", args=[obj.pk])
+        return format_html('<a class="button" target="_blank" href="{}">Wait Staff</a>', f"{url}?print=1")
+
+    waitstaff_button.short_description = "Wait Staff"
 
     def flat_print_button(self, obj):
         url = self._admin_reverse("print_flat", args=[obj.pk])
@@ -2646,6 +2676,131 @@ class EstimateAdmin(admin.ModelAdmin):
         return render(
             request,
             "admin/estimate_workflow.html",
+            {"workflows": payloads, "auto_print": request.GET.get("print") == "1"},
+        )
+
+    def _waitstaff_pages(self, request, estimate):
+        """
+        Same meal-by-meal structure as _workflow_pages but carries
+        wait_staff_instructions for each item instead of kitchen checkboxes.
+        """
+
+        def normalize(name: str, default: str) -> str:
+            return (name or default or "").strip().lower()
+
+        plan = estimate.get_meal_plan()
+        default_meal = plan[0] if plan else estimate.default_meal_name()
+        choices = list(
+            estimate.food_choices.select_related("menu_item", "menu_item__category")
+            .order_by(
+                F("menu_item__category__sort_order").asc(nulls_last=True),
+                F("menu_item__category__name").asc(nulls_last=True),
+                F("menu_item__sort_order_override").asc(nulls_last=True),
+                "menu_item__name",
+            )
+        )
+
+        meal_display = {}
+        meal_order_keys = []
+        for name in plan:
+            key = normalize(name, default_meal)
+            if key not in meal_display:
+                meal_order_keys.append(key)
+            meal_display[key] = name
+
+        choices_by_meal = {}
+        seen_choice_keys = set()
+        for choice in choices:
+            meal_name = choice.meal_name or default_meal
+            meal_key = normalize(meal_name, default_meal)
+            seen_choice_keys.add(meal_key)
+            meal_display.setdefault(meal_key, meal_name)
+            meal_bucket = choices_by_meal.setdefault(meal_key, [])
+
+            category = "Chef's Selection"
+            order = 999
+            if choice.menu_item and choice.menu_item.category:
+                category = choice.menu_item.category.name
+                order = choice.menu_item.category.sort_order or order
+
+            meal_bucket.append({
+                "item": choice.menu_item.name if choice.menu_item else "",
+                "notes": (choice.notes or "").strip(),
+                "category": category,
+                "category_order": order,
+                "wait_staff_instructions": (
+                    choice.menu_item.wait_staff_instructions.strip()
+                    if choice.menu_item and choice.menu_item.wait_staff_instructions
+                    else ""
+                ),
+            })
+
+        for key in sorted(seen_choice_keys):
+            if key not in meal_order_keys:
+                meal_order_keys.append(key)
+
+        logo_url = None
+        if estimate.caterer.brand_logo:
+            logo_url = request.build_absolute_uri(estimate.caterer.brand_logo.url)
+
+        pages = []
+        for key in meal_order_keys or [normalize(default_meal, default_meal)]:
+            display_name = meal_display.get(key, default_meal)
+            meal_rows = choices_by_meal.get(key, [])
+
+            section_map = {}
+            for row in meal_rows:
+                cat_key = (row["category_order"], row["category"])
+                section_map.setdefault(cat_key, []).append(row)
+
+            meal_sections = []
+            for (order, category), rows in sorted(section_map.items(), key=lambda x: (x[0][0], x[0][1])):
+                meal_sections.append({"category": category, "items": rows})
+
+            pages.append({
+                "estimate": estimate,
+                "meal_name": display_name,
+                "sections": meal_sections,
+                "logo_url": logo_url,
+                "primary_color": estimate.caterer.brand_primary_color or "#0f172a",
+                "accent_color": estimate.caterer.brand_accent_color or "#b08c6d",
+            })
+
+        return pages
+
+    def waitstaff_view(self, request, estimate_id):
+        estimate = self._get_estimate(estimate_id)
+        if not request.user.is_superuser and estimate.caterer.owner != request.user:
+            raise PermissionDenied("You do not have access to this estimate.")
+        payload = self._waitstaff_pages(request, estimate)
+        return render(
+            request,
+            "admin/estimate_waitstaff.html",
+            {"workflows": payload, "auto_print": request.GET.get("print") == "1"},
+        )
+
+    def waitstaff_bulk_view(self, request):
+        ids = request.GET.get("ids", "")
+        id_list = [int(pk) for pk in ids.split(",") if pk.isdigit()]
+        qs = Estimate.objects.select_related("caterer", "caterer__owner")
+        if not request.user.is_superuser:
+            qs = qs.filter(caterer__owner=request.user)
+        if self.estimate_type:
+            qs = qs.filter(estimate_type=self.estimate_type)
+        estimates = list(qs.filter(pk__in=id_list).order_by("event_date"))
+        if not estimates:
+            self.message_user(
+                request,
+                "No estimates found for wait staff workflow printing.",
+                level=messages.WARNING,
+            )
+            return redirect(self._admin_reverse("changelist"))
+        payloads = []
+        for estimate in estimates:
+            payloads.extend(self._waitstaff_pages(request, estimate))
+        return render(
+            request,
+            "admin/estimate_waitstaff.html",
             {"workflows": payloads, "auto_print": request.GET.get("print") == "1"},
         )
 

@@ -1,0 +1,190 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Wait Staff Workflow</title>
+    <style>
+        body {
+            font-family: "Inter", "Helvetica Neue", Arial, sans-serif;
+            background: #f5f5f7;
+            margin: 0;
+            padding: 1.5rem;
+        }
+        .sheet {
+            background: #fff;
+            border-radius: 16px;
+            padding: 1.5rem 2rem;
+            margin-bottom: 2rem;
+            box-shadow: 0 15px 35px rgba(15, 23, 42, 0.15);
+            break-after: page;
+        }
+        .sheet h1 {
+            margin: 0;
+            font-size: 1.75rem;
+        }
+        .meta {
+            margin-top: 1rem;
+            font-size: 0.95rem;
+            color: #475569;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 1rem 2rem;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 1.25rem;
+            /* Table layout auto lets rows grow with content */
+            table-layout: auto;
+        }
+        th {
+            text-align: left;
+            background: #f1f5f9;
+            color: #0f172a;
+            white-space: nowrap;
+        }
+        th, td {
+            padding: 0.65rem;
+            border: 1px solid #e2e8f0;
+            font-size: 0.92rem;
+            vertical-align: top;
+        }
+        /* Menu item column takes remaining width */
+        .col-item {
+            width: 30%;
+        }
+        /* Instructions column grows to fill all space; content wraps naturally */
+        .col-instructions {
+            width: 70%;
+            /* Ensure long text wraps rather than overflows */
+            word-break: break-word;
+            white-space: pre-wrap;
+            line-height: 1.55;
+        }
+        .item-notes {
+            margin-top: 0.2rem;
+            color: #475569;
+            font-style: italic;
+            font-size: 0.86rem;
+        }
+        .instructions-text {
+            color: #1e293b;
+        }
+        /* Empty checkbox for hand-writing when no instructions saved */
+        .checkbox-wrap {
+            display: flex;
+            align-items: flex-start;
+            gap: 0.5rem;
+        }
+        .checkbox {
+            display: inline-block;
+            flex-shrink: 0;
+            width: 18px;
+            height: 18px;
+            border: 2px solid #94a3b8;
+            border-radius: 3px;
+            margin-top: 2px;
+        }
+        .section-title {
+            margin-top: 2rem;
+            font-size: 1.2rem;
+        }
+        .meal-chip {
+            display: inline-block;
+            background: #e2e8f0;
+            color: #0f172a;
+            padding: 0.35rem 0.8rem;
+            border-radius: 999px;
+            font-size: 0.9rem;
+            margin-top: 0.35rem;
+        }
+        .empty-note {
+            color: #94a3b8;
+            margin: 1rem 0;
+            font-size: 0.95rem;
+        }
+        .logo {
+            max-height: 80px;
+        }
+        @media print {
+            body {
+                background: #fff;
+                padding: 0;
+            }
+            .sheet {
+                box-shadow: none;
+                border-radius: 0;
+                page-break-after: always;
+            }
+            .sheet:last-child {
+                page-break-after: auto;
+            }
+            /* Prevent a single row from being split across pages */
+            tr {
+                page-break-inside: avoid;
+            }
+        }
+    </style>
+</head>
+<body {% if auto_print %}onload="window.print()" {% endif %}>
+    {% for sheet in workflows %}
+        <div class="sheet">
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+                <div>
+                    <h1>Wait Staff Workflow</h1>
+                    <p style="margin:0;color:#64748b;">{{ sheet.estimate.caterer.name }}</p>
+                    <div class="meal-chip">Meal: {{ sheet.meal_name }}</div>
+                </div>
+                {% if sheet.logo_url %}
+                    <img class="logo" src="{{ sheet.logo_url }}" alt="Logo">
+                {% endif %}
+            </div>
+
+            <div class="meta">
+                <div><strong>Client:</strong> {{ sheet.estimate.customer_name }}</div>
+                <div><strong>Event:</strong> {{ sheet.estimate.event_type }}</div>
+                <div><strong>Date:</strong> {{ sheet.estimate.event_date|date:"M j, Y" }}</div>
+                <div><strong>Guest count:</strong> {{ sheet.estimate.guest_count }}</div>
+                <div><strong>Location:</strong> {{ sheet.estimate.event_location }}</div>
+            </div>
+
+            {% if sheet.sections %}
+                {% for section in sheet.sections %}
+                    <h3 class="section-title">{{ section.category }}</h3>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th class="col-item">Menu Item</th>
+                                <th class="col-instructions">Wait Staff Instructions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for item in section.items %}
+                                <tr>
+                                    <td class="col-item">
+                                        <div>{{ item.item }}</div>
+                                        {% if item.notes %}
+                                            <div class="item-notes">({{ item.notes }})</div>
+                                        {% endif %}
+                                    </td>
+                                    <td class="col-instructions">
+                                        {% if item.wait_staff_instructions %}
+                                            <div class="instructions-text">{{ item.wait_staff_instructions }}</div>
+                                        {% else %}
+                                            {# Empty checkbox so instructions can be hand-written on site #}
+                                            <span class="checkbox"></span>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                {% endfor %}
+            {% else %}
+                <p class="empty-note">No menu items assigned for this meal.</p>
+            {% endif %}
+        </div>
+    {% endfor %}
+</body>
+</html>

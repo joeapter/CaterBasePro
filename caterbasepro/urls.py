@@ -43,6 +43,7 @@ from client_estimates.views import (
     xpenz_shopping_lists,
     xpenz_staff_punch,
     xpenz_staff_summary,
+    xpenz_menu_items,
 )
 
 urlpatterns = [
@@ -68,6 +69,7 @@ urlpatterns = [
     path('api/xpenz/shopping-lists/<int:shopping_list_id>/items/<int:item_id>/update/', xpenz_shopping_list_update_item, name='xpenz_shopping_list_update_item'),
     path('api/xpenz/shopping-lists/<int:shopping_list_id>/items/<int:item_id>/remove/', xpenz_shopping_list_remove_item, name='xpenz_shopping_list_remove_item'),
     path('api/xpenz/shopping-catalog/', xpenz_shopping_catalog, name='xpenz_shopping_catalog'),
+    path('api/xpenz/menu-items/', xpenz_menu_items, name='xpenz_menu_items'),
     path('xpenz/punch/<str:token>/', xpenz_staff_punch, name='xpenz_staff_punch'),
     path('admin/', admin.site.urls),
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

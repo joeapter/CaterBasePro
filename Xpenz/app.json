@@ -17,7 +17,7 @@
       "supportsTablet": false,
       "icon": "./assets/icon.png",
       "bundleIdentifier": "com.caterbasepro.xpenz",
-      "buildNumber": "1.0.0",
+      "buildNumber": "2",
       "infoPlist": {
         "NSCameraUsageDescription": "Capture receipt photos for internal estimate expense tracking.",
         "NSMicrophoneUsageDescription": "Record voice notes that explain each receipt expense.",

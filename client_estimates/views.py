@@ -691,6 +691,9 @@ def _serialize_mobile_estimate(request, user, estimate, access_map=None):
     workflow_print_url = request.build_absolute_uri(
         reverse("admin:client_estimates_estimate_workflow", args=[estimate.id])
     )
+    waitstaff_print_url = request.build_absolute_uri(
+        reverse("admin:client_estimates_estimate_waitstaff", args=[estimate.id])
+    )
 
     return {
         "id": estimate.id,
@@ -719,6 +722,8 @@ def _serialize_mobile_estimate(request, user, estimate, access_map=None):
             "planner_print": f"{planner_print_url}?print=1",
             "workflow": workflow_print_url,
             "workflow_print": f"{workflow_print_url}?print=1",
+            "waitstaff": waitstaff_print_url,
+            "waitstaff_print": f"{waitstaff_print_url}?print=1",
         },
     }
 
@@ -2487,7 +2492,7 @@ def xpenz_estimate_print_html(request, estimate_id):
         return _json_error("You do not have access to this estimate.", status=403)
 
     variant = (request.GET.get("variant") or "estimate").strip().lower()
-    if variant not in {"estimate", "flat", "planner", "workflow"}:
+    if variant not in {"estimate", "flat", "planner", "workflow", "waitstaff"}:
         return _json_error("Invalid print variant.", status=400)
 
     # Delegate to admin print rendering so page-breaks, compacting, and styling
@@ -2519,6 +2524,9 @@ def xpenz_estimate_print_html(request, estimate_id):
             return _clamp_mobile_print_html(response)
         if variant == "workflow":
             response = admin_view.workflow_view(request, estimate_id)
+            return _clamp_mobile_print_html(response)
+        if variant == "waitstaff":
+            response = admin_view.waitstaff_view(request, estimate_id)
             return _clamp_mobile_print_html(response)
         response = admin_view.print_estimate(request, estimate_id)
         return _clamp_mobile_print_html(response)
@@ -3657,3 +3665,56 @@ def xpenz_staff_punch(request, token):
         "recent_entries": recent_entries,
     }
     return render(request, "public/xpenz_staff_punch.html", context)
+
+
+@csrf_exempt
+def xpenz_menu_items(request):
+    """
+    GET  – list all active menu items for the authenticated caterer.
+    POST – update wait_staff_instructions for a single menu item.
+    """
+    user = _xpenz_authenticated_user(request)
+    if user is None:
+        return _json_error("Authentication required.", status=401)
+
+    access_map = _mobile_access_map_for_user(user)
+    accessible_caterer_ids = list(access_map.keys()) if access_map != {"__superuser__": True} else None
+
+    if request.method == "POST":
+        try:
+            body = json.loads(request.body)
+        except (json.JSONDecodeError, ValueError):
+            return _json_error("Invalid JSON.", status=400)
+        item_id = body.get("id")
+        instructions = body.get("wait_staff_instructions", "")
+        qs = MenuItem.objects.all()
+        if accessible_caterer_ids is not None:
+            qs = qs.filter(caterer_id__in=accessible_caterer_ids)
+        try:
+            item = qs.get(pk=item_id)
+        except MenuItem.DoesNotExist:
+            return _json_error("Menu item not found.", status=404)
+        item.wait_staff_instructions = instructions
+        item.save(update_fields=["wait_staff_instructions"])
+        return JsonResponse({"ok": True})
+
+    qs = MenuItem.objects.filter(is_active=True).select_related("category", "caterer")
+    if accessible_caterer_ids is not None:
+        qs = qs.filter(caterer_id__in=accessible_caterer_ids)
+    qs = qs.order_by(
+        "caterer__name",
+        "category__sort_order",
+        "category__name",
+        "sort_order_override",
+        "name",
+    )
+    result = []
+    for item in qs:
+        result.append({
+            "id": item.id,
+            "name": item.name,
+            "category": item.category.name if item.category else "Uncategorized",
+            "caterer_name": item.caterer.name,
+            "wait_staff_instructions": item.wait_staff_instructions or "",
+        })
+    return JsonResponse({"menu_items": result})

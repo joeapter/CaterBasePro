@@ -305,6 +305,11 @@ class MenuItem(models.Model):
 
     is_active = models.BooleanField(default=True)
 
+    wait_staff_instructions = models.TextField(
+        blank=True,
+        help_text="Instructions printed on the Wait Staff Workflow sheet.",
+    )
+
     def price_per_serving(self) -> Decimal:
         return (self.cost_per_serving * self.markup).quantize(Decimal("0.01"))
 

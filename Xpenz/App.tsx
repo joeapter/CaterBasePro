@@ -24,6 +24,7 @@ import {
   ReceiptText,
   RefreshCcw,
   ShoppingBag,
+  UtensilsCrossed,
   Users,
 } from 'lucide-react-native';
 import {
@@ -84,10 +85,20 @@ type EstimateRow = {
     planner_print?: string;
     workflow?: string;
     workflow_print?: string;
+    waitstaff?: string;
+    waitstaff_print?: string;
   };
 };
 
-type MainTab = 'estimates' | 'shopping' | 'planner' | 'expenses' | 'staff';
+type MainTab = 'estimates' | 'shopping' | 'planner' | 'expenses' | 'staff' | 'menu';
+
+type MenuItemRow = {
+  id: number;
+  name: string;
+  category: string;
+  caterer_name: string;
+  wait_staff_instructions: string;
+};
 
 type RootTabParamList = {
   Estimates: undefined;
@@ -95,9 +106,10 @@ type RootTabParamList = {
   Planner: undefined;
   Expenses: undefined;
   Staff: undefined;
+  Menu: undefined;
 };
 
-type EstimatePrintVariant = 'estimate' | 'flat' | 'planner' | 'workflow';
+type EstimatePrintVariant = 'estimate' | 'flat' | 'planner' | 'workflow' | 'waitstaff';
 
 type EstimateBuilderStep =
   | 'customer'
@@ -484,6 +496,7 @@ const TAB_NAME_BY_MAIN: Record<MainTab, keyof RootTabParamList> = {
   planner: 'Planner',
   expenses: 'Expenses',
   staff: 'Staff',
+  menu: 'Menu',
 };
 const MAIN_TAB_BY_NAME: Record<keyof RootTabParamList, MainTab> = {
   Estimates: 'estimates',
@@ -491,6 +504,7 @@ const MAIN_TAB_BY_NAME: Record<keyof RootTabParamList, MainTab> = {
   Planner: 'planner',
   Expenses: 'expenses',
   Staff: 'staff',
+  Menu: 'menu',
 };
 const PLANNER_SECTION_CHOICES: PlannerSectionConfig[] = [
   {
@@ -1142,6 +1156,7 @@ function renderMainTabIcon(name: keyof RootTabParamList, color: string, size: nu
   if (name === 'Shopping') return <ShoppingBag size={size} color={color} />;
   if (name === 'Planner') return <CalendarCheck2 size={size} color={color} />;
   if (name === 'Expenses') return <ReceiptText size={size} color={color} />;
+  if (name === 'Menu') return <UtensilsCrossed size={size} color={color} />;
   return <Users size={size} color={color} />;
 }
 
@@ -1254,6 +1269,12 @@ function AppShell() {
   const [plannerEditorFieldCards, setPlannerEditorFieldCards] = useState<PlannerEditorFieldCard[]>([]);
   const [plannerFieldCardsManagerOpen, setPlannerFieldCardsManagerOpen] = useState(false);
   const [plannerNewOptionName, setPlannerNewOptionName] = useState('');
+  const [menuItems, setMenuItems] = useState<MenuItemRow[]>([]);
+  const [loadingMenuItems, setLoadingMenuItems] = useState(false);
+  const [menuItemEditingId, setMenuItemEditingId] = useState<number | null>(null);
+  const [menuItemEditDraft, setMenuItemEditDraft] = useState('');
+  const [savingMenuInstruction, setSavingMenuInstruction] = useState(false);
+  const [menuItemSearchText, setMenuItemSearchText] = useState('');
   const tabNavigationRef = useRef<NavigationContainerRef<RootTabParamList> | null>(null);
   const savedItemSearchInputRef = useRef<TextInput | null>(null);
   const authRecoveryInFlightRef = useRef(false);
@@ -1336,6 +1357,40 @@ function AppShell() {
       return payload;
     },
     [apiBaseUrl, handleAuthFailure, token],
+  );
+
+  const loadMenuItems = useCallback(async () => {
+    setLoadingMenuItems(true);
+    try {
+      const payload = await authFetchJson('/api/xpenz/menu-items/', { method: 'GET' });
+      setMenuItems(Array.isArray(payload.menu_items) ? payload.menu_items : []);
+    } finally {
+      setLoadingMenuItems(false);
+    }
+  }, [authFetchJson]);
+
+  const saveMenuInstruction = useCallback(
+    async (id: number, instructions: string) => {
+      setSavingMenuInstruction(true);
+      try {
+        await authFetchJson('/api/xpenz/menu-items/', {
+          method: 'POST',
+          body: JSON.stringify({ id, wait_staff_instructions: instructions }),
+        });
+        setMenuItems((prev) =>
+          prev.map((item) =>
+            item.id === id ? { ...item, wait_staff_instructions: instructions } : item,
+          ),
+        );
+        setMenuItemEditingId(null);
+        setMenuItemEditDraft('');
+      } catch {
+        Alert.alert('Save failed', 'Could not save instructions. Please try again.');
+      } finally {
+        setSavingMenuInstruction(false);
+      }
+    },
+    [authFetchJson],
   );
 
   const loadEstimates = useCallback(
@@ -2515,10 +2570,13 @@ function AppShell() {
     if (nextTab === 'estimates' || nextTab === 'shopping' || nextTab === 'planner') {
       setSelectedEstimate(null);
     }
+    if (nextTab === 'menu') {
+      void loadMenuItems().catch(() => {});
+    }
     if (syncNavigation) {
       tabNavigationRef.current?.navigate(TAB_NAME_BY_MAIN[nextTab]);
     }
-  }, []);
+  }, [loadMenuItems]);
 
   const tabBarHeight = useMemo(
     () => TAB_BAR_HEIGHT + insets.bottom + TAB_BAR_TOUCH_TOP_EXTRA,
@@ -2583,6 +2641,7 @@ function AppShell() {
       'Planner',
       'Expenses',
       'Staff',
+      'Menu',
     ];
     return (
       <View style={nativeTabHostStyle}>
@@ -2917,6 +2976,12 @@ function AppShell() {
           text: 'Kitchen Workflow',
           onPress: () => {
             runPrintFlow('workflow', 'Kitchen Workflow');
+          },
+        },
+        {
+          text: 'Wait Staff Workflow',
+          onPress: () => {
+            runPrintFlow('waitstaff', 'Wait Staff Workflow');
           },
         },
       ]);
@@ -7292,18 +7357,22 @@ function AppShell() {
                           ? activePlannerSectionConfig?.label || 'Planner'
                           : `${selectedPlannerEstimate.job_name} Planner`
                         : 'Planner'
-                      : mainTab === 'staff'
-                        ? 'Staff'
-                        : 'Expenses'}
+                      : mainTab === 'menu'
+                        ? 'Menu Items'
+                        : mainTab === 'staff'
+                          ? 'Staff'
+                          : 'Expenses'}
               </Text>
               <Text style={styles.appHeaderSubtitle}>
                 {mainTab === 'shopping'
                   ? 'Live list updates'
                   : mainTab === 'planner'
                     ? 'Planning board'
-                    : mainTab === 'estimates'
-                      ? 'Build and manage jobs'
-                      : 'Job workspace'}
+                    : mainTab === 'menu'
+                      ? 'Wait staff instructions'
+                      : mainTab === 'estimates'
+                        ? 'Build and manage jobs'
+                        : 'Job workspace'}
               </Text>
             </View>
           </View>
@@ -7311,6 +7380,10 @@ function AppShell() {
             <Pressable
               style={styles.headerIconButton}
               onPress={() => {
+                if (mainTab === 'menu') {
+                  void loadMenuItems().catch(() => {});
+                  return;
+                }
                 if (mainTab === 'estimates' || mainTab === 'expenses' || mainTab === 'staff') {
                   void loadEstimates().catch(() => {
                     // Error state is surfaced by called handlers.
@@ -7937,6 +8010,145 @@ function AppShell() {
                   )}
                 </View>
               </View>
+            </ScrollView>
+          )
+        ) : mainTab === 'menu' ? (
+          loadingMenuItems ? (
+            <View style={styles.screenCenter}>
+              <ActivityIndicator size="large" color="#0f766e" />
+            </View>
+          ) : (
+            <ScrollView
+              contentContainerStyle={tabbedNativeContentWrapStyle}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="on-drag"
+            >
+              <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+                <View style={styles.nativeContentInner}>
+                  <View style={styles.nativeFormGroup}>
+                    <Text style={styles.subtleText}>
+                      Tap an item to add or edit wait staff instructions. These print on the Wait Staff Workflow sheet.
+                    </Text>
+                    <TextInput
+                      style={styles.nativeInput}
+                      value={menuItemSearchText}
+                      onChangeText={setMenuItemSearchText}
+                      placeholder="Search items..."
+                      autoCorrect={false}
+                      autoCapitalize="none"
+                      returnKeyType="search"
+                    />
+                  </View>
+                  {(() => {
+                    const filtered = menuItems.filter(
+                      (item) =>
+                        !menuItemSearchText.trim() ||
+                        item.name.toLowerCase().includes(menuItemSearchText.toLowerCase()) ||
+                        item.category.toLowerCase().includes(menuItemSearchText.toLowerCase()),
+                    );
+                    const grouped: Record<string, MenuItemRow[]> = {};
+                    for (const item of filtered) {
+                      const key = `${item.caterer_name}||${item.category}`;
+                      if (!grouped[key]) grouped[key] = [];
+                      grouped[key].push(item);
+                    }
+                    const groupKeys = Object.keys(grouped).sort();
+                    if (!groupKeys.length) {
+                      return (
+                        <Text style={styles.subtleText}>
+                          {menuItems.length ? 'No items match your search.' : 'No menu items found.'}
+                        </Text>
+                      );
+                    }
+                    let lastCaterer = '';
+                    return groupKeys.map((key) => {
+                      const [catererName, categoryName] = key.split('||');
+                      const showCatererHeader = catererName !== lastCaterer;
+                      lastCaterer = catererName;
+                      return (
+                        <View key={key}>
+                          {showCatererHeader ? (
+                            <Text style={[styles.nativeSectionHeading, { marginTop: 16, marginBottom: 4 }]}>
+                              {catererName}
+                            </Text>
+                          ) : null}
+                          <Text style={[styles.subtleText, { marginBottom: 4, fontWeight: '600' }]}>
+                            {categoryName}
+                          </Text>
+                          <View style={styles.nativeListSurface}>
+                            {grouped[key].map((item, idx) => {
+                              const isEditing = menuItemEditingId === item.id;
+                              return (
+                                <View
+                                  key={item.id}
+                                  style={[
+                                    styles.nativeListRow,
+                                    idx > 0 && { borderTopWidth: 1, borderTopColor: '#f1f5f9' },
+                                  ]}
+                                >
+                                  {isEditing ? (
+                                    <View style={{ flex: 1, gap: 8 }}>
+                                      <Text style={styles.nativeListRowTitle}>{item.name}</Text>
+                                      <TextInput
+                                        style={[styles.nativeInput, { minHeight: 80 }]}
+                                        value={menuItemEditDraft}
+                                        onChangeText={setMenuItemEditDraft}
+                                        placeholder="Wait staff instructions..."
+                                        multiline
+                                        autoFocus
+                                        textAlignVertical="top"
+                                      />
+                                      <View style={{ flexDirection: 'row', gap: 8 }}>
+                                        <Pressable
+                                          style={[styles.primaryButton, { flex: 1, paddingVertical: 8 }]}
+                                          disabled={savingMenuInstruction}
+                                          onPress={() => void saveMenuInstruction(item.id, menuItemEditDraft)}
+                                        >
+                                          <Text style={styles.primaryButtonText}>
+                                            {savingMenuInstruction ? 'Saving…' : 'Save'}
+                                          </Text>
+                                        </Pressable>
+                                        <Pressable
+                                          style={[styles.smallButton, { flex: 1, alignItems: 'center', paddingVertical: 8 }]}
+                                          onPress={() => {
+                                            setMenuItemEditingId(null);
+                                            setMenuItemEditDraft('');
+                                          }}
+                                        >
+                                          <Text style={styles.smallButtonText}>Cancel</Text>
+                                        </Pressable>
+                                      </View>
+                                    </View>
+                                  ) : (
+                                    <Pressable
+                                      style={{ flex: 1 }}
+                                      onPress={() => {
+                                        setMenuItemEditingId(item.id);
+                                        setMenuItemEditDraft(item.wait_staff_instructions);
+                                      }}
+                                    >
+                                      <Text style={styles.nativeListRowTitle}>{item.name}</Text>
+                                      {item.wait_staff_instructions ? (
+                                        <Text style={styles.nativeListRowSubtitle}>
+                                          {item.wait_staff_instructions}
+                                        </Text>
+                                      ) : (
+                                        <Text style={[styles.nativeListRowSubtitle, { color: '#94a3b8' }]}>
+                                          Tap to add instructions
+                                        </Text>
+                                      )}
+                                    </Pressable>
+                                  )}
+                                </View>
+                              );
+                            })}
+                          </View>
+                        </View>
+                      );
+                    });
+                  })()}
+                </View>
+              </TouchableWithoutFeedback>
             </ScrollView>
           )
         ) : (
