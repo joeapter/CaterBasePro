@@ -61,6 +61,14 @@
         .section-title {
             margin-top: 2rem;
             font-size: 1.2rem;
+            /* Never leave a section heading alone at the bottom of a page */
+            page-break-after: avoid;
+            break-after: avoid;
+        }
+        .section-block {
+            /* Keep small sections together where possible */
+            page-break-inside: avoid;
+            break-inside: avoid;
         }
         .item-notes {
             margin-top: 0.2rem;
@@ -86,7 +94,7 @@
             max-height: 80px;
         }
         @page {
-            margin: 1.4cm 1.4cm 2cm 1.4cm;
+            margin: 2cm 1.5cm 2.5cm 1.5cm;
         }
         @media print {
             body {
@@ -131,28 +139,30 @@
 
             {% if sheet.sections %}
                 {% for section in sheet.sections %}
-                    <h3 class="section-title">{{ section.category }}</h3>
-                    <table>
-                        <thead>
-                            <tr>
-                                <th class="col-item">Menu Item</th>
-                                <th class="col-instructions">Instructions</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for item in section.items %}
+                    <div class="section-block">
+                        <h3 class="section-title">{{ section.category }}</h3>
+                        <table>
+                            <thead>
                                 <tr>
-                                    <td class="col-item">
-                                        <div>{{ item.item }}</div>
-                                        {% if item.notes %}
-                                            <div class="item-notes">({{ item.notes }})</div>
-                                        {% endif %}
-                                    </td>
-                                    <td class="col-instructions">{{ item.wait_staff_instructions }}</td>
+                                    <th class="col-item">Menu Item</th>
+                                    <th class="col-instructions">Instructions</th>
                                 </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
+                            </thead>
+                            <tbody>
+                                {% for item in section.items %}
+                                    <tr>
+                                        <td class="col-item">
+                                            <div>{{ item.item }}</div>
+                                            {% if item.notes %}
+                                                <div class="item-notes">({{ item.notes }})</div>
+                                            {% endif %}
+                                        </td>
+                                        <td class="col-instructions">{{ item.wait_staff_instructions }}</td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
                 {% endfor %}
             {% else %}
                 <p class="empty-note">No menu items assigned for this meal.</p>
