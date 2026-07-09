@@ -14,7 +14,8 @@ from django.forms.formsets import all_valid
 from django.http import HttpResponse, HttpResponseRedirect, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import path, reverse
-from django.utils.html import format_html
+from django.utils.html import format_html, format_html_join
+from django.utils.safestring import mark_safe
 from django.utils.translation import gettext as _
 
 from .models import (
@@ -27,6 +28,9 @@ from .models import (
     EstimateFoodChoice,
     EstimateExtraItem,
     MenuTemplate,
+    PresetMenu,
+    PresetMenuCategory,
+    PresetMenuItem,
     ClientInquiry,
     ClientProfile,
     CatererTask,
@@ -1153,6 +1157,263 @@ class MenuTemplateAdmin(admin.ModelAdmin):
             form.base_fields["caterer"].queryset = CatererAccount.objects.filter(owner=request.user)
         return form
 
+
+# ==========================
+# PRESET (CHOICE) MENU ADMIN
+# ==========================
+def _scoped_menu_item_queryset(request):
+    qs = MenuItem.objects.filter(is_active=True).select_related("category")
+    if not request.user.is_superuser:
+        qs = qs.filter(caterer__owner=request.user)
+    return qs.order_by(
+        F("category__sort_order").asc(nulls_last=True),
+        F("category__name").asc(nulls_last=True),
+        "name",
+    )
+
+
+def _preset_pricing_html(obj):
+    """Save-and-see readout of item prices + surcharges for a preset menu."""
+    if not obj or not obj.pk:
+        return format_html("<em>Save first to see the pricing breakdown.</em>")
+    categories = list(obj.categories.prefetch_related("items__menu_item__category").all())
+    if not categories:
+        return format_html("<em>Add categories and options, then save to see prices per person.</em>")
+
+    rows = []
+    for cat in categories:
+        rule = cat.choice_label() or "no pick rule set"
+        rows.append(format_html(
+            "<tr><th colspan='3' style='text-align:left;padding:10px 0 2px;border-bottom:1px solid #e5e7eb;'>"
+            "{} &nbsp;<span style='font-weight:400;color:#6b7280;'>· {}</span></th></tr>",
+            cat.name, rule,
+        ))
+        items = list(cat.items.all())
+        if not items:
+            rows.append(format_html(
+                "<tr><td colspan='3' style='padding:2px 0 2px 18px;color:#9ca3af;'><em>No options yet</em></td></tr>"
+            ))
+        for pmi in items:
+            surcharge = pmi.surcharge_per_person or Decimal("0.00")
+            if surcharge > 0:
+                surcharge_txt = format_html("<span style='color:#b45309;font-weight:600;'>+{}/person</span>", surcharge)
+            else:
+                surcharge_txt = format_html("<span style='color:#9ca3af;'>included</span>")
+            rows.append(format_html(
+                "<tr><td style='padding:2px 14px 2px 18px;'>{}</td>"
+                "<td style='text-align:right;color:#374151;white-space:nowrap;'>menu {}/pp</td>"
+                "<td style='text-align:right;white-space:nowrap;padding-left:14px;'>{}</td></tr>",
+                pmi.menu_item.name, pmi.item_price_per_person(), surcharge_txt,
+            ))
+
+    table = format_html(
+        "<table style='border-collapse:collapse;font-size:13px;min-width:420px;'>{}</table>",
+        mark_safe("".join(rows)),
+    )
+    summary = format_html(
+        "<div style='margin-top:12px;padding:10px 14px;background:#f8fafc;border:1px solid #e5e7eb;"
+        "border-radius:8px;font-size:13px;line-height:1.6;'>"
+        "<div><strong>Your set price:</strong> {} / person</div>"
+        "<div style='color:#6b7280;'>Reference — one of each option at menu prices: "
+        "<strong>{}</strong> / person</div>"
+        "<div style='color:#6b7280;'>Premium picks add their surcharge per guest on top of the set price.</div>"
+        "</div>",
+        obj.price_per_person, obj.base_cost_per_person(),
+    )
+    return format_html("{}{}", table, summary)
+
+
+class PresetMenuItemInline(admin.TabularInline):
+    model = PresetMenuItem
+    extra = 3
+    fields = ("menu_item", "menu_price_display", "surcharge_per_person", "sort_order")
+    readonly_fields = ("menu_price_display",)
+
+    def menu_price_display(self, obj):
+        if not obj or not obj.pk:
+            return "—"
+        return f"{obj.item_price_per_person()} / person"
+    menu_price_display.short_description = "Menu price"
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if db_field.name == "menu_item":
+            kwargs["queryset"] = _scoped_menu_item_queryset(request)
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
+
+
+class PresetMenuCategoryInline(admin.TabularInline):
+    model = PresetMenuCategory
+    extra = 1
+    fields = ("name", "selection_label", "min_choices", "max_choices", "sort_order")
+    show_change_link = True
+
+
+@admin.register(PresetMenuCategory)
+class PresetMenuCategoryAdmin(admin.ModelAdmin):
+    list_display = ("name", "preset_menu", "choice_label", "item_count")
+    list_filter = ("preset_menu__caterer", "preset_menu")
+    search_fields = ("name", "preset_menu__name")
+    inlines = [PresetMenuItemInline]
+    fields = (
+        "preset_menu",
+        "name",
+        "selection_label",
+        ("min_choices", "max_choices"),
+        "sort_order",
+        "items_readout",
+    )
+    readonly_fields = ("items_readout",)
+
+    def get_queryset(self, request):
+        qs = super().get_queryset(request).select_related("preset_menu")
+        if request.user.is_superuser:
+            return qs
+        return qs.filter(preset_menu__caterer__owner=request.user)
+
+    def item_count(self, obj):
+        return obj.items.count()
+    item_count.short_description = "Options"
+
+    def choice_label(self, obj):
+        return obj.choice_label()
+    choice_label.short_description = "Rule"
+
+    def items_readout(self, obj):
+        if not obj or not obj.pk:
+            return format_html("<em>Save to see option prices.</em>")
+        items = list(obj.items.select_related("menu_item").all())
+        if not items:
+            return format_html("<em>No options yet — add rows above and save.</em>")
+        rows = format_html_join(
+            "",
+            "<tr><td style='padding:2px 14px 2px 0;'>{}</td>"
+            "<td style='text-align:right;color:#374151;'>menu {}/pp</td>"
+            "<td style='text-align:right;padding-left:14px;color:{};'>{}</td></tr>",
+            (
+                (
+                    pmi.menu_item.name,
+                    pmi.item_price_per_person(),
+                    "#b45309" if (pmi.surcharge_per_person or 0) > 0 else "#9ca3af",
+                    (f"+{pmi.surcharge_per_person}/person" if (pmi.surcharge_per_person or 0) > 0 else "included"),
+                )
+                for pmi in items
+            ),
+        )
+        return format_html(
+            "<table style='border-collapse:collapse;font-size:13px;'>{}</table>", rows
+        )
+    items_readout.short_description = "Option prices"
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if db_field.name == "preset_menu" and not request.user.is_superuser:
+            kwargs["queryset"] = PresetMenu.objects.filter(caterer__owner=request.user)
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
+
+
+@admin.register(PresetMenu)
+class PresetMenuAdmin(admin.ModelAdmin):
+    list_display = ("name", "caterer", "menu_type", "price_per_person", "is_active", "print_button")
+    list_filter = ("caterer", "menu_type", "is_active")
+    search_fields = ("name",)
+    inlines = [PresetMenuCategoryInline]
+    fields = (
+        "caterer",
+        "name",
+        "menu_type",
+        "description",
+        "price_per_person",
+        "is_active",
+        "pricing_readout",
+    )
+    readonly_fields = ("pricing_readout",)
+
+    def get_queryset(self, request):
+        qs = super().get_queryset(request).select_related("caterer")
+        if request.user.is_superuser:
+            return qs
+        return qs.filter(caterer__owner=request.user)
+
+    def get_form(self, request, obj=None, **kwargs):
+        form = super().get_form(request, obj, **kwargs)
+        if not request.user.is_superuser and "caterer" in form.base_fields:
+            form.base_fields["caterer"].queryset = CatererAccount.objects.filter(owner=request.user)
+        return form
+
+    def has_change_permission(self, request, obj=None):
+        if request.user.is_superuser:
+            return True
+        return obj is None or obj.caterer.owner == request.user
+
+    def has_delete_permission(self, request, obj=None):
+        if request.user.is_superuser:
+            return True
+        return obj is None or obj.caterer.owner == request.user
+
+    def pricing_readout(self, obj):
+        return _preset_pricing_html(obj)
+    pricing_readout.short_description = "Pricing breakdown"
+
+    def get_urls(self):
+        urls = super().get_urls()
+        custom = [
+            path(
+                "<int:preset_id>/print/",
+                self.admin_site.admin_view(self.print_menu),
+                name="client_estimates_presetmenu_print",
+            ),
+        ]
+        return custom + urls
+
+    def print_button(self, obj):
+        url = reverse("admin:client_estimates_presetmenu_print", args=[obj.pk])
+        return format_html('<a class="button" target="_blank" href="{}">Print menu</a>', url)
+    print_button.short_description = "Customer menu"
+
+    def print_menu(self, request, preset_id):
+        preset = get_object_or_404(
+            PresetMenu.objects.select_related("caterer"), pk=preset_id
+        )
+        if not request.user.is_superuser and preset.caterer.owner != request.user:
+            raise PermissionDenied("You do not have access to this preset menu.")
+
+        categories = []
+        for cat in preset.categories.prefetch_related("items__menu_item").all():
+            options = []
+            for pmi in cat.items.all():
+                options.append({
+                    "name": pmi.menu_item.name,
+                    "description": pmi.menu_item.description,
+                    "is_premium": (pmi.surcharge_per_person or Decimal("0.00")) > 0,
+                })
+            if options:
+                categories.append({
+                    "name": cat.name,
+                    "rule": cat.choice_label(),
+                    "options": options,
+                })
+
+        caterer = preset.caterer
+        logo_url = None
+        if caterer.brand_logo:
+            logo_url = request.build_absolute_uri(caterer.brand_logo.url)
+
+        context = {
+            "preset": preset,
+            "categories": categories,
+            "caterer": caterer,
+            "has_premium": any(o["is_premium"] for c in categories for o in c["options"]),
+            "auto_print": request.GET.get("print") == "1",
+            "brand_logo": logo_url,
+            "brand_font": caterer.get_brand_font_stack(),
+            "primary_color": caterer.brand_primary_color or "#0f172a",
+            "accent_color": caterer.brand_accent_color or "#b08c6d",
+            "contact_lines": [
+                line for line in [caterer.company_phone, caterer.company_email, caterer.company_address] if line
+            ],
+        }
+        return render(request, "admin/preset_menu_print.html", context)
+
+
 # ==========================
 # ESTIMATE ADMIN – CHECKLIST + TEMPLATES
 # ==========================
@@ -1169,6 +1430,13 @@ class EstimateAdminForm(forms.ModelForm):
         required=False,
         label="Apply menu template",
         help_text="If you pick a template and save, items from that template will be applied.",
+    )
+    use_preset_menu = forms.ModelChoiceField(
+        queryset=PresetMenu.objects.none(),
+        required=False,
+        label="Apply preset (choice) menu",
+        help_text="Pick a preset menu and save to auto-load its options and set the fixed per-person price. "
+        "Then uncheck any options the customer didn't choose — premium picks add their surcharge per guest.",
     )
     save_as_template = forms.CharField(
         required=False,
@@ -1228,8 +1496,14 @@ class EstimateAdminForm(forms.ModelForm):
                 caterer=caterer,
                 menu_type=menu_type,
             )
+            self.fields["use_preset_menu"].queryset = PresetMenu.objects.filter(
+                caterer=caterer,
+                menu_type=menu_type,
+                is_active=True,
+            )
         else:
             self.fields["use_template"].queryset = MenuTemplate.objects.none()
+            self.fields["use_preset_menu"].queryset = PresetMenu.objects.none()
 
         # Determine meals
         raw_meal_input = self.data.get("meal_plan_input") if self.data else None
@@ -1465,6 +1739,7 @@ class EstimateAdmin(admin.ModelAdmin):
                 "classes": ("estimate-step", "estimate-step-2"),
                 "fields": (
                     "meal_plan_input",
+                    "use_preset_menu",
                     "use_template",
                     "save_as_template",
                 ),
@@ -1717,6 +1992,24 @@ class EstimateAdmin(admin.ModelAdmin):
                     servings = form.cleaned_data.get(servings_name) or item.default_servings_per_person
                     selected_entries.append((item, meal_name, servings))
 
+        # If a preset (choice) menu was chosen and nothing selected manually,
+        # seed the primary meal with all of the preset's options so they show up
+        # in the checklist to be refined. Remember the preset on the estimate so
+        # its per-person price + surcharges drive the total.
+        use_preset_menu = form.cleaned_data.get("use_preset_menu")
+        if use_preset_menu:
+            obj.preset_menu = use_preset_menu
+        if use_preset_menu and not selected_entries:
+            for mid in use_preset_menu.all_menu_item_ids():
+                try:
+                    mi = next(m for m in menu_items if m.id == mid)
+                except StopIteration:
+                    try:
+                        mi = MenuItem.objects.get(id=mid)
+                    except MenuItem.DoesNotExist:
+                        continue
+                selected_entries.append((mi, meal_names[0], mi.default_servings_per_person))
+
         # If a template was chosen and nothing selected manually, use template for primary meal
         use_template = form.cleaned_data.get("use_template")
         if use_template and not selected_entries:
@@ -1775,6 +2068,27 @@ class EstimateAdmin(admin.ModelAdmin):
             obj.tablecloth_details,
             form.cleaned_data.get("plasticware_color"),
         )
+
+        # Preset (choice) menu pricing: fix the primary meal's per-person price to
+        # the preset base price plus any surcharges for premium options that were
+        # actually selected. Written as a manual meal total so the estimate lists
+        # the chosen dishes but charges the fixed prix-fixe price per guest.
+        if obj.preset_menu_id:
+            preset = obj.preset_menu
+            surcharge_map = preset.surcharge_map()
+            primary_meal = meal_names[0]
+            selected_item_ids = {
+                item.id for item, meal_name, _ in selected_entries if meal_name == primary_meal
+            }
+            surcharge_total = sum(
+                (surcharge_map[mid] for mid in selected_item_ids if mid in surcharge_map),
+                Decimal("0.00"),
+            )
+            per_person = (preset.price_per_person or Decimal("0.00")) + surcharge_total
+            totals = dict(obj.manual_meal_totals or {})
+            totals[primary_meal] = str(per_person.quantize(Decimal("0.01")))
+            obj.manual_meal_totals = totals
+
         # After rebuilding related rows, recalc totals now that selections exist
         obj.save()
 

@@ -343,6 +343,160 @@ class MenuTemplate(models.Model):
         return f"{self.name} ({self.caterer.name})"
 
 
+class PresetMenu(models.Model):
+    """
+    A prix-fixe / choice menu: a fixed price-per-person menu built from curated
+    categories the customer picks from (e.g. "Appetizer – choose 3"). Premium
+    options can carry a per-person surcharge. Can be printed for the customer or
+    poured into a regular estimate.
+    """
+    caterer = models.ForeignKey(
+        CatererAccount, on_delete=models.CASCADE, related_name="preset_menus"
+    )
+    name = models.CharField(max_length=200)
+    description = models.TextField(
+        blank=True,
+        help_text="Optional intro text shown at the top of the customer menu.",
+    )
+    price_per_person = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        default=Decimal("0.00"),
+        help_text="Fixed base price per guest. Premium item surcharges are added on top of this.",
+    )
+    menu_type = models.CharField(
+        max_length=20,
+        choices=MENU_TYPE_CHOICES,
+        default="STANDARD",
+    )
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["name"]
+        verbose_name = "Preset menu"
+        verbose_name_plural = "Preset menus"
+
+    def __str__(self):
+        return f"{self.name} ({self.caterer.name})"
+
+    def surcharge_map(self):
+        """
+        Returns {menu_item_id: surcharge_per_person} for every premium option in
+        this preset (items whose surcharge is greater than zero).
+        """
+        result = {}
+        for cat in self.categories.all():
+            for pmi in cat.items.all():
+                surcharge = pmi.surcharge_per_person or Decimal("0.00")
+                if surcharge > 0:
+                    # Keep the highest surcharge if the same item appears twice.
+                    result[pmi.menu_item_id] = max(result.get(pmi.menu_item_id, Decimal("0.00")), surcharge)
+        return result
+
+    def all_menu_item_ids(self):
+        ids = []
+        for cat in self.categories.all():
+            for pmi in cat.items.all():
+                if pmi.menu_item_id not in ids:
+                    ids.append(pmi.menu_item_id)
+        return ids
+
+    def base_cost_per_person(self):
+        """
+        Informational: what one of each included (non-surcharge) option would cost
+        per guest at menu prices. Helps decide the fixed price while building.
+        """
+        total = Decimal("0.00")
+        for cat in self.categories.all():
+            for pmi in cat.items.all():
+                mi = pmi.menu_item
+                servings = mi.default_servings_per_person or Decimal("1.00")
+                total += (mi.cost_per_serving * servings * mi.markup)
+        return total.quantize(Decimal("0.01"))
+
+
+class PresetMenuCategory(models.Model):
+    """
+    A course / section inside a preset menu, carrying a selection rule
+    (e.g. "Appetizer – Choose 3", "Soup – Pick one or none").
+    """
+    preset_menu = models.ForeignKey(
+        PresetMenu, on_delete=models.CASCADE, related_name="categories"
+    )
+    name = models.CharField(max_length=120)
+    selection_label = models.CharField(
+        max_length=120,
+        blank=True,
+        help_text="Printed instruction, e.g. 'Choose 3' or 'Pick one (or none)'. "
+        "Auto-derived from the pick counts if left blank.",
+    )
+    min_choices = models.PositiveIntegerField(
+        default=0,
+        help_text="Fewest options the customer must pick (0 = optional).",
+    )
+    max_choices = models.PositiveIntegerField(
+        default=1,
+        help_text="Most options the customer may pick.",
+    )
+    sort_order = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ["sort_order", "id"]
+        verbose_name = "Preset menu category"
+        verbose_name_plural = "Preset menu categories"
+
+    def __str__(self):
+        return f"{self.name} – {self.preset_menu.name}"
+
+    def choice_label(self):
+        if (self.selection_label or "").strip():
+            return self.selection_label.strip()
+        lo = self.min_choices or 0
+        hi = self.max_choices or 0
+        if hi <= 0:
+            return ""
+        if lo == hi:
+            return f"Choose {hi}"
+        if lo == 0:
+            return f"Choose up to {hi}"
+        return f"Choose {lo}–{hi}"
+
+
+class PresetMenuItem(models.Model):
+    """
+    One option inside a preset category, pointing at an existing MenuItem and
+    optionally carrying a per-person surcharge for premium picks.
+    """
+    category = models.ForeignKey(
+        PresetMenuCategory, on_delete=models.CASCADE, related_name="items"
+    )
+    menu_item = models.ForeignKey(
+        MenuItem, on_delete=models.CASCADE, related_name="preset_uses"
+    )
+    surcharge_per_person = models.DecimalField(
+        max_digits=8,
+        decimal_places=2,
+        default=Decimal("0.00"),
+        help_text="Extra charge per guest when this premium option is chosen. Leave 0 for included items.",
+    )
+    sort_order = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ["sort_order", "id"]
+        verbose_name = "Preset menu item"
+        verbose_name_plural = "Preset menu items"
+
+    def __str__(self):
+        return f"{self.menu_item.name} in {self.category.name}"
+
+    def item_price_per_person(self):
+        mi = self.menu_item
+        servings = mi.default_servings_per_person or Decimal("1.00")
+        return (mi.cost_per_serving * servings * mi.markup).quantize(Decimal("0.01"))
+
+
 class ExtraItem(models.Model):
     """
     Decor / rental / add-on items (popcorn machine, projector, etc).
@@ -456,6 +610,14 @@ class Estimate(models.Model):
         max_length=20,
         choices=MENU_TYPE_CHOICES,
         default="STANDARD",
+    )
+    preset_menu = models.ForeignKey(
+        "PresetMenu",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="estimates",
+        help_text="If set, this estimate was built from a preset / choice menu.",
     )
 
     # Included disposables
