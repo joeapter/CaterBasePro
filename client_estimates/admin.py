@@ -1172,6 +1172,17 @@ def _scoped_menu_item_queryset(request):
     )
 
 
+def _user_owns_any_caterer(request):
+    """Preset menus are managed by caterer owners, so add-rights follow ownership
+    rather than Django's per-model permission grants (which new models lack)."""
+    user = getattr(request, "user", None)
+    if not getattr(user, "is_authenticated", False):
+        return False
+    if user.is_superuser:
+        return True
+    return CatererAccount.objects.filter(owner=user).exists()
+
+
 def _preset_pricing_html(obj):
     """Save-and-see readout of item prices + surcharges for a preset menu."""
     if not obj or not obj.pk:
@@ -1223,7 +1234,24 @@ def _preset_pricing_html(obj):
     return format_html("{}{}", table, summary)
 
 
-class PresetMenuItemInline(admin.TabularInline):
+class _OwnerGatedInline(admin.TabularInline):
+    """Inline permissions follow the parent object's access (which is already
+    scoped to the caterer owner), so we don't require per-model Django grants."""
+
+    def has_add_permission(self, request, obj=None):
+        return _user_owns_any_caterer(request)
+
+    def has_change_permission(self, request, obj=None):
+        return _user_owns_any_caterer(request)
+
+    def has_delete_permission(self, request, obj=None):
+        return _user_owns_any_caterer(request)
+
+    def has_view_permission(self, request, obj=None):
+        return _user_owns_any_caterer(request)
+
+
+class PresetMenuItemInline(_OwnerGatedInline):
     model = PresetMenuItem
     extra = 3
     fields = ("menu_item", "menu_price_display", "surcharge_per_person", "sort_order")
@@ -1241,7 +1269,7 @@ class PresetMenuItemInline(admin.TabularInline):
         return super().formfield_for_foreignkey(db_field, request, **kwargs)
 
 
-class PresetMenuCategoryInline(admin.TabularInline):
+class PresetMenuCategoryInline(_OwnerGatedInline):
     model = PresetMenuCategory
     extra = 1
     fields = ("name", "selection_label", "min_choices", "max_choices", "sort_order")
@@ -1269,6 +1297,22 @@ class PresetMenuCategoryAdmin(admin.ModelAdmin):
         if request.user.is_superuser:
             return qs
         return qs.filter(preset_menu__caterer__owner=request.user)
+
+    def has_add_permission(self, request):
+        return _user_owns_any_caterer(request)
+
+    def has_change_permission(self, request, obj=None):
+        if request.user.is_superuser:
+            return True
+        if obj is None:
+            return _user_owns_any_caterer(request)
+        return obj.preset_menu.caterer.owner == request.user
+
+    def has_delete_permission(self, request, obj=None):
+        return self.has_change_permission(request, obj)
+
+    def has_view_permission(self, request, obj=None):
+        return self.has_change_permission(request, obj)
 
     def item_count(self, obj):
         return obj.items.count()
@@ -1339,6 +1383,9 @@ class PresetMenuAdmin(admin.ModelAdmin):
             form.base_fields["caterer"].queryset = CatererAccount.objects.filter(owner=request.user)
         return form
 
+    def has_add_permission(self, request):
+        return _user_owns_any_caterer(request)
+
     def has_change_permission(self, request, obj=None):
         if request.user.is_superuser:
             return True
@@ -1348,6 +1395,9 @@ class PresetMenuAdmin(admin.ModelAdmin):
         if request.user.is_superuser:
             return True
         return obj is None or obj.caterer.owner == request.user
+
+    def has_view_permission(self, request, obj=None):
+        return self.has_change_permission(request, obj)
 
     def pricing_readout(self, obj):
         return _preset_pricing_html(obj)
