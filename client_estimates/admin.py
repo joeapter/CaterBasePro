@@ -1251,8 +1251,18 @@ class _OwnerGatedInline(admin.TabularInline):
         return _user_owns_any_caterer(request)
 
 
+def _label_menu_item_with_price(formfield):
+    """Show each menu item's per-person price right in the dropdown label."""
+    if formfield is not None:
+        formfield.label_from_instance = (
+            lambda obj: f"{obj.name} — {obj.price_per_serving()}/pp"
+        )
+    return formfield
+
+
 class PresetMenuItemInline(_OwnerGatedInline):
     model = PresetMenuItem
+    fk_name = "category"
     extra = 3
     fields = ("menu_item", "menu_price_display", "surcharge_per_person", "sort_order")
     readonly_fields = ("menu_price_display",)
@@ -1266,7 +1276,46 @@ class PresetMenuItemInline(_OwnerGatedInline):
     def formfield_for_foreignkey(self, db_field, request, **kwargs):
         if db_field.name == "menu_item":
             kwargs["queryset"] = _scoped_menu_item_queryset(request)
-        return super().formfield_for_foreignkey(db_field, request, **kwargs)
+        formfield = super().formfield_for_foreignkey(db_field, request, **kwargs)
+        if db_field.name == "menu_item":
+            formfield = _label_menu_item_with_price(formfield)
+        return formfield
+
+
+class PresetMenuOptionInline(_OwnerGatedInline):
+    """Add dishes to each category directly on the preset menu page."""
+    model = PresetMenuItem
+    fk_name = "preset_menu"
+    extra = 6
+    verbose_name = "Option"
+    verbose_name_plural = "Options — pick the dishes for each category (prices shown)"
+    fields = ("category", "menu_item", "menu_price_display", "surcharge_per_person", "sort_order")
+    readonly_fields = ("menu_price_display",)
+
+    def menu_price_display(self, obj):
+        if not obj or not obj.pk:
+            return "—"
+        return f"{obj.item_price_per_person()} / person"
+    menu_price_display.short_description = "Menu price"
+
+    def get_formset(self, request, obj=None, **kwargs):
+        # Stash the parent preset so we can scope the category dropdown to it.
+        self._parent_preset = obj
+        return super().get_formset(request, obj, **kwargs)
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if db_field.name == "menu_item":
+            kwargs["queryset"] = _scoped_menu_item_queryset(request)
+        if db_field.name == "category":
+            parent = getattr(self, "_parent_preset", None)
+            if parent is not None and parent.pk:
+                kwargs["queryset"] = PresetMenuCategory.objects.filter(preset_menu=parent)
+            else:
+                kwargs["queryset"] = PresetMenuCategory.objects.none()
+        formfield = super().formfield_for_foreignkey(db_field, request, **kwargs)
+        if db_field.name == "menu_item":
+            formfield = _label_menu_item_with_price(formfield)
+        return formfield
 
 
 class PresetMenuCategoryInline(_OwnerGatedInline):
@@ -1359,7 +1408,7 @@ class PresetMenuAdmin(admin.ModelAdmin):
     list_display = ("name", "caterer", "menu_type", "price_per_person", "is_active", "print_button")
     list_filter = ("caterer", "menu_type", "is_active")
     search_fields = ("name",)
-    inlines = [PresetMenuCategoryInline]
+    inlines = [PresetMenuCategoryInline, PresetMenuOptionInline]
     fields = (
         "caterer",
         "name",

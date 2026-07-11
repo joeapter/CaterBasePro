@@ -469,6 +469,15 @@ class PresetMenuItem(models.Model):
     One option inside a preset category, pointing at an existing MenuItem and
     optionally carrying a per-person surcharge for premium picks.
     """
+    # Denormalized link to the parent menu so options can be edited directly on
+    # the PresetMenu page (kept in sync with category.preset_menu on save).
+    preset_menu = models.ForeignKey(
+        PresetMenu,
+        on_delete=models.CASCADE,
+        related_name="options",
+        null=True,
+        blank=True,
+    )
     category = models.ForeignKey(
         PresetMenuCategory, on_delete=models.CASCADE, related_name="items"
     )
@@ -495,6 +504,12 @@ class PresetMenuItem(models.Model):
         mi = self.menu_item
         servings = mi.default_servings_per_person or Decimal("1.00")
         return (mi.cost_per_serving * servings * mi.markup).quantize(Decimal("0.01"))
+
+    def save(self, *args, **kwargs):
+        # Keep the denormalized preset_menu consistent with the chosen category.
+        if self.category_id:
+            self.preset_menu_id = self.category.preset_menu_id
+        super().save(*args, **kwargs)
 
 
 class ExtraItem(models.Model):
