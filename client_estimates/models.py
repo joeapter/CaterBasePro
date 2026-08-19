@@ -727,6 +727,22 @@ class Estimate(models.Model):
     grand_total = models.DecimalField(
         max_digits=12, decimal_places=2, default=Decimal("0.00")
     )
+    discount_label = models.CharField(
+        "Discount label",
+        max_length=120,
+        blank=True,
+        help_text="Optional label shown next to the discount on the PDF (e.g. 'Loyalty discount').",
+    )
+    discount_amount = models.DecimalField(
+        "Discount",
+        max_digits=12,
+        decimal_places=2,
+        default=Decimal("0.00"),
+        help_text="Amount taken off the grand total. Leave at 0 to keep the discount off the PDF.",
+    )
+    subtotal_before_discount = models.DecimalField(
+        max_digits=12, decimal_places=2, default=Decimal("0.00")
+    )
     deposit_amount = models.DecimalField(
         "Deposit due",
         max_digits=12,
@@ -1071,6 +1087,7 @@ class Estimate(models.Model):
             self.extras_total = Decimal("0.00")
             self.staff_total = Decimal("0.00")
             self.dishes_total = Decimal("0.00")
+            self.subtotal_before_discount = Decimal("0.00")
             self.grand_total = Decimal("0.00")
             self.deposit_amount = Decimal("0.00")
             self.balance_due = Decimal("0.00")
@@ -1083,7 +1100,13 @@ class Estimate(models.Model):
 
         food_total = self.meal_grand_total()
 
-        grand = food_total + extras + staff + dishes
+        subtotal = food_total + extras + staff + dishes
+        discount = self.discount_amount or Decimal("0.00")
+        if discount < Decimal("0.00"):
+            discount = Decimal("0.00")
+        if discount > subtotal:
+            discount = subtotal
+        grand = subtotal - discount
         deposit_rate = (self.deposit_percentage or Decimal("0.00")) / Decimal("100.0")
         deposit = (grand * deposit_rate).quantize(Decimal("0.01"))
         received = self.deposit_received or Decimal("0.00")
@@ -1096,6 +1119,7 @@ class Estimate(models.Model):
             extras = (extras * rate).quantize(Decimal("0.01"))
             staff = (staff * rate).quantize(Decimal("0.01"))
             dishes = (dishes * rate).quantize(Decimal("0.01"))
+            subtotal = (subtotal * rate).quantize(Decimal("0.01"))
             grand = (grand * rate).quantize(Decimal("0.01"))
             deposit = (deposit * rate).quantize(Decimal("0.01"))
             deposit_applied = (deposit_applied * rate).quantize(Decimal("0.01"))
@@ -1105,9 +1129,19 @@ class Estimate(models.Model):
         self.extras_total = extras
         self.staff_total = staff
         self.dishes_total = dishes
+        self.subtotal_before_discount = subtotal.quantize(Decimal("0.01"))
         self.grand_total = grand.quantize(Decimal("0.01"))
         self.deposit_amount = deposit
         self.balance_due = balance.quantize(Decimal("0.01"))
+
+    @property
+    def discount_display(self) -> Decimal:
+        """Discount actually applied, in the estimate's display currency."""
+        subtotal = self.subtotal_before_discount or Decimal("0.00")
+        grand = self.grand_total or Decimal("0.00")
+        if subtotal <= grand:
+            return Decimal("0.00")
+        return (subtotal - grand).quantize(Decimal("0.01"))
 
     def save(self, *args, **kwargs):
         if not self.payment_terms and self.caterer_id:

@@ -1818,6 +1818,10 @@ def _serialize_estimate_builder_payload(request, user, estimate, access_map=None
         "extras_total": _to_decimal_string(estimate.extras_total, "0.00") if can_view_billing else "",
         "staff_total": _to_decimal_string(estimate.staff_total, "0.00") if can_view_billing else "",
         "dishes_total": _to_decimal_string(estimate.dishes_total, "0.00") if can_view_billing else "",
+        "subtotal_before_discount": _to_decimal_string(estimate.subtotal_before_discount, "0.00")
+        if can_view_billing
+        else "",
+        "discount_amount": _to_decimal_string(estimate.discount_display, "0.00") if can_view_billing else "",
         "grand_total": _to_decimal_string(estimate.grand_total, "0.00") if can_view_billing else "",
         "deposit_amount": _to_decimal_string(estimate.deposit_amount, "0.00") if can_view_billing else "",
         "balance_due": _to_decimal_string(estimate.balance_due, "0.00") if can_view_billing else "",
@@ -1943,6 +1947,8 @@ def _serialize_estimate_builder_payload(request, user, estimate, access_map=None
             "signature_name": estimate.signature_name or "",
             "signature_title": estimate.signature_title or "",
             "signature_date": estimate.signature_date.isoformat() if estimate.signature_date else "",
+            "discount_label": estimate.discount_label or "",
+            "discount_amount": _to_decimal_string(estimate.discount_amount, "0.00"),
             "deposit_percentage": _to_decimal_string(estimate.deposit_percentage, "0.00"),
             "deposit_received": _to_decimal_string(estimate.deposit_received, "0.00"),
             "kids_discount_percentage": _to_decimal_string(estimate.kids_discount_percentage, "0.00"),
@@ -2120,6 +2126,13 @@ def xpenz_estimate_builder(request, estimate_id):
         if staff_hours is None:
             return _json_error("Staff hours must be a non-negative number.", status=400)
         estimate.staff_hours = staff_hours
+    if "discount_label" in estimate_payload:
+        estimate.discount_label = _normalize_item_text(estimate_payload.get("discount_label"))[:120]
+    if "discount_amount" in estimate_payload:
+        discount_amount = _parse_decimal(estimate_payload.get("discount_amount"))
+        if discount_amount is None:
+            return _json_error("Discount must be a non-negative number.", status=400)
+        estimate.discount_amount = discount_amount
     if "kids_discount_percentage" in estimate_payload:
         kids_discount_percentage = _parse_decimal(estimate_payload.get("kids_discount_percentage"))
         if kids_discount_percentage is None:

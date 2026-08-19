@@ -1087,6 +1087,16 @@
                         <th>{% translate 'Flat price per person' %}</th>
                         <td>{{ per_person_flat }} {{ estimate.currency }}</td>
                     </tr>
+                    {% if estimate.discount_display %}
+                    <tr>
+                        <th>{% translate 'Subtotal' %}</th>
+                        <td>{{ estimate.subtotal_before_discount }} {{ estimate.currency }}</td>
+                    </tr>
+                    <tr>
+                        <th>{{ estimate.discount_label|default:_('Discount') }}</th>
+                        <td>&minus;{{ estimate.discount_display }} {{ estimate.currency }}</td>
+                    </tr>
+                    {% endif %}
                     <tr>
                         <th>{% translate 'Grand total' %}</th>
                         <td>{{ estimate.grand_total }} {{ estimate.currency }}</td>
@@ -1133,6 +1143,16 @@
                             <th>{% translate 'Dishes Delivery & Pickup' %}</th>
                             <td>{{ dishes_delivery_fee }} {{ estimate.currency }}</td>
                         </tr>
+                    {% endif %}
+                    {% if estimate.discount_display %}
+                    <tr>
+                        <th>{% translate 'Subtotal' %}</th>
+                        <td>{{ estimate.subtotal_before_discount }} {{ estimate.currency }}</td>
+                    </tr>
+                    <tr>
+                        <th>{{ estimate.discount_label|default:_('Discount') }}</th>
+                        <td>&minus;{{ estimate.discount_display }} {{ estimate.currency }}</td>
+                    </tr>
                     {% endif %}
                     <tr>
                         <th>{% translate 'Grand total' %}</th>
