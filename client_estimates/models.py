@@ -743,6 +743,24 @@ class Estimate(models.Model):
     subtotal_before_discount = models.DecimalField(
         max_digits=12, decimal_places=2, default=Decimal("0.00")
     )
+    discount_applied = models.DecimalField(
+        max_digits=12, decimal_places=2, default=Decimal("0.00")
+    )
+    include_vat = models.BooleanField(
+        "Add VAT",
+        default=False,
+        help_text="Adds VAT to the total and shows the VAT line on the printed totals page.",
+    )
+    vat_percentage = models.DecimalField(
+        "VAT %",
+        max_digits=5,
+        decimal_places=2,
+        default=Decimal("18.00"),
+        help_text="VAT rate applied to the total after any discount.",
+    )
+    vat_amount = models.DecimalField(
+        max_digits=12, decimal_places=2, default=Decimal("0.00")
+    )
     deposit_amount = models.DecimalField(
         "Deposit due",
         max_digits=12,
@@ -1088,6 +1106,8 @@ class Estimate(models.Model):
             self.staff_total = Decimal("0.00")
             self.dishes_total = Decimal("0.00")
             self.subtotal_before_discount = Decimal("0.00")
+            self.discount_applied = Decimal("0.00")
+            self.vat_amount = Decimal("0.00")
             self.grand_total = Decimal("0.00")
             self.deposit_amount = Decimal("0.00")
             self.balance_due = Decimal("0.00")
@@ -1106,7 +1126,12 @@ class Estimate(models.Model):
             discount = Decimal("0.00")
         if discount > subtotal:
             discount = subtotal
-        grand = subtotal - discount
+        net = subtotal - discount
+        vat = Decimal("0.00")
+        if self.include_vat:
+            vat_rate = (self.vat_percentage or Decimal("0.00")) / Decimal("100.0")
+            vat = (net * vat_rate).quantize(Decimal("0.01"))
+        grand = net + vat
         deposit_rate = (self.deposit_percentage or Decimal("0.00")) / Decimal("100.0")
         deposit = (grand * deposit_rate).quantize(Decimal("0.01"))
         received = self.deposit_received or Decimal("0.00")
@@ -1120,6 +1145,8 @@ class Estimate(models.Model):
             staff = (staff * rate).quantize(Decimal("0.01"))
             dishes = (dishes * rate).quantize(Decimal("0.01"))
             subtotal = (subtotal * rate).quantize(Decimal("0.01"))
+            discount = (discount * rate).quantize(Decimal("0.01"))
+            vat = (vat * rate).quantize(Decimal("0.01"))
             grand = (grand * rate).quantize(Decimal("0.01"))
             deposit = (deposit * rate).quantize(Decimal("0.01"))
             deposit_applied = (deposit_applied * rate).quantize(Decimal("0.01"))
@@ -1130,6 +1157,8 @@ class Estimate(models.Model):
         self.staff_total = staff
         self.dishes_total = dishes
         self.subtotal_before_discount = subtotal.quantize(Decimal("0.01"))
+        self.discount_applied = discount.quantize(Decimal("0.01"))
+        self.vat_amount = vat.quantize(Decimal("0.01"))
         self.grand_total = grand.quantize(Decimal("0.01"))
         self.deposit_amount = deposit
         self.balance_due = balance.quantize(Decimal("0.01"))
@@ -1137,11 +1166,7 @@ class Estimate(models.Model):
     @property
     def discount_display(self) -> Decimal:
         """Discount actually applied, in the estimate's display currency."""
-        subtotal = self.subtotal_before_discount or Decimal("0.00")
-        grand = self.grand_total or Decimal("0.00")
-        if subtotal <= grand:
-            return Decimal("0.00")
-        return (subtotal - grand).quantize(Decimal("0.01"))
+        return self.discount_applied or Decimal("0.00")
 
     def save(self, *args, **kwargs):
         if not self.payment_terms and self.caterer_id:

@@ -1822,6 +1822,7 @@ def _serialize_estimate_builder_payload(request, user, estimate, access_map=None
         if can_view_billing
         else "",
         "discount_amount": _to_decimal_string(estimate.discount_display, "0.00") if can_view_billing else "",
+        "vat_amount": _to_decimal_string(estimate.vat_amount, "0.00") if can_view_billing else "",
         "grand_total": _to_decimal_string(estimate.grand_total, "0.00") if can_view_billing else "",
         "deposit_amount": _to_decimal_string(estimate.deposit_amount, "0.00") if can_view_billing else "",
         "balance_due": _to_decimal_string(estimate.balance_due, "0.00") if can_view_billing else "",
@@ -1947,6 +1948,8 @@ def _serialize_estimate_builder_payload(request, user, estimate, access_map=None
             "signature_name": estimate.signature_name or "",
             "signature_title": estimate.signature_title or "",
             "signature_date": estimate.signature_date.isoformat() if estimate.signature_date else "",
+            "include_vat": bool(estimate.include_vat),
+            "vat_percentage": _to_decimal_string(estimate.vat_percentage, "0.00"),
             "discount_label": estimate.discount_label or "",
             "discount_amount": _to_decimal_string(estimate.discount_amount, "0.00"),
             "deposit_percentage": _to_decimal_string(estimate.deposit_percentage, "0.00"),
@@ -2126,6 +2129,13 @@ def xpenz_estimate_builder(request, estimate_id):
         if staff_hours is None:
             return _json_error("Staff hours must be a non-negative number.", status=400)
         estimate.staff_hours = staff_hours
+    if "include_vat" in estimate_payload:
+        estimate.include_vat = bool(estimate_payload.get("include_vat"))
+    if "vat_percentage" in estimate_payload:
+        vat_percentage = _parse_decimal(estimate_payload.get("vat_percentage"))
+        if vat_percentage is None:
+            return _json_error("VAT percentage must be a non-negative number.", status=400)
+        estimate.vat_percentage = vat_percentage
     if "discount_label" in estimate_payload:
         estimate.discount_label = _normalize_item_text(estimate_payload.get("discount_label"))[:120]
     if "discount_amount" in estimate_payload:
