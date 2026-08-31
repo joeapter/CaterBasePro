@@ -1,5 +1,5 @@
 {% if form.meal_names|length > 1 %}
-    {% with default_dish_price=form.instance.real_dishes_price_per_person|default:form.instance.caterer.real_dishes_price_per_person %}
+    {% with default_dish_price=form.instance.real_dishes_price_per_person|default_if_none:form.instance.caterer.real_dishes_price_per_person %}
     {% with default_hours=form.instance.staff_hours default_tip=form.instance.staff_tip_per_waiter|default:form.instance.caterer.staff_tip_per_waiter default_waiters=form.instance.total_waiter_count %}
     <div class="meal-service-card meal-service-wrapper"
          data-default-wants="{{ form.instance.wants_real_dishes|yesno:'true,false' }}"

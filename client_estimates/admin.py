@@ -2711,11 +2711,7 @@ class EstimateAdmin(admin.ModelAdmin):
 
         per_meal_service_rows = estimate.per_meal_service_summary()
         show_delivery_fee = any(row.get("wants_real_dishes") for row in per_meal_service_rows)
-        delivery_fee = (
-            estimate.real_dishes_flat_fee
-            or (estimate.caterer.real_dishes_flat_fee if estimate.caterer_id else Decimal("0.00"))
-            or Decimal("0.00")
-        )
+        delivery_fee = estimate.resolved_real_dishes_flat_fee()
         if estimate.exchange_rate and estimate.exchange_rate != Decimal("1.00"):
             delivery_fee = (delivery_fee * estimate.exchange_rate).quantize(Decimal("0.01"))
         dishes_delivery_fee = Decimal("0.00")
@@ -2846,11 +2842,7 @@ class EstimateAdmin(admin.ModelAdmin):
         extra_lines, extras_rows = self._build_print_extras_rows(estimate)
         per_meal_service_rows = estimate.per_meal_service_summary()
         show_delivery_fee = any(row.get("wants_real_dishes") for row in per_meal_service_rows)
-        delivery_fee = (
-            estimate.real_dishes_flat_fee
-            or (estimate.caterer.real_dishes_flat_fee if estimate.caterer_id else Decimal("0.00"))
-            or Decimal("0.00")
-        )
+        delivery_fee = estimate.resolved_real_dishes_flat_fee()
         caterer = estimate.caterer
         staff_context = None
         if not estimate.is_ala_carte:

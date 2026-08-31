@@ -1170,10 +1170,12 @@
                             <th>{% translate 'Dishes' %}</th>
                             <td>{{ dishes_subtotal }} {{ estimate.currency }}</td>
                         </tr>
+                        {% if dishes_delivery_fee %}
                         <tr>
                             <th>{% translate 'Dishes Delivery & Pickup' %}</th>
                             <td>{{ dishes_delivery_fee }} {{ estimate.currency }}</td>
                         </tr>
+                        {% endif %}
                     {% endif %}
                     {% if estimate.discount_display or estimate.include_vat %}
                     <tr>

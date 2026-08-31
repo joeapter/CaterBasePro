@@ -133,7 +133,7 @@
                 </tbody>
             </table>
             {% with fx=form.instance.exchange_rate|default_if_none:"1" %}
-                <p class="help" style="margin:8px 0 0;">Delivery fee (once): {{ form.instance.real_dishes_flat_fee|default:form.instance.caterer.real_dishes_flat_fee|mul:fx|floatformat:"2" }} {{ form.instance.currency }}</p>
+                <p class="help" style="margin:8px 0 0;">Delivery fee (once): {{ form.instance.resolved_real_dishes_flat_fee|mul:fx|floatformat:"2" }} {{ form.instance.currency }}</p>
             {% endwith %}
         </div>
     {% endif %}

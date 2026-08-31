@@ -1441,3 +1441,94 @@ class XpenzApiTests(TestCase):
         )
         self.assertEqual(response.status_code, 403)
         self.assertTrue(EstimateExpenseEntry.objects.filter(pk=entry.pk).exists())
+
+    def test_zero_real_dishes_fees_on_estimate_beat_caterer_defaults(self):
+        self.caterer.real_dishes_price_per_person = Decimal("15.00")
+        self.caterer.real_dishes_flat_fee = Decimal("200.00")
+        self.caterer.save()
+
+        estimate = self.estimate
+        estimate.wants_real_dishes = True
+        estimate.meal_service_details = {}
+        estimate.real_dishes_price_per_person = Decimal("0.00")
+        estimate.real_dishes_flat_fee = Decimal("0.00")
+        estimate.save()
+        estimate.refresh_from_db()
+
+        self.assertEqual(estimate.resolved_real_dishes_price_per_person(), Decimal("0.00"))
+        self.assertEqual(estimate.resolved_real_dishes_flat_fee(), Decimal("0.00"))
+        self.assertEqual(estimate.calc_dishes_total(), Decimal("0.00"))
+
+    def test_blank_real_dishes_fees_fall_back_to_caterer_defaults(self):
+        self.caterer.real_dishes_price_per_person = Decimal("15.00")
+        self.caterer.real_dishes_flat_fee = Decimal("200.00")
+        self.caterer.save()
+
+        estimate = self.estimate
+        estimate.wants_real_dishes = True
+        estimate.meal_service_details = {}
+        estimate.real_dishes_price_per_person = None
+        estimate.real_dishes_flat_fee = None
+        estimate.save()
+        estimate.refresh_from_db()
+
+        self.assertEqual(estimate.resolved_real_dishes_price_per_person(), Decimal("15.00"))
+        self.assertEqual(estimate.resolved_real_dishes_flat_fee(), Decimal("200.00"))
+        # 50 guests * 15.00 + 200.00 flat
+        self.assertEqual(estimate.calc_dishes_total(), Decimal("950.00"))
+
+    def test_per_meal_zero_flat_fee_is_not_replaced_by_caterer_default(self):
+        self.caterer.real_dishes_flat_fee = Decimal("200.00")
+        self.caterer.real_dishes_price_per_person = Decimal("15.00")
+        self.caterer.save()
+
+        estimate = self.estimate
+        estimate.real_dishes_flat_fee = Decimal("0.00")
+        estimate.meal_plan = ["Friday Night"]
+        estimate.meal_service_details = {
+            "Friday Night": {
+                "wants_real_dishes": True,
+                "real_dishes_price_per_person": "10",
+            }
+        }
+        estimate.meal_guest_overrides = {"Friday Night": {"adults": 20}}
+        estimate.save()
+        estimate.refresh_from_db()
+
+        # 20 adults * 10.00 dishes, with no delivery fee added
+        self.assertEqual(estimate.calc_dishes_total(), Decimal("200.00"))
+
+    def test_print_pdf_hides_delivery_row_when_fee_is_zeroed(self):
+        self.caterer.real_dishes_flat_fee = Decimal("400.00")
+        self.caterer.real_dishes_price_per_person = Decimal("10.00")
+        self.caterer.save()
+
+        estimate = self.estimate
+        estimate.wants_real_dishes = True
+        estimate.real_dishes_flat_fee = Decimal("0.00")
+        estimate.save()
+
+        self.client.force_login(self.user)
+        response = self.client.get(
+            reverse("admin:client_estimates_estimate_print", args=[estimate.id])
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, "Dishes Delivery & Pickup")
+
+    def test_print_pdf_shows_delivery_row_when_fee_applies(self):
+        self.caterer.real_dishes_flat_fee = Decimal("400.00")
+        self.caterer.real_dishes_price_per_person = Decimal("10.00")
+        self.caterer.save()
+
+        estimate = self.estimate
+        estimate.wants_real_dishes = True
+        estimate.real_dishes_flat_fee = None
+        estimate.save()
+
+        self.client.force_login(self.user)
+        response = self.client.get(
+            reverse("admin:client_estimates_estimate_print", args=[estimate.id])
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Dishes Delivery & Pickup")
+        self.assertContains(response, "400.00 ILS")

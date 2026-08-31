@@ -660,7 +660,10 @@ class Estimate(models.Model):
         decimal_places=2,
         null=True,
         blank=True,
-        help_text="Flat delivery / dishes fee applied once when real dishes are requested.",
+        help_text=(
+            "Flat delivery / dishes fee applied once when real dishes are requested. "
+            "Enter 0 to remove the fee for this estimate; leave blank to use the caterer default."
+        ),
     )
 
     # Staff
@@ -968,11 +971,7 @@ class Estimate(models.Model):
         hourly_rate = self._get_staff_hourly_rate()
         base_tip = self._get_staff_tip_per_waiter()
         fx_rate = (self.exchange_rate or Decimal("1.00")) if apply_exchange else Decimal("1.00")
-        base_dish_price = (
-            self.real_dishes_price_per_person
-            or (self.caterer.real_dishes_price_per_person if self.caterer_id else None)
-            or Decimal("0.00")
-        )
+        base_dish_price = self.resolved_real_dishes_price_per_person()
 
         rows = []
         for meal_name in plan:
@@ -1074,27 +1073,36 @@ class Estimate(models.Model):
         staff_tip = Decimal("0.00") if self.client_tipped_at_event else tip * waiters
         return (staff_pay + staff_tip).quantize(Decimal("0.01"))
 
+    def resolved_real_dishes_flat_fee(self) -> Decimal:
+        """Per-estimate fee wins whenever it is set — including an explicit 0.00.
+        Only a blank field falls back to the caterer default."""
+        if self.real_dishes_flat_fee is not None:
+            return self.real_dishes_flat_fee
+        if self.caterer_id:
+            return self.caterer.real_dishes_flat_fee or Decimal("0.00")
+        return Decimal("0.00")
+
+    def resolved_real_dishes_price_per_person(self) -> Decimal:
+        """Same blank-vs-zero rule as resolved_real_dishes_flat_fee()."""
+        if self.real_dishes_price_per_person is not None:
+            return self.real_dishes_price_per_person
+        if self.caterer_id:
+            return self.caterer.real_dishes_price_per_person or Decimal("0.00")
+        return Decimal("0.00")
+
     def calc_dishes_total(self) -> Decimal:
         if self.meal_service_details:
             rows = self.per_meal_service_summary(apply_exchange=False)
             wants_any = any(row.get("wants_real_dishes") for row in rows)
             if wants_any:
                 total = sum((row["dishes_total"] for row in rows), Decimal("0.00"))
-                delivery_fee = (
-                    self.real_dishes_flat_fee
-                    or (self.caterer.real_dishes_flat_fee if self.caterer_id else Decimal("0.00"))
-                    or Decimal("0.00")
-                )
+                delivery_fee = self.resolved_real_dishes_flat_fee()
                 total += delivery_fee
                 return total.quantize(Decimal("0.01"))
         if not self.wants_real_dishes:
             return Decimal("0.00")
-        per_person = self.real_dishes_price_per_person or (
-            self.caterer.real_dishes_price_per_person if self.caterer_id else Decimal("0.00")
-        )
-        flat = self.real_dishes_flat_fee or (
-            self.caterer.real_dishes_flat_fee if self.caterer_id else Decimal("0.00")
-        )
+        per_person = self.resolved_real_dishes_price_per_person()
+        flat = self.resolved_real_dishes_flat_fee()
         guests = Decimal(self.guest_count or 0)
         total = per_person * guests + flat
         return total.quantize(Decimal("0.01"))
