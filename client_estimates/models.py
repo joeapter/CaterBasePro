@@ -1,7 +1,7 @@
 from decimal import Decimal
 import math
 import secrets
-from datetime import timedelta
+from datetime import time, timedelta
 
 from django.db import models
 from django.utils import timezone
@@ -161,6 +161,11 @@ class CatererAccount(models.Model):
         help_text="Wire / bank instructions that appear on estimates and invoices.",
     )
     brand_logo = models.FileField(upload_to="caterer_logos/", null=True, blank=True)
+    schedule_segment_defaults = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Default minutes per event schedule segment, keyed by segment name.",
+    )
     brand_primary_color = models.CharField(
         max_length=7,
         default="#0f172a",
@@ -2215,3 +2220,201 @@ class CatererTask(models.Model):
 
     def __str__(self):
         return f"{self.title} ({self.caterer.name})"
+
+
+SCHEDULE_DISPLAY_CHOICES = [
+    ("time", "Start time"),
+    ("range", "Start - end"),
+    ("none", "No time"),
+]
+
+# Default segment library for the event schedule generator. Minutes are the
+# fallback durations used when a caterer has not saved their own defaults.
+SCHEDULE_SEGMENT_LIBRARY = [
+    {"label": "Party Starts", "minutes": 30, "display": "time", "show_duration": False},
+    {"label": "Evening Music", "minutes": 0, "display": "none", "show_duration": False},
+    {"label": "Welcoming Guests", "minutes": 30, "display": "range", "show_duration": False},
+    {"label": "Starters", "minutes": 45, "display": "range", "show_duration": False},
+    {"label": "Sium", "minutes": 20, "display": "range", "show_duration": False},
+    {"label": "First Dance", "minutes": 25, "display": "time", "show_duration": True},
+    {"label": "Main Meal", "minutes": 20, "display": "time", "show_duration": False},
+    {"label": "Speeches", "minutes": 15, "display": "time", "show_duration": False},
+    {"label": "Second Dance", "minutes": 30, "display": "time", "show_duration": True},
+    {"label": "Maariv", "minutes": 15, "display": "time", "show_duration": False},
+    {"label": "Dessert", "minutes": 15, "display": "time", "show_duration": False},
+    {"label": "Dessert Reception", "minutes": 30, "display": "time", "show_duration": False},
+    {"label": "Third Dance", "minutes": 30, "display": "time", "show_duration": True},
+    {"label": "Slide Show", "minutes": 15, "display": "time", "show_duration": False},
+    {"label": "Benching", "minutes": 5, "display": "time", "show_duration": False},
+    {"label": "Kumzitz", "minutes": 10, "display": "time", "show_duration": False},
+    {"label": "Last Dance", "minutes": 40, "display": "time", "show_duration": False},
+    {"label": "Party Ends", "minutes": 0, "display": "time", "show_duration": False},
+]
+
+SCHEDULE_DEFAULT_ORDER = [
+    "Party Starts",
+    "Evening Music",
+    "First Dance",
+    "Main Meal",
+    "Speeches",
+    "Second Dance",
+    "Maariv",
+    "Dessert",
+    "Slide Show",
+    "Benching",
+    "Last Dance",
+    "Party Ends",
+]
+
+SCHEDULE_FONT_CHOICES = [
+    ("HANDWRITTEN", "Handwritten"),
+    ("PLAYFUL", "Playful bold"),
+    ("CLASSIC", "Classic serif"),
+    ("MODERN", "Clean modern"),
+]
+
+# Google Fonts family per style (see event_schedule_sheet_styles.html).
+SCHEDULE_FONT_FAMILIES = {
+    "HANDWRITTEN": "Architects Daughter",
+    "PLAYFUL": "Comic Neue",
+    "CLASSIC": "Cormorant Garamond",
+    "MODERN": "Montserrat",
+}
+
+SCHEDULE_SEPARATOR_CHOICES = [
+    ("-", "Dash ( - )"),
+    (">", "Arrow ( > )"),
+    ("", "None"),
+]
+
+# Stays under Django's default 2.5 MB request body limit.
+SCHEDULE_LOGO_MAX_CHARS = 2_000_000
+
+
+def _schedule_time_label(total_minutes):
+    hour = (total_minutes // 60) % 24
+    return f"{hour % 12 or 12}:{total_minutes % 60:02d}"
+
+
+def clean_schedule_segments(raw_segments):
+    """Normalize a list of segment dicts posted from the schedule editor."""
+    display_codes = {code for code, _ in SCHEDULE_DISPLAY_CHOICES}
+    cleaned = []
+    if not isinstance(raw_segments, list):
+        return cleaned
+    for raw in raw_segments[:60]:
+        if not isinstance(raw, dict):
+            continue
+        label = " ".join(str(raw.get("label") or "").split())[:120]
+        if not label:
+            continue
+        try:
+            minutes = int(raw.get("minutes") or 0)
+        except (TypeError, ValueError):
+            minutes = 0
+        display = raw.get("display")
+        cleaned.append(
+            {
+                "label": label,
+                "minutes": max(0, min(minutes, 24 * 60)),
+                "display": display if display in display_codes else "time",
+                "show_duration": bool(raw.get("show_duration")),
+            }
+        )
+    return cleaned
+
+
+class EventSchedule(models.Model):
+    estimate = models.OneToOneField(
+        Estimate,
+        on_delete=models.CASCADE,
+        related_name="event_schedule",
+    )
+    title = models.CharField(
+        max_length=120,
+        blank=True,
+        help_text="Header title. Leave blank to use '<event type> Schedule'.",
+    )
+    logo_data = models.TextField(
+        blank=True,
+        help_text="Event logo stored as an image data URI so it survives deploys.",
+    )
+    start_time = models.TimeField(default=time(19, 30))
+    segments = models.JSONField(default=list, blank=True)
+    font_style = models.CharField(
+        max_length=20,
+        choices=SCHEDULE_FONT_CHOICES,
+        default="HANDWRITTEN",
+    )
+    text_color = models.CharField(max_length=7, default="#6b7353")
+    separator = models.CharField(
+        max_length=2,
+        choices=SCHEDULE_SEPARATOR_CHOICES,
+        default="-",
+        blank=True,
+    )
+    show_bsd = models.BooleanField(
+        default=False,
+        help_text='Show בס"ד in the top corner.',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Event schedule"
+        verbose_name_plural = "Event schedules"
+
+    def __str__(self):
+        return f"{self.display_title} – {self.estimate}"
+
+    @property
+    def display_title(self):
+        if self.title:
+            return self.title
+        event_type = (self.estimate.event_type or "").strip() if self.estimate_id else ""
+        return f"{event_type} Schedule" if event_type else "Event Schedule"
+
+    def rows(self):
+        current = self.start_time.hour * 60 + self.start_time.minute
+        rows = []
+        for segment in clean_schedule_segments(self.segments):
+            start = current
+            current += segment["minutes"]
+            if segment["display"] == "range":
+                time_text = f"{_schedule_time_label(start)} - {_schedule_time_label(current)}"
+            elif segment["display"] == "time":
+                time_text = _schedule_time_label(start)
+            else:
+                time_text = ""
+            duration_text = ""
+            if segment["show_duration"] and segment["minutes"]:
+                duration_text = f"({segment['minutes']} min)"
+            rows.append(
+                {
+                    "label": segment["label"],
+                    "time_text": time_text,
+                    "duration_text": duration_text,
+                }
+            )
+        return rows
+
+    @staticmethod
+    def default_segments(caterer=None):
+        overrides = {}
+        if caterer is not None and isinstance(caterer.schedule_segment_defaults, dict):
+            overrides = caterer.schedule_segment_defaults
+        library = {row["label"]: row for row in schedule_segment_library(overrides)}
+        return [dict(library[label]) for label in SCHEDULE_DEFAULT_ORDER]
+
+
+def schedule_segment_library(overrides=None):
+    """Segment presets with caterer-saved minutes applied on top."""
+    overrides = overrides or {}
+    library = []
+    for row in SCHEDULE_SEGMENT_LIBRARY:
+        preset = dict(row)
+        saved = overrides.get(preset["label"].lower())
+        if isinstance(saved, int) and saved >= 0:
+            preset["minutes"] = saved
+        library.append(preset)
+    return library

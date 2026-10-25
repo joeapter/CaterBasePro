@@ -1,0 +1,114 @@
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Architects+Daughter&family=Comic+Neue:wght@400;700&family=Cormorant+Garamond:wght@500;600&family=Montserrat:wght@400;500&display=swap" rel="stylesheet">
+<style>
+    /* Sizes use container units so the editor preview and the A4 print match. */
+    .es-sheet {
+        --es-color: #6b7353;
+        --es-scale: 1;
+        --es-title-scale: 1;
+        container-type: inline-size;
+        position: relative;
+        box-sizing: border-box;
+        aspect-ratio: 210 / 297;
+        overflow: hidden;
+        background: #fff;
+        color: var(--es-color);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding: 6cqi 8cqi;
+        font-family: "Architects Daughter", "Comic Sans MS", cursive;
+        text-align: center;
+    }
+    .es-sheet[data-font="PLAYFUL"] .es-lines {
+        font-family: "Comic Neue", "Comic Sans MS", cursive;
+        font-weight: 700;
+    }
+    .es-sheet[data-font="CLASSIC"] {
+        font-family: "Cormorant Garamond", Georgia, serif;
+    }
+    .es-sheet[data-font="CLASSIC"] .es-lines {
+        font-weight: 500;
+    }
+    .es-sheet[data-font="MODERN"] {
+        font-family: "Montserrat", "Helvetica Neue", Arial, sans-serif;
+    }
+    .es-sheet[data-font="MODERN"] .es-title {
+        font-weight: 500;
+    }
+    .es-bsd {
+        position: absolute;
+        top: 3.5cqi;
+        right: 5cqi;
+        font-family: "Times New Roman", serif;
+        font-weight: 700;
+        font-size: 2.6cqi;
+        color: #1e1b4b;
+        direction: rtl;
+    }
+    .es-logo {
+        flex: 0 0 auto;
+        margin-top: 2cqi;
+    }
+    .es-logo img {
+        display: block;
+        max-width: 48cqi;
+        max-height: calc(28cqi * var(--es-scale));
+        object-fit: contain;
+    }
+    .es-title {
+        margin: calc(3cqi * var(--es-scale)) 0 calc(4cqi * var(--es-scale));
+        font-size: calc(10.5cqi * var(--es-scale) * var(--es-title-scale));
+        font-weight: 400;
+        line-height: 1.15;
+        white-space: nowrap;
+        letter-spacing: 0.01em;
+    }
+    .es-lines {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        font-size: calc(4.6cqi * var(--es-scale));
+        line-height: 1.85;
+        letter-spacing: 0.09em;
+    }
+    .es-lines li {
+        white-space: nowrap;
+    }
+    .es-lines .es-sep {
+        margin: 0 0.35em;
+    }
+    .es-lines .es-dur {
+        margin-left: 0.35em;
+    }
+</style>
+<script>
+    // Shrink a long title to one line, then shrink everything until it fits the page.
+    window.fitScheduleSheet = function (sheet) {
+        var scale = 1;
+        var titleScale = 1;
+        var available = sheet.clientWidth * 0.86;
+        var title = sheet.querySelector(".es-title");
+        sheet.style.setProperty("--es-scale", scale);
+        sheet.style.setProperty("--es-title-scale", titleScale);
+        while (titleScale > 0.4 && title.scrollWidth > available) {
+            titleScale -= 0.03;
+            sheet.style.setProperty("--es-title-scale", titleScale.toFixed(2));
+        }
+        var widest = function () {
+            var max = 0;
+            sheet.querySelectorAll(".es-lines li, .es-title").forEach(function (el) {
+                max = Math.max(max, el.scrollWidth);
+            });
+            return max;
+        };
+        while (
+            scale > 0.45 &&
+            (sheet.scrollHeight > sheet.clientHeight + 1 || widest() > available)
+        ) {
+            scale -= 0.03;
+            sheet.style.setProperty("--es-scale", scale.toFixed(2));
+        }
+    };
+</script>

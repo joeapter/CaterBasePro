@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ schedule.display_title }} – {{ estimate.customer_name }}</title>
+    {% include "admin/partials/event_schedule_sheet_styles.html" %}
+    <style>
+        @page {
+            size: A4 portrait;
+            margin: 0;
+        }
+        body {
+            margin: 0;
+            background: #e5e7eb;
+            font-family: "Helvetica Neue", Arial, sans-serif;
+        }
+        .toolbar {
+            display: flex;
+            gap: 8px;
+            justify-content: center;
+            padding: 12px;
+        }
+        .toolbar a,
+        .toolbar button {
+            font: inherit;
+            font-size: 14px;
+            padding: 8px 14px;
+            border-radius: 8px;
+            border: 1px solid #cbd5e1;
+            background: #fff;
+            color: #0f172a;
+            text-decoration: none;
+            cursor: pointer;
+        }
+        .page {
+            width: 210mm;
+            max-width: 100%;
+            margin: 0 auto 24px;
+            box-shadow: 0 10px 30px rgba(15, 23, 42, 0.18);
+        }
+        @media print {
+            body {
+                background: #fff;
+            }
+            .toolbar {
+                display: none;
+            }
+            .page {
+                width: 210mm;
+                margin: 0;
+                box-shadow: none;
+            }
+            .es-sheet {
+                height: 297mm;
+                aspect-ratio: auto;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="toolbar">
+        <a href="{{ editor_url }}">&larr; Edit schedule</a>
+        <button type="button" onclick="window.print()">Print</button>
+    </div>
+    <div class="page">
+        <div class="es-sheet" id="schedule-sheet" data-font="{{ schedule.font_style }}" style="--es-color: {{ schedule.text_color }};">
+            {% if schedule.show_bsd %}<div class="es-bsd">בס"ד</div>{% endif %}
+            {% if schedule.logo_data %}
+                <div class="es-logo"><img src="{{ schedule.logo_data }}" alt=""></div>
+            {% endif %}
+            <h1 class="es-title">{{ schedule.display_title }}</h1>
+            <ul class="es-lines">
+                {% for row in rows %}
+                    <li><span class="es-label">{{ row.label }}</span>{% if row.time_text %}{% if schedule.separator %}<span class="es-sep">{{ schedule.separator }}</span>{% else %} {% endif %}<span class="es-time">{{ row.time_text }}</span>{% endif %}{% if row.duration_text %}<span class="es-dur">{{ row.duration_text }}</span>{% endif %}</li>
+                {% endfor %}
+            </ul>
+        </div>
+    </div>
+    <script>
+        (function () {
+            var sheet = document.getElementById("schedule-sheet");
+            var ready = document.fonts && document.fonts.ready ? document.fonts.ready : Promise.resolve();
+            ready.then(function () {
+                window.fitScheduleSheet(sheet);
+                {% if auto_print %}setTimeout(function () { window.print(); }, 150);{% endif %}
+            });
+            window.addEventListener("beforeprint", function () {
+                window.fitScheduleSheet(sheet);
+            });
+        })();
+    </script>
+</body>
+</html>

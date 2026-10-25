@@ -21,6 +21,7 @@ from .models import (
     ShoppingList,
     ShoppingListItem,
     EstimateStaffTimeEntry,
+    EventSchedule,
     XpenzMobileToken,
 )
 
@@ -1532,3 +1533,115 @@ class XpenzApiTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Dishes Delivery & Pickup")
         self.assertContains(response, "400.00 ILS")
+
+
+class EventScheduleTests(TestCase):
+    def setUp(self):
+        user_model = get_user_model()
+        self.user = user_model.objects.create_user(
+            username="owner@example.com",
+            email="owner@example.com",
+            password="secret123",
+            is_staff=True,
+        )
+        self.other_user = user_model.objects.create_user(
+            username="other@example.com",
+            email="other@example.com",
+            password="secret123",
+            is_staff=True,
+        )
+        self.caterer = CatererAccount.objects.create(name="Owner Catering", owner=self.user)
+        self.estimate = Estimate.objects.create(
+            caterer=self.caterer,
+            customer_name="Client A",
+            event_type="Bar Mitzvah",
+            estimate_number=3001,
+            guest_count=100,
+        )
+        self.editor_url = reverse(
+            "admin:client_estimates_estimate_event_schedule", args=[self.estimate.id]
+        )
+        self.print_url = reverse(
+            "admin:client_estimates_estimate_event_schedule_print", args=[self.estimate.id]
+        )
+
+    def _post(self, **overrides):
+        data = {
+            "title": "",
+            "start_time": "19:30",
+            "font_style": "HANDWRITTEN",
+            "text_color": "#6b7353",
+            "separator": "-",
+            "logo_data": "",
+            "segments_json": json.dumps(
+                [
+                    {"label": "Party Starts", "minutes": 30, "display": "time"},
+                    {"label": "Evening Music", "minutes": 0, "display": "none"},
+                    {"label": "First Dance", "minutes": 25, "display": "time", "show_duration": True},
+                    {"label": "Starters", "minutes": 45, "display": "range"},
+                    {"label": "Party Ends", "minutes": 0, "display": "time"},
+                ]
+            ),
+            "action": "save",
+        }
+        data.update(overrides)
+        return self.client.post(self.editor_url, data)
+
+    def test_editor_starts_from_default_segments(self):
+        self.client.force_login(self.user)
+        response = self.client.get(self.editor_url)
+        self.assertEqual(response.status_code, 200)
+        state = response.context["schedule_state"]
+        self.assertEqual(state["segments"][0]["label"], "Party Starts")
+        self.assertEqual(state["segments"][-1]["label"], "Party Ends")
+        self.assertEqual(state["defaultTitle"], "Bar Mitzvah Schedule")
+        self.assertFalse(EventSchedule.objects.exists())
+
+    def test_save_and_print_computes_cascading_times(self):
+        self.client.force_login(self.user)
+        response = self._post(action="save_print")
+        self.assertRedirects(response, f"{self.print_url}?print=1", fetch_redirect_response=False)
+
+        rows = self.estimate.event_schedule.rows()
+        self.assertEqual(
+            [(r["label"], r["time_text"], r["duration_text"]) for r in rows],
+            [
+                ("Party Starts", "7:30", ""),
+                ("Evening Music", "", ""),
+                ("First Dance", "8:00", "(25 min)"),
+                ("Starters", "8:25 - 9:10", ""),
+                ("Party Ends", "9:10", ""),
+            ],
+        )
+
+        response = self.client.get(self.print_url)
+        self.assertContains(response, "Bar Mitzvah Schedule")
+        self.assertContains(response, "8:25 - 9:10")
+
+    def test_logo_title_and_defaults(self):
+        self.client.force_login(self.user)
+        logo = "data:image/png;base64,iVBORw0KGgo="
+        self._post(title="Evening Schedule", logo_data=logo, action="save_defaults")
+        schedule = EventSchedule.objects.get(estimate=self.estimate)
+        self.assertEqual(schedule.display_title, "Evening Schedule")
+        self.assertEqual(schedule.logo_data, logo)
+
+        self.caterer.refresh_from_db()
+        self.assertEqual(self.caterer.schedule_segment_defaults["first dance"], 25)
+        self.assertEqual(self.caterer.schedule_segment_defaults["starters"], 45)
+
+        self._post(logo_data="javascript:alert(1)")
+        schedule.refresh_from_db()
+        self.assertEqual(schedule.logo_data, logo)
+
+    def test_caterer_defaults_apply_to_new_schedule(self):
+        self.caterer.schedule_segment_defaults = {"main meal": 40}
+        self.caterer.save()
+        segments = EventSchedule.default_segments(self.caterer)
+        main_meal = next(seg for seg in segments if seg["label"] == "Main Meal")
+        self.assertEqual(main_meal["minutes"], 40)
+
+    def test_other_caterer_cannot_open_schedule(self):
+        self.client.force_login(self.other_user)
+        self.assertEqual(self.client.get(self.editor_url).status_code, 403)
+        self.assertEqual(self.client.get(self.print_url).status_code, 403)

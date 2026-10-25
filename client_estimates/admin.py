@@ -41,13 +41,21 @@ from .models import (
     EstimateExpenseEntry,
     EstimateStaffTimeEntry,
     EstimatePlannerEntry,
+    EventSchedule,
     PlannerOptionCard,
     PlannerOptionIcon,
     PLANNER_ICON_KEY_CHOICES,
     PLANNER_SECTION_CHOICES,
+    SCHEDULE_DISPLAY_CHOICES,
+    SCHEDULE_FONT_CHOICES,
+    SCHEDULE_FONT_FAMILIES,
+    SCHEDULE_LOGO_MAX_CHARS,
+    SCHEDULE_SEPARATOR_CHOICES,
     ShoppingList,
     ShoppingListItem,
     XpenzMobileToken,
+    clean_schedule_segments,
+    schedule_segment_library,
 )
 from .kiddush_menu import ensure_kiddush_menu, ensure_kiddush_planning_fee_line
 
@@ -1801,6 +1809,7 @@ class EstimateAdmin(admin.ModelAdmin):
         "print_estimate_button",
         "workflow_button",
         "waitstaff_button",
+        "event_schedule_button",
         "flat_print_button",
         "schedule_button",
     )
@@ -2248,6 +2257,16 @@ class EstimateAdmin(admin.ModelAdmin):
                 name=self._admin_url_name("waitstaff_bulk"),
             ),
             path(
+                "<int:estimate_id>/event-schedule/",
+                self.admin_site.admin_view(self.event_schedule_editor),
+                name=self._admin_url_name("event_schedule"),
+            ),
+            path(
+                "<int:estimate_id>/event-schedule/print/",
+                self.admin_site.admin_view(self.event_schedule_print),
+                name=self._admin_url_name("event_schedule_print"),
+            ),
+            path(
                 "<int:estimate_id>/expenses/<int:entry_id>/delete/",
                 self.admin_site.admin_view(self.delete_expense_entry),
                 name=self._admin_url_name("expense_delete"),
@@ -2272,6 +2291,117 @@ class EstimateAdmin(admin.ModelAdmin):
         return format_html('<a class="button" target="_blank" href="{}">Wait Staff</a>', f"{url}?print=1")
 
     waitstaff_button.short_description = "Wait Staff"
+
+    def event_schedule_button(self, obj):
+        url = self._admin_reverse("event_schedule", args=[obj.pk])
+        return format_html('<a class="button" target="_blank" href="{}">Event Schedule</a>', url)
+
+    event_schedule_button.short_description = "Event Schedule"
+
+    def _get_or_build_event_schedule(self, estimate):
+        try:
+            return estimate.event_schedule
+        except EventSchedule.DoesNotExist:
+            return EventSchedule(
+                estimate=estimate,
+                segments=EventSchedule.default_segments(estimate.caterer),
+            )
+
+    def event_schedule_editor(self, request, estimate_id):
+        estimate = self._get_estimate(estimate_id)
+        if not request.user.is_superuser and estimate.caterer.owner != request.user:
+            raise PermissionDenied("You do not have access to this estimate.")
+        schedule = self._get_or_build_event_schedule(estimate)
+
+        if request.method == "POST":
+            schedule.title = " ".join(request.POST.get("title", "").split())[:120]
+            try:
+                hours, minutes = request.POST.get("start_time", "").split(":")[:2]
+                schedule.start_time = schedule.start_time.replace(
+                    hour=int(hours) % 24, minute=int(minutes) % 60
+                )
+            except (TypeError, ValueError):
+                pass
+            font_style = request.POST.get("font_style")
+            if font_style in SCHEDULE_FONT_FAMILIES:
+                schedule.font_style = font_style
+            text_color = request.POST.get("text_color", "")
+            if len(text_color) == 7 and text_color.startswith("#"):
+                schedule.text_color = text_color
+            separator = request.POST.get("separator", "")
+            if separator in {code for code, _ in SCHEDULE_SEPARATOR_CHOICES}:
+                schedule.separator = separator
+            schedule.show_bsd = request.POST.get("show_bsd") == "1"
+            logo_data = request.POST.get("logo_data", "")
+            if logo_data == "":
+                schedule.logo_data = ""
+            elif (
+                logo_data.startswith("data:image/")
+                and len(logo_data) <= SCHEDULE_LOGO_MAX_CHARS
+            ):
+                schedule.logo_data = logo_data
+            try:
+                raw_segments = json.loads(request.POST.get("segments_json") or "[]")
+            except ValueError:
+                raw_segments = []
+            schedule.segments = clean_schedule_segments(raw_segments)
+            schedule.save()
+
+            action = request.POST.get("action")
+            if action == "save_defaults":
+                caterer = estimate.caterer
+                defaults = dict(caterer.schedule_segment_defaults or {})
+                for segment in schedule.segments:
+                    defaults[segment["label"].lower()] = segment["minutes"]
+                caterer.schedule_segment_defaults = defaults
+                caterer.save(update_fields=["schedule_segment_defaults"])
+                messages.success(request, "Segment times saved as your defaults.")
+            else:
+                messages.success(request, "Event schedule saved.")
+            if action == "save_print":
+                print_url = self._admin_reverse("event_schedule_print", args=[estimate.pk])
+                return redirect(f"{print_url}?print=1")
+            return redirect(self._admin_reverse("event_schedule", args=[estimate.pk]))
+
+        library = schedule_segment_library(estimate.caterer.schedule_segment_defaults)
+        context = {
+            **self.admin_site.each_context(request),
+            "title": f"Event Schedule – {estimate.customer_name}",
+            "estimate": estimate,
+            "schedule": schedule,
+            "schedule_state": {
+                "title": schedule.title,
+                "defaultTitle": EventSchedule(estimate=estimate).display_title,
+                "logoData": schedule.logo_data,
+                "startTime": schedule.start_time.strftime("%H:%M"),
+                "fontStyle": schedule.font_style,
+                "textColor": schedule.text_color,
+                "separator": schedule.separator,
+                "showBsd": schedule.show_bsd,
+                "segments": clean_schedule_segments(schedule.segments),
+                "library": library,
+                "displayChoices": SCHEDULE_DISPLAY_CHOICES,
+            },
+            "font_choices": SCHEDULE_FONT_CHOICES,
+            "separator_choices": SCHEDULE_SEPARATOR_CHOICES,
+            "print_url": self._admin_reverse("event_schedule_print", args=[estimate.pk]),
+            "estimate_url": self._admin_reverse("change", args=[estimate.pk]),
+        }
+        return render(request, "admin/event_schedule_editor.html", context)
+
+    def event_schedule_print(self, request, estimate_id):
+        estimate = self._get_estimate(estimate_id)
+        if not request.user.is_superuser and estimate.caterer.owner != request.user:
+            raise PermissionDenied("You do not have access to this estimate.")
+        schedule = self._get_or_build_event_schedule(estimate)
+        context = {
+            "estimate": estimate,
+            "schedule": schedule,
+            "rows": schedule.rows(),
+            "auto_print": request.GET.get("print") == "1",
+            "editor_url": self._admin_reverse("event_schedule", args=[estimate.pk]),
+        }
+        return render(request, "admin/event_schedule_print.html", context)
 
     def flat_print_button(self, obj):
         url = self._admin_reverse("print_flat", args=[obj.pk])
@@ -3406,6 +3536,7 @@ class EstimateAdmin(admin.ModelAdmin):
         staff_entries_manage_url = ""
         planner_sections = []
         planner_print_url = ""
+        event_schedule_url = ""
         planner_missing_groups = []
         if obj and obj.pk:
             expense_entries = list(
@@ -3422,6 +3553,7 @@ class EstimateAdmin(admin.ModelAdmin):
             planner_sections = self._planner_sections_for_estimate(obj)
             planner_missing_groups = self._planner_missing_groups_for_estimate(obj)
             planner_print_url = self._admin_reverse("planner_print", args=[obj.pk])
+            event_schedule_url = self._admin_reverse("event_schedule", args=[obj.pk])
         context = {
             **self.admin_site.each_context(request),
             "title": title % self.opts.verbose_name,
@@ -3444,6 +3576,7 @@ class EstimateAdmin(admin.ModelAdmin):
             "planner_sections": planner_sections,
             "planner_missing_groups": planner_missing_groups,
             "planner_print_url": planner_print_url,
+            "event_schedule_url": event_schedule_url,
         }
 
         if (
