@@ -2685,6 +2685,20 @@ class EstimateAdmin(admin.ModelAdmin):
             display_price = None
             if base_price is not None:
                 display_price = (base_price * fx_rate).quantize(Decimal("0.01"))
+            # Row total mirrors Estimate.calc_extras_total so the column adds up
+            # to the estimate's extras total.
+            if line.override_price is not None:
+                line_total = line.override_price
+            elif line.extra_item.price is not None:
+                qty = line.quantity or Decimal("1.0")
+                line_total = line.extra_item.price * qty
+                if line.extra_item.charge_type == "PER_PERSON":
+                    line_total *= Decimal(estimate.guest_count or 0)
+            else:
+                line_total = None
+            display_total = None
+            if line_total is not None:
+                display_total = (line_total * fx_rate).quantize(Decimal("0.01"))
             extras_rows.append(
                 {
                     "name": line.extra_item.name,
@@ -2696,6 +2710,7 @@ class EstimateAdmin(admin.ModelAdmin):
                         else ""
                     ),
                     "price": display_price,
+                    "total": display_total,
                     "is_included": display_price in (None, Decimal("0.00")),
                 }
             )
