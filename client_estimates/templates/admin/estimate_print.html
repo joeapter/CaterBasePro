@@ -820,6 +820,7 @@
                         <th>{% translate 'Description' %}</th>
                         <th>{% translate 'Quantity' %}</th>
                         <th>{% translate 'Cost' %}</th>
+                        <th>{% translate 'Total' %}</th>
                         <th>{% translate 'Notes' %}</th>
                     </tr>
                     </thead>
@@ -833,6 +834,13 @@
                                     {% translate 'Included' %}
                                 {% else %}
                                     {{ row.price }} {{ estimate.currency }}{% if row.price_unit_label %} / {{ row.price_unit_label }}{% endif %}
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if row.is_included %}
+                                    {% translate 'Included' %}
+                                {% else %}
+                                    {{ row.total }} {{ estimate.currency }}
                                 {% endif %}
                             </td>
                             <td>{{ row.notes }}</td>
