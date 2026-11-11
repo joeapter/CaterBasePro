@@ -1,0 +1,683 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ title }}</title>
+    {% include "admin/partials/event_schedule_sheet_styles.html" %}
+    <style>
+        :root {
+            --ink: #0f172a;
+            --muted: #64748b;
+            --line: #e2e8f0;
+            --panel: #fff;
+            --accent: #2563eb;
+        }
+        * {
+            box-sizing: border-box;
+        }
+        body {
+            margin: 0;
+            background: #f1f5f9;
+            color: var(--ink);
+            font-family: "Helvetica Neue", Arial, sans-serif;
+            font-size: 14px;
+        }
+        header {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            padding: 14px 20px;
+            background: var(--panel);
+            border-bottom: 1px solid var(--line);
+        }
+        header h1 {
+            margin: 0;
+            font-size: 18px;
+        }
+        header .sub {
+            color: var(--muted);
+            font-size: 13px;
+        }
+        .actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        .btn {
+            font: inherit;
+            padding: 8px 14px;
+            border-radius: 8px;
+            border: 1px solid #cbd5e1;
+            background: #fff;
+            color: var(--ink);
+            cursor: pointer;
+            text-decoration: none;
+            white-space: nowrap;
+        }
+        .btn-primary {
+            background: var(--accent);
+            border-color: var(--accent);
+            color: #fff;
+        }
+        .btn-small {
+            padding: 5px 10px;
+            font-size: 13px;
+        }
+        .messages {
+            margin: 12px 20px 0;
+            padding: 0;
+            list-style: none;
+        }
+        .messages li {
+            padding: 8px 12px;
+            border-radius: 8px;
+            background: #dcfce7;
+            color: #14532d;
+        }
+        .layout {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) minmax(280px, 440px);
+            gap: 20px;
+            padding: 20px;
+            align-items: start;
+        }
+        @media (max-width: 900px) {
+            .layout {
+                grid-template-columns: 1fr;
+            }
+        }
+        .panel {
+            background: var(--panel);
+            border: 1px solid var(--line);
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 16px;
+        }
+        .panel h2 {
+            margin: 0 0 12px;
+            font-size: 15px;
+        }
+        .fields {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+            gap: 12px;
+        }
+        label.field {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            font-size: 12px;
+            color: var(--muted);
+        }
+        input[type="text"],
+        input[type="time"],
+        input[type="number"],
+        select {
+            font: inherit;
+            color: var(--ink);
+            padding: 7px 8px;
+            border: 1px solid #cbd5e1;
+            border-radius: 7px;
+            background: #fff;
+            width: 100%;
+        }
+        input[type="color"] {
+            width: 100%;
+            height: 36px;
+            border: 1px solid #cbd5e1;
+            border-radius: 7px;
+            padding: 2px;
+            background: #fff;
+        }
+        .logo-row {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 10px;
+            margin-top: 12px;
+        }
+        .logo-row img {
+            max-height: 56px;
+            max-width: 140px;
+            border: 1px solid var(--line);
+            border-radius: 6px;
+            padding: 4px;
+            background: #fff;
+        }
+        .help {
+            color: var(--muted);
+            font-size: 12px;
+            margin: 6px 0 0;
+        }
+        .seg-head,
+        .seg-row {
+            display: grid;
+            grid-template-columns: 28px minmax(120px, 1fr) 124px 70px 118px 50px 30px;
+            gap: 6px;
+            align-items: center;
+        }
+        .seg-head {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            color: var(--muted);
+            padding: 0 6px 6px;
+        }
+        .seg-list {
+            list-style: none;
+            margin: 0;
+            padding: 0;
+        }
+        .seg-row {
+            padding: 6px;
+            border: 1px solid var(--line);
+            border-radius: 9px;
+            background: #fff;
+            margin-bottom: 6px;
+        }
+        .seg-row.dragging {
+            opacity: 0.85;
+            border-color: var(--accent);
+            box-shadow: 0 8px 20px rgba(37, 99, 235, 0.2);
+        }
+        .seg-handle {
+            cursor: grab;
+            touch-action: none;
+            user-select: none;
+            color: #94a3b8;
+            font-size: 18px;
+            text-align: center;
+            line-height: 32px;
+        }
+        .seg-dur {
+            text-align: center;
+        }
+        .seg-remove {
+            border: 0;
+            background: none;
+            color: #b91c1c;
+            font-size: 18px;
+            cursor: pointer;
+        }
+        .seg-row input:disabled {
+            background: #f8fafc;
+            color: #94a3b8;
+        }
+        .add-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 10px;
+        }
+        .add-row select {
+            width: auto;
+            min-width: 200px;
+        }
+        @media (max-width: 640px) {
+            .seg-head {
+                display: none;
+            }
+            .seg-row {
+                grid-template-columns: 28px 1fr 1fr 30px;
+            }
+            .seg-row .seg-handle {
+                grid-column: 1;
+                grid-row: 1 / 4;
+            }
+            .seg-row .seg-label {
+                grid-column: 2 / 4;
+                grid-row: 1;
+            }
+            .seg-row .seg-remove {
+                grid-column: 4;
+                grid-row: 1;
+            }
+            .seg-row .seg-time {
+                grid-column: 2;
+                grid-row: 2;
+            }
+            .seg-row .seg-minutes {
+                grid-column: 3;
+                grid-row: 2;
+            }
+            .seg-row .seg-display {
+                grid-column: 2;
+                grid-row: 3;
+            }
+            .seg-row .seg-dur {
+                grid-column: 3;
+                grid-row: 3;
+                justify-self: start;
+            }
+        }
+        .preview-wrap {
+            position: sticky;
+            top: 16px;
+        }
+        .preview-wrap .es-sheet {
+            width: 100%;
+            border: 1px solid var(--line);
+            border-radius: 6px;
+            box-shadow: 0 12px 30px rgba(15, 23, 42, 0.12);
+        }
+    </style>
+</head>
+<body>
+    <form method="post" id="schedule-form">
+        {% csrf_token %}
+        <header>
+            <div>
+                <h1>Event Schedule</h1>
+                <div class="sub">{{ estimate.customer_name }}{% if estimate.event_type %} · {{ estimate.event_type }}{% endif %}{% if estimate.event_date %} · {{ estimate.event_date }}{% endif %}</div>
+            </div>
+            <div class="actions">
+                <a class="btn" href="{{ estimate_url }}">Back to estimate</a>
+                <button class="btn" type="submit" name="action" value="save_defaults" title="Use these segment times as the defaults for future schedules">Save times as my defaults</button>
+                <button class="btn" type="submit" name="action" value="save">Save</button>
+                <button class="btn btn-primary" type="submit" name="action" value="save_print">Save &amp; Print</button>
+            </div>
+        </header>
+
+        {% if messages %}
+            <ul class="messages">
+                {% for message in messages %}<li>{{ message }}</li>{% endfor %}
+            </ul>
+        {% endif %}
+
+        <div class="layout">
+            <div>
+                <section class="panel">
+                    <h2>Header</h2>
+                    <div class="fields">
+                        <label class="field">Title
+                            <input type="text" name="title" id="f-title" maxlength="120" value="{{ schedule.title }}" placeholder="{{ schedule_state.defaultTitle }}">
+                        </label>
+                        <label class="field">Start time
+                            <input type="time" name="start_time" id="f-start" value="{{ schedule_state.startTime }}">
+                        </label>
+                        <label class="field">Font
+                            <select name="font_style" id="f-font">
+                                {% for code, label in font_choices %}
+                                    <option value="{{ code }}"{% if code == schedule.font_style %} selected{% endif %}>{{ label }}</option>
+                                {% endfor %}
+                            </select>
+                        </label>
+                        <label class="field">Separator
+                            <select name="separator" id="f-sep">
+                                {% for code, label in separator_choices %}
+                                    <option value="{{ code }}"{% if code == schedule.separator %} selected{% endif %}>{{ label }}</option>
+                                {% endfor %}
+                            </select>
+                        </label>
+                        <label class="field">Text color
+                            <input type="color" name="text_color" id="f-color" value="{{ schedule.text_color }}">
+                        </label>
+                    </div>
+                    <div class="logo-row">
+                        <img id="logo-thumb" alt="Event logo" hidden>
+                        <label class="btn btn-small">
+                            <span id="logo-btn-label">Upload event logo</span>
+                            <input type="file" id="logo-file" accept="image/*" hidden>
+                        </label>
+                        <button type="button" class="btn btn-small" id="logo-remove" hidden>Remove logo</button>
+                        <label style="display:flex; align-items:center; gap:6px;">
+                            <input type="checkbox" name="show_bsd" value="1" id="f-bsd"{% if schedule.show_bsd %} checked{% endif %}> Show בס"ד
+                        </label>
+                    </div>
+                    <p class="help">No logo? The header just shows the title.</p>
+                    <input type="hidden" name="logo_data" id="f-logo">
+                    <input type="hidden" name="segments_json" id="f-segments">
+                </section>
+
+                <section class="panel">
+                    <h2>Segments</h2>
+                    <div class="seg-head">
+                        <span></span><span>Segment</span><span>Time</span><span>Minutes</span><span>Show</span><span>(min)</span><span></span>
+                    </div>
+                    <ul class="seg-list" id="seg-list"></ul>
+                    <div class="add-row">
+                        <select id="add-select"></select>
+                        <button type="button" class="btn btn-small" id="add-btn">+ Add segment</button>
+                    </div>
+                    <p class="help">Drag ⋮⋮ to reorder. Change a time and everything after it moves with it (the segment before it gets longer or shorter). Change minutes to push everything after it.</p>
+                </section>
+            </div>
+
+            <div class="preview-wrap">
+                <div class="es-sheet" id="preview">
+                    <div class="es-bsd" id="pv-bsd">בס"ד</div>
+                    <div class="es-logo" id="pv-logo"><img alt=""></div>
+                    <h1 class="es-title" id="pv-title"></h1>
+                    <ul class="es-lines" id="pv-lines"></ul>
+                </div>
+            </div>
+        </div>
+    </form>
+
+    {{ schedule_state|json_script:"schedule-state" }}
+    <script>
+    (function () {
+        var state = JSON.parse(document.getElementById("schedule-state").textContent);
+        var segments = state.segments;
+        var logoData = state.logoData || "";
+
+        var form = document.getElementById("schedule-form");
+        var list = document.getElementById("seg-list");
+        var titleInput = document.getElementById("f-title");
+        var startInput = document.getElementById("f-start");
+        var fontInput = document.getElementById("f-font");
+        var sepInput = document.getElementById("f-sep");
+        var colorInput = document.getElementById("f-color");
+        var bsdInput = document.getElementById("f-bsd");
+        var preview = document.getElementById("preview");
+
+        function toMinutes(value) {
+            var parts = (value || "").split(":");
+            if (parts.length < 2) return null;
+            var h = parseInt(parts[0], 10);
+            var m = parseInt(parts[1], 10);
+            if (isNaN(h) || isNaN(m)) return null;
+            return h * 60 + m;
+        }
+        function to24(total) {
+            total = ((total % 1440) + 1440) % 1440;
+            var h = Math.floor(total / 60);
+            var m = total % 60;
+            return (h < 10 ? "0" : "") + h + ":" + (m < 10 ? "0" : "") + m;
+        }
+        function to12(total) {
+            total = ((total % 1440) + 1440) % 1440;
+            var h = Math.floor(total / 60) % 12 || 12;
+            var m = total % 60;
+            return h + ":" + (m < 10 ? "0" : "") + m;
+        }
+        function startTimes() {
+            var current = toMinutes(startInput.value) || 0;
+            return segments.map(function (seg) {
+                var start = current;
+                current += seg.minutes;
+                return start;
+            });
+        }
+
+        // ---- segment list ----
+        function renderList() {
+            var starts = startTimes();
+            list.innerHTML = "";
+            segments.forEach(function (seg, index) {
+                var li = document.createElement("li");
+                li.className = "seg-row";
+                li.dataset.index = index;
+
+                var displayOptions = state.displayChoices.map(function (choice) {
+                    return '<option value="' + choice[0] + '"' + (choice[0] === seg.display ? " selected" : "") + ">" + choice[1] + "</option>";
+                }).join("");
+
+                li.innerHTML =
+                    '<span class="seg-handle" title="Drag to reorder">⋮⋮</span>' +
+                    '<input type="text" class="seg-label" maxlength="120">' +
+                    '<input type="time" class="seg-time" title="Start time">' +
+                    '<input type="number" class="seg-minutes" min="0" max="1440" step="5" title="Minutes">' +
+                    '<select class="seg-display" title="How the time is shown">' + displayOptions + "</select>" +
+                    '<input type="checkbox" class="seg-dur" title="Show (xx min) after the time">' +
+                    '<button type="button" class="seg-remove" title="Remove">&times;</button>';
+
+                li.querySelector(".seg-label").value = seg.label;
+                var timeInput = li.querySelector(".seg-time");
+                timeInput.value = to24(starts[index]);
+                li.querySelector(".seg-minutes").value = seg.minutes;
+                li.querySelector(".seg-dur").checked = !!seg.show_duration;
+
+                li.querySelector(".seg-label").addEventListener("input", function (e) {
+                    seg.label = e.target.value;
+                    renderPreview();
+                });
+                timeInput.addEventListener("change", function (e) {
+                    var wanted = toMinutes(e.target.value);
+                    if (wanted === null) return;
+                    setSegmentStart(index, wanted);
+                });
+                li.querySelector(".seg-minutes").addEventListener("input", function (e) {
+                    seg.minutes = Math.max(0, parseInt(e.target.value, 10) || 0);
+                    refreshTimes();
+                });
+                li.querySelector(".seg-display").addEventListener("change", function (e) {
+                    seg.display = e.target.value;
+                    renderPreview();
+                });
+                li.querySelector(".seg-dur").addEventListener("change", function (e) {
+                    seg.show_duration = e.target.checked;
+                    renderPreview();
+                });
+                li.querySelector(".seg-remove").addEventListener("click", function () {
+                    segments.splice(index, 1);
+                    renderList();
+                });
+                bindDrag(li.querySelector(".seg-handle"), li);
+                list.appendChild(li);
+            });
+            renderPreview();
+        }
+
+        function refreshTimes() {
+            var starts = startTimes();
+            list.querySelectorAll(".seg-row").forEach(function (row, i) {
+                var input = row.querySelector(".seg-time");
+                if (document.activeElement !== input) input.value = to24(starts[i]);
+            });
+            renderPreview();
+        }
+
+        // Moving a segment's time stretches/shrinks the segment before it
+        // (skipping untimed zero-minute rows like "Evening Music"), so every
+        // later segment shifts along with it.
+        function setSegmentStart(index, wanted) {
+            var starts = startTimes();
+            var delta = wanted - starts[index];
+            if (delta > 720) delta -= 1440;
+            if (delta < -720) delta += 1440;
+            var target = -1;
+            for (var j = index - 1; j >= 0; j--) {
+                if (segments[j].minutes > 0 || segments[j].display !== "none") {
+                    target = j;
+                    break;
+                }
+            }
+            if (target === -1) {
+                startInput.value = to24((toMinutes(startInput.value) || 0) + delta);
+            } else {
+                segments[target].minutes = Math.max(0, segments[target].minutes + delta);
+            }
+            renderList();
+        }
+
+        // ---- drag to reorder (pointer events, works with touch) ----
+        function bindDrag(handle, row) {
+            handle.addEventListener("pointerdown", function (e) {
+                e.preventDefault();
+                handle.setPointerCapture(e.pointerId);
+                row.classList.add("dragging");
+
+                function onMove(ev) {
+                    if (ev.clientY < 60) window.scrollBy(0, -12);
+                    else if (ev.clientY > window.innerHeight - 60) window.scrollBy(0, 12);
+                    var others = Array.prototype.filter.call(list.children, function (r) {
+                        return r !== row;
+                    });
+                    var before = null;
+                    for (var i = 0; i < others.length; i++) {
+                        var box = others[i].getBoundingClientRect();
+                        if (ev.clientY < box.top + box.height / 2) {
+                            before = others[i];
+                            break;
+                        }
+                    }
+                    if (before) {
+                        if (row.nextSibling !== before) list.insertBefore(row, before);
+                    } else if (list.lastChild !== row) {
+                        list.appendChild(row);
+                    }
+                }
+                function onEnd() {
+                    handle.removeEventListener("pointermove", onMove);
+                    handle.removeEventListener("pointerup", onEnd);
+                    handle.removeEventListener("pointercancel", onEnd);
+                    row.classList.remove("dragging");
+                    segments = Array.prototype.map.call(list.children, function (r) {
+                        return segments[parseInt(r.dataset.index, 10)];
+                    });
+                    renderList();
+                }
+                handle.addEventListener("pointermove", onMove);
+                handle.addEventListener("pointerup", onEnd);
+                handle.addEventListener("pointercancel", onEnd);
+            });
+        }
+
+        // ---- add segment ----
+        var addSelect = document.getElementById("add-select");
+        addSelect.innerHTML = state.library.map(function (preset, i) {
+            return '<option value="' + i + '">' + preset.label + " (" + preset.minutes + " min)</option>";
+        }).join("") + '<option value="custom">Custom segment…</option>';
+
+        document.getElementById("add-btn").addEventListener("click", function () {
+            var choice = addSelect.value;
+            var seg = choice === "custom"
+                ? { label: "New segment", minutes: 15, display: "time", show_duration: false }
+                : Object.assign({}, state.library[parseInt(choice, 10)]);
+            // Keep "Party Ends" as the last line when it is there.
+            var last = segments[segments.length - 1];
+            if (last && /ends/i.test(last.label)) {
+                segments.splice(segments.length - 1, 0, seg);
+            } else {
+                segments.push(seg);
+            }
+            renderList();
+            if (choice === "custom") {
+                var rows = list.querySelectorAll(".seg-label");
+                var input = rows[segments.indexOf(seg)];
+                if (input) {
+                    input.focus();
+                    input.select();
+                }
+            }
+        });
+
+        // ---- logo ----
+        var logoFile = document.getElementById("logo-file");
+        var logoThumb = document.getElementById("logo-thumb");
+        var logoRemove = document.getElementById("logo-remove");
+        var logoBtnLabel = document.getElementById("logo-btn-label");
+
+        function renderLogoControls() {
+            logoThumb.hidden = !logoData;
+            if (logoData) logoThumb.src = logoData;
+            logoRemove.hidden = !logoData;
+            logoBtnLabel.textContent = logoData ? "Replace logo" : "Upload event logo";
+        }
+        logoFile.addEventListener("change", function () {
+            var file = logoFile.files && logoFile.files[0];
+            if (!file) return;
+            var reader = new FileReader();
+            reader.onload = function () {
+                var img = new Image();
+                img.onload = function () {
+                    // Downscale so the logo stays small enough to store with the schedule.
+                    var maxSide = 800;
+                    var ratio = Math.min(1, maxSide / Math.max(img.width, img.height));
+                    var canvas = document.createElement("canvas");
+                    canvas.width = Math.round(img.width * ratio);
+                    canvas.height = Math.round(img.height * ratio);
+                    var ctx = canvas.getContext("2d");
+                    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                    logoData = canvas.toDataURL("image/png");
+                    if (logoData.length > 1200000) {
+                        // Photos compress badly as PNG; flatten onto white and use JPEG.
+                        ctx.globalCompositeOperation = "destination-over";
+                        ctx.fillStyle = "#fff";
+                        ctx.fillRect(0, 0, canvas.width, canvas.height);
+                        logoData = canvas.toDataURL("image/jpeg", 0.88);
+                    }
+                    renderLogoControls();
+                    renderPreview();
+                };
+                img.onerror = function () {
+                    alert("That file could not be read as an image.");
+                };
+                img.src = reader.result;
+            };
+            reader.readAsDataURL(file);
+            logoFile.value = "";
+        });
+        logoRemove.addEventListener("click", function () {
+            logoData = "";
+            renderLogoControls();
+            renderPreview();
+        });
+
+        // ---- preview ----
+        function renderPreview() {
+            preview.dataset.font = fontInput.value;
+            preview.style.setProperty("--es-color", colorInput.value);
+            document.getElementById("pv-bsd").hidden = !bsdInput.checked;
+            var logoBox = document.getElementById("pv-logo");
+            logoBox.hidden = !logoData;
+            logoBox.querySelector("img").src = logoData || "";
+            document.getElementById("pv-title").textContent = titleInput.value.trim() || state.defaultTitle;
+
+            var starts = startTimes();
+            var lines = document.getElementById("pv-lines");
+            lines.innerHTML = "";
+            segments.forEach(function (seg, i) {
+                if (!seg.label.trim()) return;
+                var li = document.createElement("li");
+                var label = document.createElement("span");
+                label.textContent = seg.label.trim();
+                li.appendChild(label);
+                var timeText = "";
+                if (seg.display === "time") timeText = to12(starts[i]);
+                if (seg.display === "range") timeText = to12(starts[i]) + " - " + to12(starts[i] + seg.minutes);
+                if (timeText) {
+                    if (sepInput.value) {
+                        var sep = document.createElement("span");
+                        sep.className = "es-sep";
+                        sep.textContent = sepInput.value;
+                        li.appendChild(sep);
+                    } else {
+                        li.appendChild(document.createTextNode(" "));
+                    }
+                    li.appendChild(document.createTextNode(timeText));
+                }
+                if (seg.show_duration && seg.minutes) {
+                    var dur = document.createElement("span");
+                    dur.className = "es-dur";
+                    dur.textContent = "(" + seg.minutes + " min)";
+                    li.appendChild(dur);
+                }
+                lines.appendChild(li);
+            });
+            window.fitScheduleSheet(preview);
+        }
+
+        [titleInput, fontInput, sepInput, colorInput, bsdInput].forEach(function (el) {
+            el.addEventListener("input", renderPreview);
+            el.addEventListener("change", renderPreview);
+        });
+        startInput.addEventListener("change", refreshTimes);
+        window.addEventListener("resize", renderPreview);
+        if (document.fonts && document.fonts.ready) document.fonts.ready.then(renderPreview);
+
+        form.addEventListener("submit", function () {
+            document.getElementById("f-segments").value = JSON.stringify(segments);
+            document.getElementById("f-logo").value = logoData;
+        });
+
+        renderLogoControls();
+        renderList();
+    })();
+    </script>
+</body>
+</html>

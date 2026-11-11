@@ -6,6 +6,7 @@
     <div style="margin:10px 0 14px; display:flex; flex-wrap:wrap; gap:8px; align-items:center;">
         <a class="button" href="{{ planner_print_url }}" target="_blank" rel="noopener">Open Planning PDF</a>
         <a class="button" href="{{ planner_print_url }}?print=1" target="_blank" rel="noopener">Print Planning PDF</a>
+        {% if event_schedule_url %}<a class="button" href="{{ event_schedule_url }}" target="_blank" rel="noopener">Event Schedule</a>{% endif %}
     </div>
 
     {% if planner_sections %}
