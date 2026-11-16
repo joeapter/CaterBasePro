@@ -355,6 +355,41 @@ class XpenzApiTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["estimate"]["manual_meal_totals"], {})
 
+    def test_estimate_builder_removed_meal_is_not_resurrected_by_its_dishes(self):
+        token = self._login_and_get_token()
+        menu_item_id = MenuItem.objects.create(
+            caterer=self.estimate.caterer,
+            name="Schnitzel",
+            cost_per_serving=Decimal("10.00"),
+            markup=Decimal("2.00"),
+            menu_type=self.estimate.estimate_type,
+        ).id
+        response = self.client.post(
+            reverse("xpenz_estimate_builder", args=[self.estimate.id]),
+            data=json.dumps(
+                {
+                    "estimate": {"manual_meal_totals": {"Signature Menu": "168.00"}},
+                    "meal_plan": ["Adult Menu", "Kids Menu"],
+                    "menu_choices": [
+                        {"menu_item_id": menu_item_id, "meal_name": "Signature Menu", "included": True},
+                        {"menu_item_id": menu_item_id, "meal_name": "adult menu", "included": True},
+                    ],
+                }
+            ),
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.estimate.refresh_from_db()
+        self.assertEqual(self.estimate.meal_plan, ["Adult Menu", "Kids Menu"])
+        self.assertEqual(self.estimate.manual_meal_totals, {})
+        self.assertEqual(
+            list(self.estimate.food_choices.values_list("meal_name", flat=True)),
+            ["Adult Menu"],
+        )
+        names = [s["name"] for s in response.json()["estimate"]["meal_sections"]]
+        self.assertNotIn("Signature Menu", names)
+
     def test_estimate_builder_saves_per_meal_logistics(self):
         token = self._login_and_get_token()
         self.estimate.meal_plan = ["Friday Night", "Shabbos Day"]

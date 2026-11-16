@@ -2418,7 +2418,18 @@ def xpenz_estimate_builder(request, estimate_id):
                 continue
             meal_name = _normalize_item_text(raw_row.get("meal_name")) or default_meal_name
             if meal_name and meal_name not in meal_plan:
-                meal_plan.append(meal_name)
+                if meal_plan_payload is not None:
+                    # The client sent an explicit meal plan; dishes left under a meal
+                    # that was removed from it must not resurrect that meal.
+                    matched = next(
+                        (name for name in meal_plan if name.lower() == meal_name.lower()),
+                        None,
+                    )
+                    if not matched:
+                        continue
+                    meal_name = matched
+                else:
+                    meal_plan.append(meal_name)
             servings = Estimate._clean_decimal(
                 raw_row.get("servings_per_person"),
                 menu_item.default_servings_per_person,
