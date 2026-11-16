@@ -336,6 +336,25 @@ class XpenzApiTests(TestCase):
         self.assertEqual(payload["estimate"]["manual_meal_totals"]["Friday Night"], "145.50")
         self.assertEqual(payload["estimate"]["meal_guest_overrides"]["Friday Night"]["adults"], 100)
 
+    def test_estimate_builder_drops_prices_for_removed_meals(self):
+        token = self._login_and_get_token()
+        self.estimate.meal_plan = ["Adult Menu", "Kids Menu"]
+        self.estimate.manual_meal_totals = {"Signature Menu": "168.00", "Adult Menu": "185.01"}
+        self.estimate.save()
+        self.estimate.refresh_from_db()
+        self.assertEqual(self.estimate.manual_meal_totals, {"Adult Menu": "185.01"})
+
+        # Legacy rows saved before the cleanup must not surface as phantom meals.
+        type(self.estimate).objects.filter(pk=self.estimate.pk).update(
+            manual_meal_totals={"Signature Menu": "168.00"}
+        )
+        response = self.client.get(
+            reverse("xpenz_estimate_builder", args=[self.estimate.id]),
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["estimate"]["manual_meal_totals"], {})
+
     def test_estimate_builder_saves_per_meal_logistics(self):
         token = self._login_and_get_token()
         self.estimate.meal_plan = ["Friday Night", "Shabbos Day"]

@@ -934,6 +934,21 @@ class Estimate(models.Model):
     def get_meal_plan(self):
         return self._normalize_meal_plan()
 
+    def _prune_stale_manual_meal_totals(self):
+        """
+        Drop manual per-guest prices for meals that are no longer on the meal plan
+        (e.g. a renamed/removed "Signature Menu"), so they don't linger as phantom meals.
+        """
+        totals = self.manual_meal_totals
+        if not isinstance(totals, dict) or not totals:
+            return
+        plan_keys = {name.strip().lower() for name in self.get_meal_plan()}
+        self.manual_meal_totals = {
+            meal: value
+            for meal, value in totals.items()
+            if str(meal or "").strip().lower() in plan_keys
+        }
+
     def meal_guest_counts(self):
         """
         Returns a mapping of meal name -> {"adults": Decimal, "kids": Decimal}
@@ -1184,6 +1199,7 @@ class Estimate(models.Model):
     def save(self, *args, **kwargs):
         if not self.payment_terms and self.caterer_id:
             self.payment_terms = self.caterer.default_payment_terms
+        self._prune_stale_manual_meal_totals()
         self.recalc_totals()
         super().save(*args, **kwargs)
 

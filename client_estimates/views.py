@@ -1859,9 +1859,10 @@ def _serialize_estimate_builder_payload(request, user, estimate, access_map=None
         )
 
     manual_meal_totals = {}
+    meal_plan_keys = {name.strip().lower() for name in meal_plan}
     for raw_meal, raw_value in (estimate.manual_meal_totals or {}).items():
         meal_name = _normalize_item_text(raw_meal)
-        if not meal_name:
+        if not meal_name or meal_name.lower() not in meal_plan_keys:
             continue
         parsed_value = Estimate._clean_decimal(raw_value, None)
         if parsed_value is None:
