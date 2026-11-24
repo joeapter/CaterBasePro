@@ -39,6 +39,7 @@
                                 {% with meal_index=forloop.counter0 %}
                                     {% meal_field form "include_item" item.id meal_index as include_field %}
                                     {% meal_field form "servings_item" item.id meal_index as servings_field %}
+                                    {% meal_field form "notes_item" item.id meal_index as notes_field %}
                                     <td class="meal-cell"
                                         data-meal="{{ meal }}"
                                         data-item-id="{{ item.id }}"
@@ -46,6 +47,7 @@
                                         data-servings-field-id="{{ servings_field.id_for_label }}">
                                         {{ include_field }}
                                         {{ servings_field }}
+                                        {{ notes_field }}
                                     </td>
                                 {% endwith %}
                             {% endfor %}

@@ -137,6 +137,17 @@
             text-align: center;
             min-width: 90px;
         }
+        .menu-matrix .meal-cell .meal-note-input {
+            display: none;
+            width: 100%;
+            max-width: 180px;
+            margin: 4px auto 0;
+            font-size: 12px;
+            padding: 2px 4px;
+        }
+        .menu-matrix .meal-cell:has(input[type="checkbox"]:checked) .meal-note-input {
+            display: block;
+        }
         .meal-column-heads {
             display: flex;
             gap: 8px;

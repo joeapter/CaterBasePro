@@ -1689,6 +1689,16 @@ class EstimateAdminForm(forms.ModelForm):
                         label="Servings per person",
                         widget=forms.HiddenInput(),
                     )
+                    notes_name = f"notes_item_{item.id}_meal_{idx}"
+                    self.fields[notes_name] = forms.CharField(
+                        max_length=255,
+                        required=False,
+                        initial=(existing_choices[existing_key].notes if included_initial else ""),
+                        label="Note",
+                        widget=forms.TextInput(
+                            attrs={"class": "meal-note-input", "placeholder": "Note"}
+                        ),
+                    )
         else:
             self.menu_items = []
 
@@ -2098,15 +2108,26 @@ class EstimateAdmin(admin.ModelAdmin):
 
         menu_items = getattr(form, "menu_items", [])
         selected_entries = []
+        default_meal = meal_names[0]
+        previous_notes = {
+            (ch.menu_item_id, ch.meal_name or default_meal): ch.notes
+            for ch in EstimateFoodChoice.objects.filter(estimate=obj).exclude(notes="")
+        } if obj.pk else {}
+        submitted_notes = {}
 
         # Collect explicit checkbox selections
         for item in menu_items:
             for idx, meal_name in enumerate(meal_names):
                 include_name = f"include_item_{item.id}_meal_{idx}"
                 servings_name = f"servings_item_{item.id}_meal_{idx}"
+                notes_name = f"notes_item_{item.id}_meal_{idx}"
                 if form.cleaned_data.get(include_name):
                     servings = form.cleaned_data.get(servings_name) or item.default_servings_per_person
                     selected_entries.append((item, meal_name, servings))
+                    if notes_name in form.fields:
+                        submitted_notes[(item.id, meal_name)] = (
+                            form.cleaned_data.get(notes_name) or ""
+                        ).strip()
 
         # If a preset (choice) menu was chosen and nothing selected manually,
         # seed the primary meal with all of the preset's options so they show up
@@ -2140,12 +2161,14 @@ class EstimateAdmin(admin.ModelAdmin):
         # Replace existing food choices
         EstimateFoodChoice.objects.filter(estimate=obj).delete()
         for item, meal_name, servings in selected_entries:
+            key = (item.id, meal_name)
             EstimateFoodChoice.objects.create(
                 estimate=obj,
                 menu_item=item,
                 included=True,
                 servings_per_person=servings,
                 meal_name=meal_name,
+                notes=submitted_notes.get(key, previous_notes.get(key, "")),
             )
 
         # Optionally save current selection as a new template
@@ -2162,6 +2185,10 @@ class EstimateAdmin(admin.ModelAdmin):
         # Replace extra items based on wizard selections
         extra_items = getattr(form, "extra_items", [])
         if extra_items:
+            previous_extra_notes = {
+                line.extra_item_id: line.notes
+                for line in EstimateExtraItem.objects.filter(estimate=obj).exclude(notes="")
+            }
             EstimateExtraItem.objects.filter(estimate=obj).delete()
             for extra in extra_items:
                 include_name = f"include_extra_{extra.id}"
@@ -2178,6 +2205,7 @@ class EstimateAdmin(admin.ModelAdmin):
                     extra_item=extra,
                     quantity=quantity,
                     override_price=override_price,
+                    notes=previous_extra_notes.get(extra.id, ""),
                 )
         self._remember_material_choices(
             obj.caterer,

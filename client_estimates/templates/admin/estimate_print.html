@@ -306,6 +306,11 @@
             color: #6b7280;
             line-height: 1.4;
         }
+        .menu-item-note {
+            font-size: 0.85em;
+            font-style: italic;
+            color: #6b7280;
+        }
         .meal-card-foot {
             display: flex;
             justify-content: space-between;
@@ -662,7 +667,7 @@
                                 <ul>
                                     {% for choice in category.choices %}
                                         <li>
-                                            {{ choice.menu_item.name }}
+                                            {{ choice.menu_item.name }}{% if choice.notes %} <span class="menu-item-note">({{ choice.notes }})</span>{% endif %}
                                             {% if choice.menu_item.description %}
                                                 <div class="menu-item-description">
                                                     {{ choice.menu_item.description|linebreaksbr }}
@@ -680,7 +685,7 @@
                                     <ul>
                                         {% for choice in category.choices %}
                                             <li>
-                                                {{ choice.menu_item.name }}
+                                                {{ choice.menu_item.name }}{% if choice.notes %} <span class="menu-item-note">({{ choice.notes }})</span>{% endif %}
                                                 {% if choice.menu_item.description %}
                                                     <div class="menu-item-description">
                                                         {{ choice.menu_item.description|linebreaksbr }}
